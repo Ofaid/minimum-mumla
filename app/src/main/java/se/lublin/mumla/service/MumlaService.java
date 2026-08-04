@@ -65,6 +65,7 @@ import se.lublin.mumla.util.HtmlUtils;
 import se.lublin.mumla.radio.RadioPttKeyManager;
 import se.lublin.mumla.radio.RadioReceiveTracker;
 import se.lublin.mumla.radio.RadioDeviceProfile;
+import se.lublin.mumla.radio.RadioKeyDiagnostics;
 import se.lublin.mumla.radio.RadioProcessWatchdog;
 import se.lublin.mumla.radio.RadioShellActivity;
 
@@ -807,6 +808,7 @@ public class MumlaService extends HumlaService implements
             @Override
             public boolean onMediaButtonEvent(Intent mediaButtonIntent) {
                 KeyEvent keyEvent = mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
+                RadioKeyDiagnostics.record(MumlaService.this, "media-session", keyEvent);
                 if (keyEvent == null || !isConfiguredMediaPttKey(keyEvent.getKeyCode())) {
                     return super.onMediaButtonEvent(mediaButtonIntent);
                 }

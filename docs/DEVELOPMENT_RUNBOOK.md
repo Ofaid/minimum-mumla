@@ -59,6 +59,18 @@ original settings, and never presses PTT:
 The full fault matrix and the distinction between local audio handoff and server receipt are in
 `docs/RECONNECT_TEST_PLAN.md`.
 
+T99/T88 builds keep a bounded app-private hardware trace. It contains key metadata only and can be
+read without exposing radio config or tokens:
+
+```powershell
+& adb -P 5041 -s 12344321 shell run-as se.lublin.mumla `
+    cat files/radio-diagnostics/key-events.log
+```
+
+T99's verified PTT is F1/scan 59; F2 is physical EXIT and must never be configured as T99 PTT.
+Clear the trace only when beginning a deliberate commissioning capture. Do not commit raw device
+logs; copy only the sanitized mapping into the device profile.
+
 For process-death acceptance, first confirm Ready and record the exact PID. Kill only that process
 through the debuggable app UID; never use force-stop or clear app data:
 

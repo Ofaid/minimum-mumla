@@ -21,4 +21,22 @@ public class RadioPttKeyManagerTest {
         assertTrue(RadioPttKeyManager.isRadioProfile(RadioDeviceProfile.T88));
         assertFalse(RadioPttKeyManager.isRadioProfile(RadioDeviceProfile.GENERIC));
     }
+
+    @Test
+    public void t99UsesCapturedF1PttAndRejectsPhysicalExitF2() {
+        assertTrue(RadioPttKeyManager.isProfileDefaultPttKey(
+                RadioDeviceProfile.T99, KeyEvent.KEYCODE_F1));
+        assertFalse(RadioPttKeyManager.isProfileDefaultPttKey(
+                RadioDeviceProfile.T99, KeyEvent.KEYCODE_F2));
+        assertTrue(RadioPttKeyManager.isProfileDefaultPttKey(
+                RadioDeviceProfile.T99, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE));
+    }
+
+    @Test
+    public void t88KeepsBothFunctionKeysUntilPhysicalCapture() {
+        assertTrue(RadioPttKeyManager.isProfileDefaultPttKey(
+                RadioDeviceProfile.T88, KeyEvent.KEYCODE_F1));
+        assertTrue(RadioPttKeyManager.isProfileDefaultPttKey(
+                RadioDeviceProfile.T88, KeyEvent.KEYCODE_F2));
+    }
 }

@@ -153,13 +153,18 @@ retrying if a background launch is blocked, while generic Android profiles do no
 namespace. Actual keycode/scancode mappings remain data-driven because cheap radio firmware often
 exposes the same physical button through different Linux input devices.
 
-Known T99 input sources and pending mappings are in `docs/T99_DEVICE_PROFILE.md`. T88 starts from
+Verified T99 input sources and mappings are in `docs/T99_DEVICE_PROFILE.md`. T88 starts from
 `docs/T88_DEVICE_PROFILE.md` and must be filled from the real device.
 
-`RadioPttKeyManager` applies radio defaults at process startup. It maps alternative keys to the same
-service-owned PTT path. F1/F2 are foreground `gpio-keys` candidates; media/headset keys are the
-screen-off-capable public Android path. The app must not claim screen-off F1/F2 support until a real
-device trace proves that the OEM routes those events to the service.
+`RadioPttKeyManager` applies radio defaults at process startup and maps verified alternatives to the
+same service-owned PTT path. T99 capture proves F1 is the labelled PTT and F2 is EXIT, so T99 always
+resets its push preference to F1 and rejects F2 before consulting stale settings. T88 keeps both
+function keys only until its real hardware trace arrives. Media/headset keys remain the public
+MediaSession alternate path.
+
+`RadioKeyDiagnostics` stores a bounded 32 KiB app-private trace for whitelisted radio hardware keys.
+It records DOWN, the first repeat and UP with keyCode, scanCode, deviceId, source and device name;
+it never records text, configuration, credentials or audio.
 
 ## Standard build versus radio build
 

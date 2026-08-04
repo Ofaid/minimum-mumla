@@ -99,6 +99,14 @@ This short log records meaningful project milestones. Detailed code truth remain
   (10-second heartbeat, 30-second expiry) that retries RadioShell startup independently of the dead
   process. The final physical SIGKILL test produced a new PID in 23.9 seconds and Ready in 30.9
   seconds without force-stop, manual post-kill launch, config mutation or PTT.
+- Captured all ten physical T99 buttons at the Linux input layer and classified them with the
+  installed Android keylayout. Crucially, labelled PTT is gpio-keys F1 while labelled EXIT is F2;
+  the prior provisional F1/F2 PTT default could therefore turn EXIT into a short TX.
+- Captured the real PTT at Android level as keyCode 131, scanCode 59, deviceId 4, source 0x101,
+  `gpio-keys`, including repeat and UP. T99 now forces F1, rejects F2 before stale settings, routes
+  MENU/EXIT/green/red according to their physically captured events, and keeps media keys only as
+  alternate PTT inputs. Added a bounded app-private hardware-key diagnostic log with no text,
+  config, token or audio content.
 
 ## Prior milestones
 

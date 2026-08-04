@@ -47,10 +47,10 @@ GitHub Pages, DNS, or the network is unavailable.
 
 ## D-009: Radio PTT defaults are automatic, but screen-off capability is evidence-based
 
-Supported radio profiles initialize PTT mode and their known alternative keys at application startup.
-F1/F2 use the normal key path when the Activity is focused, while media/headset keys use MediaSession
-for the public screen-off path. F1/F2 are not advertised as screen-off capable until a real device
-trace or an OEM/privileged bridge proves that the events reach the service.
+Supported radio profiles initialize PTT mode and known alternatives at application startup. Live T99
+capture overrides the earlier generic assumption: F1 is PTT and F2 is EXIT. T99 therefore forces F1
+and rejects F2 regardless of stale preferences. Media/headset keys use MediaSession as alternates;
+T88 remains provisional until its own trace exists.
 
 ## D-010: Validated external config authorizes automatic server-certificate trust
 

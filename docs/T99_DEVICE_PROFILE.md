@@ -43,17 +43,33 @@ Windows เห็น USB interface หลายตัวเป็นอุปก
 
 ## PTT implications
 
-T99 มีทางเดิน input มากกว่าหนึ่งแบบ:
+Physical capture on 2026-08-05 proves that the labelled PTT button is raw `gpio-keys` F1, not F2
+and not the Button Jack media path. Android delivered `KEYCODE_F1` (131), scanCode 59,
+deviceId 4, source `0x00000101`, device `gpio-keys`, with normal DOWN/repeat/UP events. Minimum starts
+TX only on repeat 0 and releases on UP. MediaSession keys remain safe alternate PTT inputs.
 
-1. media-style input (`KEY_MEDIA`) อาจเข้าผ่าน Android `MediaSession`
-2. F1/F2 และ raw GPIO อาจเข้าผ่าน Activity, vendor broadcast หรือ privileged/OEM path
-3. Foreground Service ไม่ได้รับ arbitrary `KeyEvent` ทุกชนิดโดยอัตโนมัติ
+Physical EXIT is F2, so T99 explicitly rejects F2 as PTT even if a stale preference requests it.
+The T99 application defaults overwrite the managed push key with F1 at every process startup.
 
-Minimum มี MediaSession bridge สำหรับ media-style PTT และ TX watchdog 120 วินาทีใน
-`MumlaService` แล้ว ผู้ใช้ได้ยืนยันว่า physical PTT ทำงานขณะจอดับ และ live `dumpsys
-media_session` แสดง `MumlaService.PttMediaSession active=true` จึงถือว่า T99 ผ่าน screen-off PTT
-ในระดับการใช้งานแล้ว อย่างไรก็ตามยังไม่ได้จับ keyCode/scanCode ของ press ที่สำเร็จ จึงยังไม่ระบุ
-ว่า control นั้นเข้ามาเป็น Button Jack `KEY_MEDIA` หรือ raw GPIO F1/F2
+## Verified ten-button map
+
+| Physical label | Linux input | Android event | Input device | Minimum behavior |
+|---|---|---|---|---|
+| Power | `KEY_POWER` | `KEYCODE_POWER` / scan 116 | `qpnp_pon` | Android screen power |
+| PTT | `KEY_F1` | `KEYCODE_F1` 131 / scan 59 | `gpio-keys` | PTT hold; F1 only on T99 |
+| Volume + | `KEY_VOLUMEUP` | `KEYCODE_VOLUME_UP` 24 / scan 115 | `gpio-keys` | Android volume |
+| Volume - | `KEY_VOLUMEDOWN` | `KEYCODE_VOLUME_DOWN` 25 / scan 114 | `qpnp_pon` | Android volume |
+| MENU | `KEY_SELECT` | `KEYCODE_DPAD_CENTER` 23 / scan 353 | `matrix_keypad.71` | Open recovery dashboard from RadioShell |
+| EXIT | `KEY_F2` | `KEYCODE_F2` 132 / scan 60 | `gpio-keys` | Open recovery dashboard; never PTT |
+| Up | `KEY_UP` | `KEYCODE_DPAD_UP` 19 / scan 103 | `matrix_keypad.71` | Previous room/page |
+| Down | `KEY_DOWN` | `KEYCODE_DPAD_DOWN` 20 / scan 108 | `matrix_keypad.71` | Next room/page |
+| Green | `KEY_MENU` | `KEYCODE_MENU` 82 / scan 139 | `matrix_keypad.71` | Confirm/join selected room |
+| Red | `KEY_BACK` | `KEYCODE_BACK` 4 / scan 158 | `matrix_keypad.71` | Back to recovery dashboard |
+
+Activity diagnostics physically confirmed PTT, volume, direction and MENU metadata. EXIT/green/red
+behavior was additionally verified with the captured kernel event, installed Android keylayout and
+non-PTT ADB key injection. The app-private bounded trace is
+`files/radio-diagnostics/key-events.log`; it records no text, config, token or audio data.
 
 ## Software found on T99
 
@@ -72,10 +88,10 @@ media_session` แสดง `MumlaService.PttMediaSession active=true` จึง
 - Physical reboot verification passed: no `ResolverActivity`, dashboard focused after boot, and the
   Launcher3 fallback visibly contains both Minimum and Settings.
 - The dashboard supports non-touch operation: DPAD up/left and down/right change pages; DPAD center,
-  Enter, Button Select (`KEY_SELECT`) and Call activate the visible page. F1/F2 remain reserved for
-  PTT and are intentionally not dashboard activation keys.
+  Enter, Button Select (`KEY_SELECT`) and Call activate the visible page. On T99, F1 is PTT and F2
+  is the labelled EXIT key; F2 is never accepted as PTT.
 
 - โปรเจคมี path build-safe `D:\mumla-dev` ซึ่งเป็น junction ไปยัง `D:\VR Android App\mumla` เดียวกัน
 - Full FOSS debug build และติดตั้ง APK บน T99 สำเร็จแล้ว
-- การทดสอบต่อไปต้องบันทึก `keyCode`, `scanCode`, action, repeat count, source device และ vendor broadcast action (ถ้ามี)
-- หากต้องใช้ F1/F2 ตอนจอดับโดยไม่ผ่าน public Android API อาจต้องใช้ vendor permission/service หรือ firmware integration; อย่าแก้ด้วยการดัก event แบบกว้างที่ทำให้ปุ่มระบบเสีย
+- T99 `keyCode`, `scanCode`, action, repeat count and source-device capture is complete. Repeat the
+  same capture for T88 rather than copying the T99 mapping.

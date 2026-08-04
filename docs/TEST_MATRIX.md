@@ -8,17 +8,16 @@
 | T99 Device ID format/persistence | PASS | `DeviceIdentityManagerTest`; startup integration added |
 | Automatic certificate generation | IMPLEMENTED | Must rerun only on a disposable fresh app-data test |
 | Media-style PTT foreground | IMPLEMENTED | Service MediaSession path |
-| T99 F1/F2 foreground PTT | IMPLEMENTED | Automatic profile mapping; F1 observed, F2 still needs live press |
-| T99 physical screen-off PTT | PASS (operator observed) | Minimum PttMediaSession is active; exact keyCode/source was not captured |
-| T99 F1/F2 screen-off event identity | NOT CLASSIFIED | Capture whether the successful physical control arrives as KEY_MEDIA or raw gpio-keys F1/F2 |
-| T99 raw GPIO screen-off PTT | NOT PROVEN | OEM/input integration may be required |
-| Media/headset screen-off PTT | PASS/LIKELY PATH | Implemented MediaSession path plus successful physical test; capture exact event identity |
+| T99 physical PTT identity | PASS | Physical button is gpio-keys `KEYCODE_F1` 131, scan 59, deviceId 4, source 0x101; F2 is EXIT |
+| T99 physical screen-off PTT | PASS (operator observed) | F1 path works with screen off; exact foreground Android metadata and release captured subsequently |
+| T99 F2 EXIT isolation | PASS IN CODE/BEHAVIOR | T99 forcibly defaults to F1, rejects F2 as PTT and routes F2 to recovery dashboard |
+| Media/headset screen-off PTT | IMPLEMENTED ALTERNATE | MediaSession remains active for headset/media PTT alternatives; not the labelled T99 PTT button |
 | PTT watchdog | IMPLEMENTED | 120-second service safety path; add long manual test |
 | Disconnect releases TX | IMPLEMENTED | Service lifecycle path; add manual screen-off test |
 | Boot receiver registration | PASS | Manifest and receiver present |
 | T99 simulated boot launch | PASS | Activity appeared after valid simulated broadcast |
 | T99 radio dashboard pages | PASS | Installed APK: Minimum -> Settings swipe path |
-| T99 dashboard physical navigation | IMPLEMENTED | DPAD up/down page change; Select/Enter/Call activate; verify live green key |
+| T99 ten-button map | PASS | Kernel capture plus Android metadata/keylayout: Power, F1 PTT, volumes, MENU/EXIT, up/down, green/red documented |
 | T99 system HOME chooser | PASS | Launcher3 opens directly; ResolverActivity absent |
 | T99 Launcher3 recovery shortcut | PASS | Minimum and Settings icons visible after provisioning |
 | T99 reboot radio client | PASS | Real reboot resumes `RadioShellActivity`, auto-connects and rejoins the exact configured room; no chooser |

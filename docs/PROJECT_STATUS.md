@@ -23,9 +23,10 @@ document disagrees with this file, verify the code and update this file first.
 - Imported the Mumla/Humla source and preserved the existing Mumble, TLS, Opus, audio and
   foreground-service core.
 - Captured and documented T99 identity, USB, display, audio and input data.
-- Added T99/T88/generic device profile detection and a central multi-key PTT manager. T99/T88 radio
-  defaults enable PTT automatically and recognize F1/F2 plus media/headset keys; F1 has been live
-  observed on T99 and F2 remains a required live verification.
+- Added T99/T88/generic device profile detection and a central multi-key PTT manager. T99 physical
+  capture proves PTT is `gpio-keys` F1 and EXIT is F2, so T99 now accepts only F1 plus media/headset
+  alternates and forcibly resets its managed push-key preference to F1. T88 temporarily retains
+  F1/F2 plus media defaults until the real device is captured.
 - Added the six-character persistent public Device ID and unit tests. It is now created at app
   process startup by `MumlaApplication`.
 - Added MediaSession handling for Android public media-style PTT keys.
@@ -76,7 +77,8 @@ document disagrees with this file, verify the code and update this file first.
   client certificate, connects/reconnects automatically, authenticates with resolved public room
   tokens, resolves the default room by its exact full path, joins it, and displays offline,
   connecting, ready, RX, TX and access-denied states. Direction keys select configured rooms;
-  green/Enter confirms and red/End returns to the default room.
+  physical green (`KEY_MENU`) confirms, while MENU (`DPAD_CENTER`), EXIT (F2) and red (Back) open
+  the recovery dashboard.
 - Added config-authorized automatic trust for managed/self-signed Mumble servers. Normal Android
   trust is attempted first; on failure, `autoTrustServerCertificate` defaults to true, stores the
   presented leaf certificate app-privately and retries without a dialog. An optional SHA-256 pin is
@@ -101,11 +103,10 @@ document disagrees with this file, verify the code and update this file first.
 
 ## Known limitations / not falsely marked complete
 
-- Physical PTT while the T99 display is off has now passed an operator test. The live device also
-  shows Minimum's `PttMediaSession` active, so the supported explanation is the Minimum
-  MediaSession/service code path rather than a provisioning setting. The exact keyCode/source was
-  not captured during that successful press, so raw GPIO F1/F2 screen-off support remains
-  unclassified rather than claimed.
+- Physical PTT while the T99 display is off has passed an operator test. A subsequent physical trace
+  classified the labelled control as `KEYCODE_F1` 131 / scan 59 / deviceId 4 / source `0x101` /
+  `gpio-keys`; repeat DOWN events occur while held and a normal UP releases TX. F2 is physically
+  EXIT and is explicitly excluded from T99 PTT.
 - T88 has no runtime capture yet. Do not add T88 keycodes or USB values until the real device is
   connected and inspected.
 - Multiple configured room presets and physical room switching are implemented but have only been
@@ -138,12 +139,11 @@ document disagrees with this file, verify the code and update this file first.
 
 1. Execute the supervised server-restart, long-outage, reconnect visual, wake-screen, half-duplex
    and PTT-failure portions of `RECONNECT_TEST_PLAN.md`.
-2. Capture the successful T99 screen-off PTT event's keyCode, scanCode and input device to determine
-   whether the physical control arrives as Button Jack `KEY_MEDIA` or raw GPIO F1/F2.
-3. Connect T88, capture its hardware profile and repeat provisioning, boot, room and PTT tests.
-4. Exercise two or more room presets, denied-room fallback and safe room switching during traffic.
-5. Run physical failed-candidate rollback acceptance, then add config signatures.
-6. Add hidden key/config/audio diagnostics, then decide the dedicated radio flavor/application ID.
+2. Connect T88, capture its hardware profile and repeat provisioning, boot, room and PTT tests.
+3. Exercise two or more room presets, denied-room fallback and safe room switching during traffic.
+4. Run physical failed-candidate rollback acceptance, then add config signatures.
+5. Extend the new private key diagnostics with config/audio health, then decide the dedicated radio
+   flavor/application ID.
 
 The detailed Technical Brief comparison and implementation order are maintained in
 `docs/TECHNICAL_BRIEF_GAP_ANALYSIS.md`. The bounded Sol/Luna delegation contract is in
@@ -154,7 +154,7 @@ The detailed Technical Brief comparison and implementation order are maintained 
 - Never commit the Mumble access token, GitHub credentials, private keys or device-specific secrets.
 - Do not attempt to rewrite the T99 USB/ADB serial from an unprivileged script; use ADB
   `transport_id` to disambiguate identical units and use Minimum Device ID for app identity.
-- Keep the successful T99 screen-off PTT acceptance result, but do not label its OEM key path as
-  F1/F2 or KEY_MEDIA until an actual trace identifies it.
+- Keep T99 F2 permanently reserved for physical EXIT; do not copy the T99 F1 mapping to T88 without
+  a real T88 trace.
 - Keep the normal Mumla build working while the radio interface is developed.
 - Do not merge PR #1 without explicit user approval.

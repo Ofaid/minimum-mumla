@@ -25,12 +25,12 @@ active radio config
 ```
 
 The remaining MVP risk is hardware and lifecycle acceptance rather than basic connection wiring:
-exact screen-off OEM key-path classification, T88 evidence, multi-room traffic tests, network-loss/recovery evidence and
+T88 evidence, multi-room traffic tests, extended lifecycle/audio evidence and
 release hardening.
 
-T99 physical screen-off PTT has passed an operator test through Minimum's active service/MediaSession
-design. The exact event identity remains unclassified until a trace distinguishes KEY_MEDIA from
-raw GPIO F1/F2.
+T99 physical screen-off PTT has passed an operator test. Physical capture now identifies the
+labelled PTT as raw gpio-keys `KEYCODE_F1` 131 / scan 59 / source 0x101 and identifies F2 as EXIT;
+T99 rejects F2 as PTT. MediaSession remains an alternate headset/media path.
 
 ## Phase-by-phase status
 
@@ -41,7 +41,7 @@ raw GPIO F1/F2.
 | 2 — Device Identity | Mostly complete | Six-character `SecureRandom` identity, persistence, validation and tests | Add protected admin UI/gesture for regeneration and acceptance tests across update/reboot/clear-data |
 | 3 — Remote Configuration | Mostly complete | Embedded fallback, HTTPS fetch, default/model/device merge, limits, validation, active/previous/pending cache, downgrade rejection, six-hour plus network-return refresh, service-owned RX/TX idle candidate trial, commit after room join, explicit rollback and JVM tests | Config signature verification and physical success/failure candidate acceptance |
 | 4 — Rooms and Tokens | Mostly complete | Resolved public tokens feed existing Humla authentication without DB/log persistence; typed presets, exact full-path lookup, default join and direction/select/default navigation; live nested-room T99 test passed | Multi-room live test, idle reconnect on token change and permission-denied/default-room fallback evidence |
-| 5 — Hardware PTT | Partial | T99/T88/generic profiles, multi-key defaults, Activity/MediaSession paths, local packet-handoff warning, screen wake, TX timer, key-up/disconnect/service-destroy release and 120 s watchdog | Hardware diagnostics, scancode/source capture UI, key bounce tests, F2 live test, foreground/background/screen-off matrix and OEM/vendor path if required |
+| 5 — Hardware PTT | T99 core pass / T88 open | T99 ten-button kernel map, F1 Android metadata, F2 EXIT isolation, private bounded diagnostics, Activity/MediaSession paths, local warning, screen wake, TX timer, release paths and 120 s watchdog | T88 capture, long-hold/bounce test, complete foreground/background/screen-off matrix and OEM/vendor path only if T88 requires it |
 | 6 — Hardening | Mostly implemented, acceptance incomplete | Automatic certificate/boot, indefinite capped reconnect, guarded T99 network-loss PASS, process watchdog SIGKILL PASS, automatic preprocessor/half-duplex/TTS, teardown unmute, config rollback/downgrade and managed self-signed trust with optional pin | Long-outage/server/audio/wake evidence, battery optimization, bundled voice prompts, protected-token store, config signatures and sanitized diagnostics/security review |
 | 7 — Release | Early | Public GitHub repo, draft PR, GPLv3 source base, architecture/runbook/hardware docs, Pages deployment workflow | Android CI, signed APK, release notes, known-limitations report, instrumentation tests, device video and LTE/Wi-Fi/screen-off/reconnect report |
 
@@ -52,9 +52,8 @@ raw GPIO F1/F2.
   policy tests exist. Signature verification and physical candidate success/failure evidence remain.
 - Rooms/tokens: integrated end to end and passed with one nested live room; multiple presets and
   denied-room behavior remain unproven.
-- PTT: core service safety exists; T99 physical screen-off PTT passed an operator test and the live
-  Minimum MediaSession is active. The successful event still needs keyCode/scanCode capture before
-  classifying it as KEY_MEDIA versus raw GPIO F1/F2.
+- PTT: T99 physical screen-off PTT passed; the labelled button is captured as F1/scan 59/gpio-keys,
+  F2 is EXIT and private key diagnostics are installed. Long-hold/bounce and T88 remain open.
 - Audio: no maintained LTE/Wi-Fi/Bluetooth/manual test report yet.
 - Lifecycle: actual T99 reboot-to-ready-room, short display-off persistence, 30-second network loss
   and process-death watchdog recovery are verified; long outage and newer Android boot restrictions
@@ -64,9 +63,8 @@ raw GPIO F1/F2.
 
 1. Continue `RECONNECT_TEST_PLAN.md` with server restart, long outage, reconnect visual, wake,
    half-duplex and supervised PTT-failure evidence; network and process-death cases already pass.
-2. Capture the already-successful T99 screen-off control's keyCode, scanCode and input device; only
-   add an OEM/privileged bridge if the proven path is raw GPIO and public delivery is unreliable.
-3. Capture the incoming T88 hardware profile and repeat provisioning, boot, room and PTT tests.
+2. Capture the incoming T88 hardware profile and repeat provisioning, boot, room and PTT tests; do
+   not copy T99 F1/F2 assumptions.
 4. Exercise multiple room presets, denied-room fallback and watchdog release with an operator present.
 5. Complete pending-config physical acceptance, then add signed config and hidden diagnostics.
 6. Complete the hardware/lifecycle/security acceptance matrix, then introduce the dedicated application

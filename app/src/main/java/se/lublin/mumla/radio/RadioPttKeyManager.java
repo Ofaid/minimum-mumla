@@ -34,7 +34,8 @@ public final class RadioPttKeyManager {
                 .putBoolean(Settings.PREF_HALF_DUPLEX, true)
                 .putBoolean(Settings.PREF_USE_TTS, true)
                 .putBoolean(Settings.PREF_PTT_SOUND, true);
-        if (!preferences.contains(Settings.PREF_PUSH_KEY)) {
+        if (RadioDeviceProfile.T99.equals(profile)
+                || !preferences.contains(Settings.PREF_PUSH_KEY)) {
             editor.putInt(Settings.PREF_PUSH_KEY, KeyEvent.KEYCODE_F1);
         }
         editor.apply();
@@ -42,16 +43,28 @@ public final class RadioPttKeyManager {
 
     /** Returns true for the primary configured key and supported radio profile defaults. */
     public static boolean isConfiguredPttKey(int keyCode, Settings settings) {
+        String profile = RadioDeviceProfile.detectCurrent();
+        if (RadioDeviceProfile.T99.equals(profile)) {
+            // Physical capture proves F2 is the labelled EXIT key on T99. Never allow a stale
+            // preference to turn EXIT into PTT.
+            return isProfileDefaultPttKey(profile, keyCode);
+        }
         if (settings != null && keyCode == settings.getPushToTalkKey()) {
             return true;
         }
-        String profile = RadioDeviceProfile.detectCurrent();
-        if (!isRadioProfile(profile)) {
-            return false;
+        return isProfileDefaultPttKey(profile, keyCode);
+    }
+
+    public static boolean isProfileDefaultPttKey(String profile, int keyCode) {
+        if (RadioDeviceProfile.T99.equals(profile)) {
+            return keyCode == KeyEvent.KEYCODE_F1 || isMediaStyleKey(keyCode);
         }
-        return keyCode == KeyEvent.KEYCODE_F1
-                || keyCode == KeyEvent.KEYCODE_F2
-                || isMediaStyleKey(keyCode);
+        if (RadioDeviceProfile.T88.equals(profile)) {
+            return keyCode == KeyEvent.KEYCODE_F1
+                    || keyCode == KeyEvent.KEYCODE_F2
+                    || isMediaStyleKey(keyCode);
+        }
+        return false;
     }
 
     public static boolean isMediaStyleKey(int keyCode) {
@@ -66,5 +79,19 @@ public final class RadioPttKeyManager {
 
     public static boolean isRadioProfile(String profile) {
         return RadioDeviceProfile.T99.equals(profile) || RadioDeviceProfile.T88.equals(profile);
+    }
+
+    public static boolean isDiagnosticHardwareKey(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_POWER
+                || keyCode == KeyEvent.KEYCODE_F1
+                || keyCode == KeyEvent.KEYCODE_F2
+                || keyCode == KeyEvent.KEYCODE_VOLUME_UP
+                || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+                || keyCode == KeyEvent.KEYCODE_MENU
+                || keyCode == KeyEvent.KEYCODE_BACK
+                || keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+                || keyCode == KeyEvent.KEYCODE_DPAD_UP
+                || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+                || isMediaStyleKey(keyCode);
     }
 }

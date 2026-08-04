@@ -323,11 +323,23 @@ public final class RadioShellActivity extends AppCompatActivity {
     }
 
     @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        RadioKeyDiagnostics.record(this, "activity", event);
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (RadioPttKeyManager.isConfiguredPttKey(keyCode, settings)
                 && !RadioPttKeyManager.isMediaStyleKey(keyCode)) {
             if (event.getRepeatCount() == 0 && service != null) {
                 service.onTalkKeyDown();
+            }
+            return true;
+        }
+        if (isT99PhysicalExitKey(keyCode) || isT99PhysicalMenuKey(keyCode)) {
+            if (event.getRepeatCount() == 0) {
+                onBackPressed();
             }
             return true;
         }
@@ -921,6 +933,9 @@ public final class RadioShellActivity extends AppCompatActivity {
     }
 
     private boolean isConfirmKey(int keyCode) {
+        if (RadioDeviceProfile.T99.equals(RadioDeviceProfile.detectCurrent())) {
+            return keyCode == KeyEvent.KEYCODE_MENU;
+        }
         return keyCode == KeyEvent.KEYCODE_DPAD_CENTER
                 || keyCode == KeyEvent.KEYCODE_ENTER
                 || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
@@ -934,7 +949,19 @@ public final class RadioShellActivity extends AppCompatActivity {
                 || keyCode == KeyEvent.KEYCODE_DPAD_LEFT
                 || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
                 || keyCode == KeyEvent.KEYCODE_ENDCALL
+                || isT99PhysicalExitKey(keyCode)
+                || isT99PhysicalMenuKey(keyCode)
                 || isConfirmKey(keyCode);
+    }
+
+    private boolean isT99PhysicalExitKey(int keyCode) {
+        return RadioDeviceProfile.T99.equals(RadioDeviceProfile.detectCurrent())
+                && keyCode == KeyEvent.KEYCODE_F2;
+    }
+
+    private boolean isT99PhysicalMenuKey(int keyCode) {
+        return RadioDeviceProfile.T99.equals(RadioDeviceProfile.detectCurrent())
+                && keyCode == KeyEvent.KEYCODE_DPAD_CENTER;
     }
 
     private int dp(int value) {
