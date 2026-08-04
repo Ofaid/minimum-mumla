@@ -24,10 +24,18 @@ RadioConfigRepository
   ├─ schema and safety validation
   └─ active/previous private cache
 
-MinimumHomeActivity (recoverable small-device home)
+MinimumHomeActivity (radio dashboard, not Android HOME)
   ├── one large Minimum icon per page
-  ├── swipe: Minimum -> Settings -> System Home
+  ├── swipe: Minimum -> Settings
   └── tap: open the selected recovery/action target
+
+RadioLauncherShortcutInstaller
+  ├── requests a legacy Minimum shortcut in Launcher3
+  └── runs at app startup and through the provisioning receiver
+
+MumlaBootReceiver
+  ├── T99/T88 -> MinimumHomeActivity
+  └── generic Android -> MumlaActivity
 
 RadioShellActivity (future radio entry point)
   ├─ Device ID/profile display
@@ -83,7 +91,9 @@ device trace proves that the OEM routes those events to the service.
 ## Standard build versus radio build
 
 The current branch keeps one standard Mumla application and adds radio code under the normal source
-set. `MinimumHomeActivity` is an optional, recoverable HOME surface for small devices; it does not
-replace Launcher3 silently. Provisioning opens it after preparation, and its System Home page gives
-an explicit route back to the OEM launcher. Do not fork the protocol/audio core or duplicate PTT
-safety logic.
+set. T99's OEM resolver excludes the data-installed Minimum activity from its usable HOME choices,
+so registering Minimum as HOME causes an unacceptable chooser. The radio dashboard is therefore an
+explicit boot/provisioning activity, not an Android HOME handler. Launcher3 remains the system HOME
+and receives a Minimum recovery shortcut. Provisioning verifies that system HOME opens without
+ResolverActivity before returning to the dashboard. Do not fork the protocol/audio core or
+duplicate PTT safety logic.

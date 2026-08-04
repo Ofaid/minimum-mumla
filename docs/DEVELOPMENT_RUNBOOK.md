@@ -70,12 +70,15 @@ show the same ADB serial, use `adb devices -l` and select the unique `transport_
 .\scripts\prepare-t99.ps1 -TransportId 1
 ```
 
-Preparation opens `MinimumHomeActivity` after the Device ID check. It provides three swipe pages:
-the large Minimum icon, Settings, and the OEM System Home fallback. T99 API 22 does not expose a
-reliable shell command for silently changing the default HOME handler, so the script intentionally
-does not disable Launcher3 or make an irreversible launcher change. If the Android HOME chooser is
-shown, select Minimum and choose the always/default option only after the recovery path has been
-tested. Use `-SkipMinimumHome` to keep the normal MumlaActivity foreground instead.
+Preparation opens `MinimumHomeActivity` after the Device ID check. It provides two swipe pages: the
+large Minimum icon and Android Settings. T99 firmware does not accept the data-installed Minimum
+activity as a usable default HOME choice, so the app deliberately does not register as HOME. The
+script requests a legacy Minimum shortcut in Launcher3, launches a real system HOME intent and
+fails if ResolverActivity appears. It then opens the radio dashboard explicitly. At boot, T99/T88
+profiles launch the dashboard; generic Android continues to launch MumlaActivity.
+
+`-SkipMinimumHome` skips shortcut/dashboard provisioning. Launcher3 is retained as an emergency
+fallback and should show both Minimum and Settings after preparation.
 
 ## T88 capture procedure
 

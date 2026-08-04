@@ -18,9 +18,12 @@ This short log records meaningful project milestones. Detailed code truth remain
 - Applied the user-provided Minimum logo to the Android adaptive icon and added an API 21+
   legacy launcher resource for T99. Changed the launcher label to `Minimum` and retained the
   editable SVG source at `docs/Minimum-app-icon-foreground.svg`.
-- Added `MinimumHomeActivity` for T99/T88: one large icon per swipe page for Minimum, Settings and
-  the OEM System Home fallback. Provisioning now opens this recoverable home unless
-  `-SkipMinimumHome` is specified.
+- Added `MinimumHomeActivity` for T99/T88 with one large icon per swipe page for Minimum and
+  Settings. A reboot test exposed an unacceptable Android HOME chooser while Launcher3 remained
+  enabled. T99 rejected both a third-party HOME priority and package-disable takeover as reliable
+  production solutions. The final design removes Minimum from the HOME resolver, launches the radio
+  dashboard explicitly at boot, installs a Minimum recovery shortcut in Launcher3, and verifies no
+  ResolverActivity. Reboot and shortcut recovery passed on the physical T99.
 
 ## Prior milestones
 

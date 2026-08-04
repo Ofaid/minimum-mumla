@@ -31,12 +31,14 @@ added only after a live foreground/background/screen-off trace. Unknown keys rem
 The T99 system partition is not modified. `pm uninstall --user 0` removes Zello for the working user
 and the script verifies the exact package/device before acting. Factory reset may restore it.
 
-## D-007: Small-device home is optional and recoverable
+## D-007: Radio dashboard is explicit; Launcher3 is the recovery HOME
 
 T99/T88 devices need a visible route to Minimum even when the OEM Launcher3 workspace only contains
-Settings. `MinimumHomeActivity` provides one large action per swipe page and an explicit System Home
-fallback. Provisioning opens it but does not disable or silently replace Launcher3, because T99 API
-22 has no reliable shell command for changing the default HOME handler.
+Settings. `MinimumHomeActivity` provides one large action per swipe page for Minimum and Settings.
+T99's OEM resolver does not offer the data-installed Minimum activity as a usable default HOME and
+therefore displays a broken chooser. Minimum does not register as HOME. Boot and provisioning open
+the dashboard explicitly, while a legacy shortcut adds Minimum to Launcher3 for recovery. The
+script fails if system HOME still exposes ResolverActivity.
 
 ## D-008: Embedded default always exists
 

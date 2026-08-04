@@ -10,7 +10,6 @@
 package se.lublin.mumla.radio;
 
 import android.app.Activity;
-import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -31,13 +30,12 @@ import se.lublin.mumla.R;
 import se.lublin.mumla.app.MumlaActivity;
 
 /**
- * A deliberately small radio-device home screen. Each page has one large, recoverable action.
- * It can be opened from provisioning even when the OEM Launcher3 remains the default HOME app.
+ * A deliberately small radio-device dashboard. Each page has one large, recoverable action.
+ * Provisioning and boot can open it while OEM Launcher3 remains the Android HOME app.
  */
 public final class MinimumHomeActivity extends Activity {
     private static final int PAGE_MINIMUM = 0;
     private static final int PAGE_SETTINGS = 1;
-    private static final int PAGE_SYSTEM_HOME = 2;
 
     private FrameLayout root;
     private TextView pageIndicator;
@@ -87,13 +85,11 @@ public final class MinimumHomeActivity extends Activity {
     public void onBackPressed() {
         if (page != PAGE_MINIMUM) {
             showPage(PAGE_MINIMUM);
-        } else {
-            openSystemHome();
         }
     }
 
     private void showPage(int requestedPage) {
-        page = Math.max(PAGE_MINIMUM, Math.min(PAGE_SYSTEM_HOME, requestedPage));
+        page = Math.max(PAGE_MINIMUM, Math.min(PAGE_SETTINGS, requestedPage));
         root.removeAllViews();
 
         LinearLayout pageView = new LinearLayout(this);
@@ -121,7 +117,7 @@ public final class MinimumHomeActivity extends Activity {
         pageView.addView(label, new LinearLayout.LayoutParams(-1, dp(24)));
 
         pageIndicator = new TextView(this);
-        pageIndicator.setText((page + 1) + " / 3");
+        pageIndicator.setText((page + 1) + " / 2");
         pageIndicator.setTextColor(Color.rgb(180, 195, 205));
         pageIndicator.setTextSize(10);
         pageIndicator.setGravity(android.view.Gravity.CENTER);
@@ -152,7 +148,7 @@ public final class MinimumHomeActivity extends Activity {
         if (page == PAGE_SETTINGS) {
             return "Settings";
         }
-        return "System Home";
+        return "Settings";
     }
 
     private void launchPageAction() {
@@ -162,25 +158,9 @@ public final class MinimumHomeActivity extends Activity {
             try {
                 startActivity(new Intent(Settings.ACTION_SETTINGS));
             } catch (RuntimeException ignored) {
-                openSystemHome();
+                showPage(PAGE_MINIMUM);
             }
-        } else {
-            openSystemHome();
         }
-    }
-
-    private void openSystemHome() {
-        Intent home = new Intent(Intent.ACTION_MAIN);
-        home.addCategory(Intent.CATEGORY_HOME);
-        home.setComponent(new ComponentName("com.android.launcher3", "com.android.launcher3.Launcher"));
-        try {
-            startActivity(home);
-        } catch (RuntimeException ignored) {
-            Intent fallback = new Intent(Intent.ACTION_MAIN);
-            fallback.addCategory(Intent.CATEGORY_HOME);
-            startActivity(fallback);
-        }
-        finish();
     }
 
     private int dp(int value) {

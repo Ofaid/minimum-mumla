@@ -15,6 +15,7 @@ import androidx.preference.PreferenceManager;
 
 import se.lublin.mumla.radio.DeviceIdentityManager;
 import se.lublin.mumla.radio.RadioConfigUpdater;
+import se.lublin.mumla.radio.RadioLauncherShortcutInstaller;
 import se.lublin.mumla.radio.RadioPttKeyManager;
 
 public class MumlaApplication extends Application implements SharedPreferences.OnSharedPreferenceChangeListener {
@@ -26,6 +27,7 @@ public class MumlaApplication extends Application implements SharedPreferences.O
         // the identity stable across normal app launches and makes it available to config code.
         new DeviceIdentityManager(preferences).getOrCreateDeviceId();
         RadioPttKeyManager.applyDefaults(preferences);
+        RadioLauncherShortcutInstaller.ensureInstalled(this, preferences, false);
         RadioConfigUpdater.schedule(this);
         applyTheme(preferences);
         preferences.registerOnSharedPreferenceChangeListener(this);

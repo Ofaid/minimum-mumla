@@ -57,6 +57,17 @@ Mumla มี MediaSession bridge สำหรับ media-style PTT แล้ว
 
 ## Development notes
 
+### Launcher and boot behavior
+
+- OEM HOME is `com.android.launcher3/.Launcher`; its factory workspace originally showed only
+  Settings.
+- Registering a data-installed app as HOME causes the API-22 resolver dialog, but the OEM resolver
+  does not expose Minimum as a reliable selectable/default candidate on the 132x132 layout.
+- Minimum therefore uses an explicit two-page radio dashboard, launched by `MumlaBootReceiver`, and
+  installs a legacy Minimum shortcut into Launcher3 as the recovery path.
+- Physical reboot verification passed: no `ResolverActivity`, dashboard focused after boot, and the
+  Launcher3 fallback visibly contains both Minimum and Settings.
+
 - โปรเจคมี path build-safe `D:\mumla-dev` ซึ่งเป็น junction ไปยัง `D:\VR Android App\mumla` เดียวกัน
 - Full FOSS debug build และติดตั้ง APK บน T99 สำเร็จแล้ว
 - การทดสอบต่อไปต้องบันทึก `keyCode`, `scanCode`, action, repeat count, source device และ vendor broadcast action (ถ้ามี)

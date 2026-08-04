@@ -40,9 +40,11 @@ document disagrees with this file, verify the code and update this file first.
   default/model/device merge, validation, size limits and active/previous cache files.
 - Added a best-effort six-hour background refresh scheduler. It never delays normal startup and
   falls back to the embedded/cache configuration when Pages or the response is unavailable.
-- Added `MinimumHomeActivity` as an optional recoverable small-device HOME surface with one large
-  icon per swipe page: Minimum, Settings and the OEM System Home fallback. Provisioning opens it
-  without disabling Launcher3; the normal MumlaActivity remains available as the app action.
+- Added `MinimumHomeActivity` as the small-device radio dashboard with one large icon per swipe
+  page: Minimum and Settings. It is intentionally not an Android HOME handler because the T99 OEM
+  resolver excludes it and displays an unusable chooser. T99/T88 boot opens the dashboard directly.
+- Added a legacy Launcher3 recovery shortcut installer and provisioning receiver. Launcher3 now
+  contains Minimum plus Settings, while provisioning verifies that system HOME has no chooser.
 - Verified the FOSS debug unit tests and APK build after the current changes.
 
 ## Known limitations / not falsely marked complete
@@ -58,9 +60,8 @@ document disagrees with this file, verify the code and update this file first.
   `autoConnect: false` and a placeholder host.
 - Mumble room path and access-token resolution from a remote radio room preset are not implemented.
   The supplied test server is documented without its token; keep that token local-only.
-- `MinimumHomeActivity` is not silently made the default HOME handler on T99 API 22 because the
-  platform has no reliable shell command for that operation. The provisioning script opens it and
-  provides a safe `-SkipMinimumHome` escape. It is not yet a complete dedicated radio flavor.
+- T88 boot/dashboard and legacy shortcut behavior still require live-device verification. Each new
+  firmware must pass the no-ResolverActivity provisioning check.
 - Boot activity launch can be blocked by newer Android/OEM policy. T99 is API 22 and passed the
   simulated boot test; a newer-device foreground-service/notification fallback remains future work.
 

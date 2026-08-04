@@ -14,6 +14,7 @@ param(
     [int]$AdbPort = 5041,
     [switch]$Force,
     [switch]$SkipZello,
+    [switch]$SkipMinimumHome,
     [switch]$ReportOnly
 )
 
@@ -23,6 +24,7 @@ $arguments = @{
     AdbPort = $AdbPort
     Force = $Force
     SkipZello = $SkipZello
+    SkipMinimumHome = $SkipMinimumHome
     ReportOnly = $ReportOnly
 }
 if ($WhatIfPreference) {

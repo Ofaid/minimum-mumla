@@ -5,8 +5,9 @@
 .DESCRIPTION
     This is the canonical provisioning script. It reports the different serial identities,
     removes Zello for user 0, launches Minimum once so its app Device ID can be created, verifies
-    that identity, and opens the recoverable one-icon-per-page Minimum Home. It intentionally does
-    not attempt to rewrite the USB/ADB serial:
+    that identity, installs a Minimum recovery shortcut into the OEM Launcher3 workspace, verifies
+    that the system HOME no longer displays a chooser, and opens the one-icon-per-page radio
+    dashboard. It intentionally does not attempt to rewrite the USB/ADB serial:
     the T99 exposes that value through a root-owned USB gadget node and this non-root device
     cannot safely change it.
 
@@ -29,6 +30,9 @@ $PackageName = "com.loudtalks"
 $MinimumPackage = "se.lublin.mumla"
 $MinimumActivity = "se.lublin.mumla/.app.MumlaActivity"
 $MinimumHomeActivity = "se.lublin.mumla/.radio.MinimumHomeActivity"
+$MinimumHomeComponent = "se.lublin.mumla/se.lublin.mumla.radio.MinimumHomeActivity"
+$ShortcutProvisionReceiver = "se.lublin.mumla/.radio.RadioProvisionReceiver"
+$ShortcutProvisionAction = "se.lublin.mumla.action.PROVISION_LAUNCHER_SHORTCUT"
 
 $adbCommand = Get-Command adb -ErrorAction Stop
 $adbPath = $adbCommand.Source
@@ -89,7 +93,17 @@ function Get-MinimumPreferences {
     return ($value -join "`n")
 }
 
-Write-Host "Target: T99 / $targetLabel"
+function Test-MinimumHomeFocused {
+    $windowState = Invoke-TargetAdb -Arguments @("shell", "dumpsys", "window", "windows")
+    return ($windowState -join "`n").Contains($MinimumHomeComponent)
+}
+
+function Test-HomeChooserFocused {
+    $windowState = Invoke-TargetAdb -Arguments @("shell", "dumpsys", "window", "windows")
+    return ($windowState -join "`n").Contains("android/com.android.internal.app.ResolverActivity")
+}
+
+Write-Host "Target: T99/T88 / $targetLabel"
 Write-Host "Manufacturer/model: $(Get-TargetProperty -Name ro.product.manufacturer) / $(Get-TargetProperty -Name ro.product.model)"
 $adbSerial = (& $adbPath @targetArgs get-serialno) -join ""
 $systemSerial = Get-TargetProperty -Name ro.serialno
@@ -151,11 +165,31 @@ if ($identityMatch.Success) {
 }
 
 if (-not $ReportOnly -and -not $SkipMinimumHome -and -not $WhatIfPreference) {
+    Invoke-TargetAdb -Arguments @(
+        "shell", "am", "broadcast",
+        "-a", $ShortcutProvisionAction,
+        "-n", $ShortcutProvisionReceiver
+    ) | Out-Null
+    Start-Sleep -Milliseconds 500
+    Invoke-TargetAdb -Arguments @(
+        "shell", "am", "start", "-W",
+        "-a", "android.intent.action.MAIN",
+        "-c", "android.intent.category.HOME"
+    ) | Out-Null
+    Start-Sleep -Milliseconds 500
+    if (Test-HomeChooserFocused) {
+        throw "Android still displayed the HOME chooser after Minimum stopped registering as HOME."
+    }
+    Write-Host "OEM HOME verified: no chooser is visible; Minimum shortcut was requested."
+
     Invoke-TargetAdb -Arguments @("shell", "am", "start", "-n", $MinimumHomeActivity) | Out-Null
     Start-Sleep -Milliseconds 500
-    Write-Host "Minimum Home opened: swipe between Minimum, Settings and System Home."
+    if (-not (Test-MinimumHomeFocused)) {
+        throw "Minimum radio dashboard did not take focus."
+    }
+    Write-Host "Minimum radio dashboard opened: swipe between Minimum and Settings."
 } elseif ($SkipMinimumHome) {
-    Write-Host "Minimum Home step skipped by request."
+    Write-Host "Minimum dashboard/shortcut step skipped by request."
 }
 
 Write-Host "Preparation report complete. USB/ADB serial remains '$adbSerial'; Minimum identity is the per-device ID."
