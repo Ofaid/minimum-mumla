@@ -16,4 +16,14 @@ public class DeviceIdentityManagerTest {
         assertFalse(DeviceIdentityManager.isValidDeviceId("A7K3Q"));
         assertFalse(DeviceIdentityManager.isValidDeviceId("A7K3Q-"));
     }
+
+    @Test
+    public void detectsKnownAndFutureRadioProfiles() {
+        org.junit.Assert.assertEquals(RadioDeviceProfile.T99,
+                RadioDeviceProfile.detect("Youdotech", "QM011"));
+        org.junit.Assert.assertEquals(RadioDeviceProfile.T88,
+                RadioDeviceProfile.detect("OEM", "T88"));
+        org.junit.Assert.assertEquals(RadioDeviceProfile.GENERIC,
+                RadioDeviceProfile.detect("unknown", "phone"));
+    }
 }

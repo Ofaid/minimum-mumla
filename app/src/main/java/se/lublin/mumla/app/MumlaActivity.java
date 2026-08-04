@@ -21,7 +21,6 @@ import static java.util.Objects.requireNonNull;
 
 import android.Manifest;
 import android.content.ComponentName;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
@@ -93,7 +92,6 @@ import se.lublin.mumla.Settings;
 import se.lublin.mumla.channel.AccessTokenFragment;
 import se.lublin.mumla.channel.ChannelFragment;
 import se.lublin.mumla.channel.ServerInfoFragment;
-import se.lublin.mumla.db.DatabaseCertificate;
 import se.lublin.mumla.db.DatabaseProvider;
 import se.lublin.mumla.db.MumlaDatabase;
 import se.lublin.mumla.db.MumlaSQLiteDatabase;
@@ -382,7 +380,7 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
             // Got no instance bundle: this is run only on real app startup -- not when Android
             // recreates the activity on configuration change, like screen rotation.
             if (mSettings.isFirstRun()) {
-                showFirstRunGuide();
+                ensureDefaultCertificate();
             } else {
                 new StartupAction().execute(this);
             }
@@ -499,31 +497,32 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
         loadDrawerFragment((int) id);
     }
 
-    private void showFirstRunGuide() {
-        // Prompt the user to generate a certificate.
+    private void ensureDefaultCertificate() {
         if (mSettings.isUsingCertificate()) {
             mSettings.setFirstRun(false);
+            new StartupAction().execute(this);
             return;
         }
-        String msg = getString(R.string.first_run_generate_certificate);
-        if (BuildConfig.FLAVOR.equals("donation")) {
-            msg = getString(R.string.donation_thanks) + "\n\n" + msg;
-        }
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.first_run_generate_certificate_title)
-                .setMessage(msg)
-                .setPositiveButton(R.string.generate, (DialogInterface dialog, int which) -> {
-                    MumlaCertificateGenerateTask generateTask = new MumlaCertificateGenerateTask(MumlaActivity.this) {
-                        @Override
-                        protected void onPostExecute(DatabaseCertificate result) {
-                            super.onPostExecute(result);
-                            if (result != null) mSettings.setDefaultCertificateId(result.getId());
+
+        // A client certificate is local identity material, not user configuration. Generate it
+        // silently on first startup so radio devices can proceed without an interaction dialog.
+        MumlaCertificateGenerateTask generateTask =
+                new MumlaCertificateGenerateTask(MumlaActivity.this, false) {
+                    @Override
+                    protected void onPostExecute(se.lublin.mumla.db.DatabaseCertificate result) {
+                        super.onPostExecute(result);
+                        if (result != null) {
+                            mSettings.setDefaultCertificateId(result.getId());
+                            mSettings.setFirstRun(false);
+                        } else {
+                            // Leave firstRun set so the next startup retries automatically.
+                            Toast.makeText(MumlaActivity.this, R.string.generateCertFailure,
+                                    Toast.LENGTH_SHORT).show();
                         }
-                    };
-                    generateTask.execute();
-                    mSettings.setFirstRun(false);
-                })
-                .show();
+                        new StartupAction().execute(MumlaActivity.this);
+                    }
+                };
+        generateTask.execute();
     }
 
     /**

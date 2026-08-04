@@ -12,6 +12,7 @@
 - Full FOSS debug build ผ่าน และติดตั้งบน T99 ผ่าน ADB แล้ว
 - ADB authorization ของ T99 ใช้งานได้
 - ข้อมูลฮาร์ดแวร์อยู่ใน [T99_DEVICE_PROFILE.md](T99_DEVICE_PROFILE.md)
+- แบบฟอร์มเก็บข้อมูล T88 อยู่ใน [T88_DEVICE_PROFILE.md](T88_DEVICE_PROFILE.md)
 
 ## งานที่ทำแล้วและไม่ต้องทำซ้ำ
 
@@ -20,15 +21,25 @@
 - เพิ่ม MediaSession bridge สำหรับ media-style PTT ที่ทำงานผ่าน Android public API
 - Activity ไม่ประมวลผล media key ซ้ำกับ MediaSession
 - เพิ่ม fail-safe TX watchdog 120 วินาที: หยุดส่งเมื่อ timeout, connection หลุด หรือ service ถูกทำลาย และต้องปล่อยปุ่มก่อนเริ่มใหม่
+- ปรับ first-run certificate ให้สร้างอัตโนมัติแบบไม่เปิด dialog และ retry เมื่อสร้างไม่สำเร็จ
+- เพิ่ม `RadioDeviceProfile` ที่รู้จัก T99 และเตรียม T88 โดยไม่ hard-code key mapping ที่ยังไม่ได้ตรวจจากเครื่องจริง
 
 ## ยังไม่อ้างว่าเสร็จ
 
 - F1/F2/raw GPIO screen-off PTT: ต้องจับ event จริงและอาจต้องใช้ OEM integration
 - RadioActivity/single-screen UX
 - auto-connect จาก local/remote config
-- GitHub Pages config, cache, schema validation และ rollback
+- Android-side GitHub Pages config consumer, cache, schema validation และ rollback
 - room preset/full-path resolver และ access-token resolver
 - hidden diagnostics และ boot/network lifecycle hardening
+
+T88 ยังไม่มีข้อมูล runtime จากเครื่องจริง จึงยังไม่บันทึก keycode/scancode หรือ USB profile ของ T88 จนกว่าจะเสียบเครื่องและเก็บข้อมูลจริง
+
+## GitHub configuration backend
+
+มี static backend ใน `backend/` พร้อม manifest, default config, model profiles สำหรับ T99/T88 และ
+JSON Schema รวมถึง GitHub Pages workflow `deploy-pages.yml` โดย default config ปิด auto-connect
+และใช้ host placeholder จนกว่าจะใส่ Mumble server จริงอย่างตั้งใจ
 
 ## แนวทางลดขนาดของ Radio build
 

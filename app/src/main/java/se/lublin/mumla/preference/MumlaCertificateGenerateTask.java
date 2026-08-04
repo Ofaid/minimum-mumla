@@ -40,22 +40,36 @@ public class MumlaCertificateGenerateTask extends AsyncTask<Void, Void, Database
     private static final String DATE_FORMAT = "yyyy-MM-dd-HH-mm-ss";
 
     private Context context;
+    private final boolean showProgressDialog;
     private AlertDialog loadingDialog;
 
     public MumlaCertificateGenerateTask(Context context) {
+        this(context, true);
+    }
+
+    /**
+     * Creates a certificate generation task.
+     *
+     * @param showProgressDialog false for the automatic first-run path, where a modal dialog
+     *                            would interrupt radio startup
+     */
+    public MumlaCertificateGenerateTask(Context context, boolean showProgressDialog) {
         this.context = context;
+        this.showProgressDialog = showProgressDialog;
     }
 
     @Override
     protected void onPreExecute() {
         super.onPreExecute();
 
-        loadingDialog = new MaterialAlertDialogBuilder(context)
-                .setTitle(R.string.generateCertProgress)
-                .setView(R.layout.dialog_progress)
-                .setCancelable(false)
-                .create();
-        loadingDialog.show();
+        if (showProgressDialog) {
+            loadingDialog = new MaterialAlertDialogBuilder(context)
+                    .setTitle(R.string.generateCertProgress)
+                    .setView(R.layout.dialog_progress)
+                    .setCancelable(false)
+                    .create();
+            loadingDialog.show();
+        }
     }
     @Override
     protected DatabaseCertificate doInBackground(Void... params) {
@@ -79,7 +93,7 @@ public class MumlaCertificateGenerateTask extends AsyncTask<Void, Void, Database
     @Override
     protected void onPostExecute(DatabaseCertificate result) {
         super.onPostExecute(result);
-        if(result == null) {
+        if(result == null && showProgressDialog) {
             Toast.makeText(context, R.string.generateCertFailure, Toast.LENGTH_SHORT).show();
         }
 

@@ -9,6 +9,8 @@ Project status and T99 hardware notes:
 
 - [Implementation status](docs/IMPLEMENTATION_STATUS.md)
 - [T99 device profile](docs/T99_DEVICE_PROFILE.md)
+- [T88 device profile checklist](docs/T88_DEVICE_PROFILE.md)
+- [Static configuration backend](backend/README.md)
 
 # Software maintenance situation
 

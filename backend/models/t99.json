@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "configVersion": 1,
+  "modelProfile": "t99",
+  "service": {
+    "name": "Minimum T99"
+  },
+  "hardware": {
+    "profile": "t99-qm011",
+    "pttKeyCode": 0,
+    "pttScanCode": 0,
+    "p1KeyCode": 0,
+    "p2KeyCode": 0,
+    "p3KeyCode": 0
+  }
+}
