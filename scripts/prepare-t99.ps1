@@ -1,11 +1,12 @@
 <#[
 .SYNOPSIS
-    Prepares a supported T99 for Minimum radio-client use.
+    Prepares a supported T99/T88 for Minimum radio-client use.
 
 .DESCRIPTION
     This is the canonical provisioning script. It reports the different serial identities,
-    removes Zello for user 0, launches Minimum once so its app Device ID can be created, and
-    verifies that identity. It intentionally does not attempt to rewrite the USB/ADB serial:
+    removes Zello for user 0, launches Minimum once so its app Device ID can be created, verifies
+    that identity, and opens the recoverable one-icon-per-page Minimum Home. It intentionally does
+    not attempt to rewrite the USB/ADB serial:
     the T99 exposes that value through a root-owned USB gadget node and this non-root device
     cannot safely change it.
 
@@ -19,6 +20,7 @@ param(
     [int]$AdbPort = 5041,
     [switch]$Force,
     [switch]$SkipZello,
+    [switch]$SkipMinimumHome,
     [switch]$ReportOnly
 )
 
@@ -26,6 +28,7 @@ $ErrorActionPreference = "Stop"
 $PackageName = "com.loudtalks"
 $MinimumPackage = "se.lublin.mumla"
 $MinimumActivity = "se.lublin.mumla/.app.MumlaActivity"
+$MinimumHomeActivity = "se.lublin.mumla/.radio.MinimumHomeActivity"
 
 $adbCommand = Get-Command adb -ErrorAction Stop
 $adbPath = $adbCommand.Source
@@ -130,7 +133,7 @@ if (-not $ReportOnly -and -not $SkipZello -and $packagePath) {
     Write-Host "Zello is already absent from this device user."
 }
 
-if (-not $ReportOnly) {
+if (-not $ReportOnly -and -not $WhatIfPreference) {
     Invoke-TargetAdb -Arguments @("shell", "am", "start", "-n", $MinimumActivity) | Out-Null
     Start-Sleep -Seconds 2
 }
@@ -145,6 +148,14 @@ if ($identityMatch.Success) {
     Write-Host "Minimum Device ID: $deviceId"
 } else {
     Write-Warning "Minimum Device ID is not initialized yet; launch the app once with the normal user."
+}
+
+if (-not $ReportOnly -and -not $SkipMinimumHome -and -not $WhatIfPreference) {
+    Invoke-TargetAdb -Arguments @("shell", "am", "start", "-n", $MinimumHomeActivity) | Out-Null
+    Start-Sleep -Milliseconds 500
+    Write-Host "Minimum Home opened: swipe between Minimum, Settings and System Home."
+} elseif ($SkipMinimumHome) {
+    Write-Host "Minimum Home step skipped by request."
 }
 
 Write-Host "Preparation report complete. USB/ADB serial remains '$adbSerial'; Minimum identity is the per-device ID."

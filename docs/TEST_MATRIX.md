@@ -16,6 +16,8 @@
 | Disconnect releases TX | IMPLEMENTED | Service lifecycle path; add manual screen-off test |
 | Boot receiver registration | PASS | Manifest and receiver present |
 | T99 simulated boot launch | PASS | Activity appeared after valid simulated broadcast |
+| T99 Minimum Home pages | PASS | Installed APK: Minimum -> Settings -> System Home swipe path |
+| T99 provisioning opens Minimum Home | PASS | `prepare-t99.ps1 -TransportId 1 -Force -SkipZello` |
 | Newer OEM boot policy | OPEN | Add notification/foreground-service fallback |
 | Zello user-0 removal | PASS | `pm uninstall --user 0 com.loudtalks` verified |
 | Zello repeat script dry run | PASS | `remove-zello-t99.ps1 -WhatIf` |

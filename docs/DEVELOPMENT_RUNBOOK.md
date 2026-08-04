@@ -59,6 +59,7 @@ Set-Location D:\mumla-dev
 .\scripts\prepare-t99.ps1 -ReportOnly
 .\scripts\prepare-t99.ps1 -WhatIf
 .\scripts\prepare-t99.ps1
+.\scripts\prepare-t99.ps1 -SkipMinimumHome
 ```
 
 This removes Zello for Android user 0. It does not erase the system APK from the read-only system
@@ -68,6 +69,13 @@ show the same ADB serial, use `adb devices -l` and select the unique `transport_
 ```powershell
 .\scripts\prepare-t99.ps1 -TransportId 1
 ```
+
+Preparation opens `MinimumHomeActivity` after the Device ID check. It provides three swipe pages:
+the large Minimum icon, Settings, and the OEM System Home fallback. T99 API 22 does not expose a
+reliable shell command for silently changing the default HOME handler, so the script intentionally
+does not disable Launcher3 or make an irreversible launcher change. If the Android HOME chooser is
+shown, select Minimum and choose the always/default option only after the recovery path has been
+tested. Use `-SkipMinimumHome` to keep the normal MumlaActivity foreground instead.
 
 ## T88 capture procedure
 

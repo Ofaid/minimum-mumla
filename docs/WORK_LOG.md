@@ -18,6 +18,9 @@ This short log records meaningful project milestones. Detailed code truth remain
 - Applied the user-provided Minimum logo to the Android adaptive icon and added an API 21+
   legacy launcher resource for T99. Changed the launcher label to `Minimum` and retained the
   editable SVG source at `docs/Minimum-app-icon-foreground.svg`.
+- Added `MinimumHomeActivity` for T99/T88: one large icon per swipe page for Minimum, Settings and
+  the OEM System Home fallback. Provisioning now opens this recoverable home unless
+  `-SkipMinimumHome` is specified.
 
 ## Prior milestones
 

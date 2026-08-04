@@ -7,7 +7,7 @@ MumlaApplication
   ├─ creates persistent Device ID
   └─ applies normal Mumla theme/locale
 
-MumlaActivity (current launcher)
+MumlaActivity (main radio client)
   ├─ normal Mumla navigation and server database
   ├─ automatic first-run certificate generation
   └─ foreground service binding
@@ -23,6 +23,11 @@ RadioConfigRepository
   ├─ GitHub Pages default/model/device overlays
   ├─ schema and safety validation
   └─ active/previous private cache
+
+MinimumHomeActivity (recoverable small-device home)
+  ├── one large Minimum icon per page
+  ├── swipe: Minimum -> Settings -> System Home
+  └── tap: open the selected recovery/action target
 
 RadioShellActivity (future radio entry point)
   ├─ Device ID/profile display
@@ -78,5 +83,7 @@ device trace proves that the OEM routes those events to the service.
 ## Standard build versus radio build
 
 The current branch keeps one standard Mumla application and adds radio code under the normal source
-set without changing the launcher. A future radio flavor should reduce UI surface while reusing
-Humla/MumlaService. Do not fork the protocol/audio core or duplicate PTT safety logic.
+set. `MinimumHomeActivity` is an optional, recoverable HOME surface for small devices; it does not
+replace Launcher3 silently. Provisioning opens it after preparation, and its System Home page gives
+an explicit route back to the OEM launcher. Do not fork the protocol/audio core or duplicate PTT
+safety logic.

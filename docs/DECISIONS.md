@@ -31,11 +31,12 @@ added only after a live foreground/background/screen-off trace. Unknown keys rem
 The T99 system partition is not modified. `pm uninstall --user 0` removes Zello for the working user
 and the script verifies the exact package/device before acting. Factory reset may restore it.
 
-## D-007: Standard launcher stays stable during radio-shell work
+## D-007: Small-device home is optional and recoverable
 
-The current Radio shell is non-launcher. This lowers regression risk while the T99/T88 hardware
-contract and connection flow are still being measured. A dedicated flavor is a later deliberate
-decision, not an accidental replacement of Mumla.
+T99/T88 devices need a visible route to Minimum even when the OEM Launcher3 workspace only contains
+Settings. `MinimumHomeActivity` provides one large action per swipe page and an explicit System Home
+fallback. Provisioning opens it but does not disable or silently replace Launcher3, because T99 API
+22 has no reliable shell command for changing the default HOME handler.
 
 ## D-008: Embedded default always exists
 

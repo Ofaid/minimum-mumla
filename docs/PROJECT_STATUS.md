@@ -40,8 +40,9 @@ document disagrees with this file, verify the code and update this file first.
   default/model/device merge, validation, size limits and active/previous cache files.
 - Added a best-effort six-hour background refresh scheduler. It never delays normal startup and
   falls back to the embedded/cache configuration when Pages or the response is unavailable.
-- Added `RadioShellActivity` as a non-launcher minimal PTT UI. The standard Mumla activity remains
-  the launcher until the dedicated radio flavor is reviewed.
+- Added `MinimumHomeActivity` as an optional recoverable small-device HOME surface with one large
+  icon per swipe page: Minimum, Settings and the OEM System Home fallback. Provisioning opens it
+  without disabling Launcher3; the normal MumlaActivity remains available as the app action.
 - Verified the FOSS debug unit tests and APK build after the current changes.
 
 ## Known limitations / not falsely marked complete
@@ -57,7 +58,9 @@ document disagrees with this file, verify the code and update this file first.
   `autoConnect: false` and a placeholder host.
 - Mumble room path and access-token resolution from a remote radio room preset are not implemented.
   The supplied test server is documented without its token; keep that token local-only.
-- `RadioShellActivity` is intentionally not the launcher and is not a complete radio flavor.
+- `MinimumHomeActivity` is not silently made the default HOME handler on T99 API 22 because the
+  platform has no reliable shell command for that operation. The provisioning script opens it and
+  provides a safe `-SkipMinimumHome` escape. It is not yet a complete dedicated radio flavor.
 - Boot activity launch can be blocked by newer Android/OEM policy. T99 is API 22 and passed the
   simulated boot test; a newer-device foreground-service/notification fallback remains future work.
 
