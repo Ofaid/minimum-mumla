@@ -144,6 +144,11 @@
         </receiver>
 
         <receiver
+            android:name=".radio.RadioProcessWatchdogReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <receiver
             android:name=".radio.RadioProvisionReceiver"
             android:enabled="true"
             android:exported="true">

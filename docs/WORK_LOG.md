@@ -86,6 +86,19 @@ This short log records meaningful project milestones. Detailed code truth remain
   state, reads both settings back after restoration, and uses a stable ASCII accessibility marker
   from RadioShell instead of localized Thai text. Windows PowerShell 5.1 parsing, JVM tests and the
   FOSS debug APK build pass.
+- The first live 30-second network-loss run restored both transport settings and Minimum rejoined
+  the configured room, but the harness could not see the Ready marker after the display timed out:
+  T99/API-22 `uiautomator` exposes no app nodes while the display is off. The harness now wakes an
+  off display only for UI inspection before retrying the marker check.
+- After the Windows reboot restored ADB, installed the latest APK and physically verified config
+  promotion: active v1002, previous v1001, no pending candidate and Ready in the configured room.
+- Passed the guarded 30-second Wi-Fi/LTE-loss acceptance. Both original transport settings were
+  restored and read back, then Minimum returned to the stable Ready marker without PTT.
+- A baseline same-UID process kill exposed T99's OEM behavior: ActivityManager scheduled service
+  redelivery roughly 16 minutes later. Added a profile-gated renewable AlarmManager watchdog lease
+  (10-second heartbeat, 30-second expiry) that retries RadioShell startup independently of the dead
+  process. The final physical SIGKILL test produced a new PID in 23.9 seconds and Ready in 30.9
+  seconds without force-stop, manual post-kill launch, config mutation or PTT.
 
 ## Prior milestones
 

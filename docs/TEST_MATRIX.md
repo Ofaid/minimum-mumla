@@ -33,7 +33,8 @@
 | Remote room path selection | PASS | Exact full-path resolver JVM tests plus live T99 join to the supplied nested room |
 | Connection-time token integration | PASS | Live T99 authentication through existing Humla extras; token remained local and was not logged |
 | Config-driven auto-connect/reconnect | PASS | Live T99 ready state and automatic return after a real reboot |
-| Indefinite reconnect policy | PASS IN JVM / T99 MATRIX OPEN | Retry-all policy plus capped 2–60 s backoff tests; guarded harness now verifies network restoration and uses an encoding-safe Ready marker |
+| Indefinite reconnect policy | PASS NETWORK/PROCESS / EXTENDED MATRIX OPEN | T99 30-second Wi-Fi/LTE outage restored settings and Ready; process watchdog restored PID in 23.9 s and Ready in 30.9 s; server restart/long outage remain |
+| T99 process-death watchdog | PASS | Same-UID SIGKILL, no force-stop/manual relaunch/PTT; renewable 30-second lease bypassed OEM roughly 16-minute service restart backoff |
 | Reconnect full-screen UI | IMPLEMENTED / T99 VISUAL OPEN | Whole-screen connecting/reconnecting state, attempt count and no false Ready before room join |
 | PTT local-delivery warning | IMPLEMENTED / SUPERVISED TEST OPEN | Offline/no-encoded-packet tone and full-screen failure; server receipt still requires a second listener |
 | Radio audio defaults | PASS IN CODE / DEVICE AUDIO OPEN | Preprocessor, PTT confirmation, half-duplex and TTS forced for T99/T88 profiles; VAD setter and teardown unmute corrected |
@@ -44,7 +45,7 @@
 | Optional self-signed TLS pin | PASS | Exact SHA-256 pin created app-private trust and connected; mismatch remains fail-closed |
 | Active config downgrade rejection | PASS | Repository JVM tests reject a lower version and allow same/newer versions |
 | Pending config idle gate | PASS IN JVM | Candidate blocked during RX, TX and connection transitions; service tracker covers talk/shout/whisper and disconnect clear |
-| Pending config promotion/rollback | PASS IN JVM / T99 OPEN | Atomic active/previous rotation and explicit rollback tests pass; physical candidate trial awaits a healthy ADB host |
+| Pending config promotion/rollback | PROMOTION PASS T99 / FAILURE INJECTION OPEN | Active v1002, no pending and previous v1001 physically verified; failed-candidate rollback still needs live injection |
 | Screen-off connection persistence | PASS | T99 display OFF/dozing for 10 seconds with `MumlaService` still started and no disconnect |
 | Multi-room preset switching | IMPLEMENTED IN CODE | Direction/select/default keys exist; requires a live config with at least two rooms |
 | Dark mode default | PASS | Fresh/unset preference resolves to `forceDark`; update installed and visually checked on T99 |

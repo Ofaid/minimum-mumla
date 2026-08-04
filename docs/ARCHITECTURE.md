@@ -140,6 +140,13 @@ The Android service returns `START_REDELIVER_INTENT` only for the managed-radio 
 process recovery receives the same validated connection intent. Certificate policy/pin mismatch is
 the deliberate exception: it cancels retry and remains visibly fail-closed.
 
+T99 firmware can nevertheless apply an OEM service-restart backoff of roughly 16 minutes after a
+process kill. Dedicated T99/T88 profiles therefore maintain a process-independent AlarmManager
+lease. A healthy service refreshes a 30-second lease every 10 seconds, so the alarm never fires in
+normal operation. If the process dies, the retained alarm starts
+`RadioProcessWatchdogReceiver`; it re-arms itself and opens `RadioShellActivity`. The receiver keeps
+retrying if a background launch is blocked, while generic Android profiles do not arm this lease.
+
 ## Hardware strategy
 
 `RadioDeviceProfile` identifies T99, T88 or generic hardware. The profile only selects a config

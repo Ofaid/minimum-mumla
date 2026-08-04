@@ -42,7 +42,7 @@ raw GPIO F1/F2.
 | 3 — Remote Configuration | Mostly complete | Embedded fallback, HTTPS fetch, default/model/device merge, limits, validation, active/previous/pending cache, downgrade rejection, six-hour plus network-return refresh, service-owned RX/TX idle candidate trial, commit after room join, explicit rollback and JVM tests | Config signature verification and physical success/failure candidate acceptance |
 | 4 — Rooms and Tokens | Mostly complete | Resolved public tokens feed existing Humla authentication without DB/log persistence; typed presets, exact full-path lookup, default join and direction/select/default navigation; live nested-room T99 test passed | Multi-room live test, idle reconnect on token change and permission-denied/default-room fallback evidence |
 | 5 — Hardware PTT | Partial | T99/T88/generic profiles, multi-key defaults, Activity/MediaSession paths, local packet-handoff warning, screen wake, TX timer, key-up/disconnect/service-destroy release and 120 s watchdog | Hardware diagnostics, scancode/source capture UI, key bounce tests, F2 live test, foreground/background/screen-off matrix and OEM/vendor path if required |
-| 6 — Hardening | Mostly implemented, acceptance incomplete | Automatic certificate/boot, indefinite capped reconnect, network-return plus timer fallback, process redelivery, automatic preprocessor/half-duplex/TTS, teardown unmute, config rollback/downgrade and managed self-signed trust with optional pin | Physical network/process/audio/wake evidence, battery optimization, bundled voice prompts, protected-token store, config signatures and sanitized diagnostics/security review |
+| 6 — Hardening | Mostly implemented, acceptance incomplete | Automatic certificate/boot, indefinite capped reconnect, guarded T99 network-loss PASS, process watchdog SIGKILL PASS, automatic preprocessor/half-duplex/TTS, teardown unmute, config rollback/downgrade and managed self-signed trust with optional pin | Long-outage/server/audio/wake evidence, battery optimization, bundled voice prompts, protected-token store, config signatures and sanitized diagnostics/security review |
 | 7 — Release | Early | Public GitHub repo, draft PR, GPLv3 source base, architecture/runbook/hardware docs, Pages deployment workflow | Android CI, signed APK, release notes, known-limitations report, instrumentation tests, device video and LTE/Wi-Fi/screen-off/reconnect report |
 
 ## Acceptance-test coverage
@@ -56,13 +56,14 @@ raw GPIO F1/F2.
   Minimum MediaSession is active. The successful event still needs keyCode/scanCode capture before
   classifying it as KEY_MEDIA versus raw GPIO F1/F2.
 - Audio: no maintained LTE/Wi-Fi/Bluetooth/manual test report yet.
-- Lifecycle: actual T99 reboot-to-ready-room and short display-off connection persistence are
-  verified; process death, long network outage and newer Android boot restrictions remain open.
+- Lifecycle: actual T99 reboot-to-ready-room, short display-off persistence, 30-second network loss
+  and process-death watchdog recovery are verified; long outage and newer Android boot restrictions
+  remain open.
 
 ## Implementation order from here
 
-1. Restore USB/ADB, install the latest APK and execute `RECONNECT_TEST_PLAN.md`, including network,
-   process-death, wake, half-duplex and supervised PTT-failure evidence.
+1. Continue `RECONNECT_TEST_PLAN.md` with server restart, long outage, reconnect visual, wake,
+   half-duplex and supervised PTT-failure evidence; network and process-death cases already pass.
 2. Capture the already-successful T99 screen-off control's keyCode, scanCode and input device; only
    add an OEM/privileged bridge if the proven path is raw GPIO and public delivery is unreliable.
 3. Capture the incoming T88 hardware profile and repeat provisioning, boot, room and PTT tests.

@@ -59,6 +59,19 @@ original settings, and never presses PTT:
 The full fault matrix and the distinction between local audio handoff and server receipt are in
 `docs/RECONNECT_TEST_PLAN.md`.
 
+For process-death acceptance, first confirm Ready and record the exact PID. Kill only that process
+through the debuggable app UID; never use force-stop or clear app data:
+
+```powershell
+$minimumProcess = & adb -P 5041 -s 12344321 shell ps | Select-String 'se.lublin.mumla$'
+$minimumPid = (($minimumProcess.ToString().Trim()) -split '\s+')[1]
+& adb -P 5041 -s 12344321 shell run-as se.lublin.mumla kill -9 $minimumPid
+```
+
+T99's normal service restart may be deferred by roughly 16 minutes. The dedicated-radio watchdog
+must instead produce a new PID within about 30 seconds, open RadioShell automatically and return to
+`minimum-state-ready`. Do not issue `am start` after the kill because that invalidates the test.
+
 The radio config directory has three durable states: `active-config.json` is the Last Known Good,
 `pending-config.json` is waiting for an idle trial, and `previous-config.json` is the rollback copy.
 Do not overwrite active merely to test an update. Stage pending, start `RadioShellActivity`, and

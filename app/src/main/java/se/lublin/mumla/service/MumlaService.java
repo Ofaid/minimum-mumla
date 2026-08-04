@@ -65,6 +65,7 @@ import se.lublin.mumla.util.HtmlUtils;
 import se.lublin.mumla.radio.RadioPttKeyManager;
 import se.lublin.mumla.radio.RadioReceiveTracker;
 import se.lublin.mumla.radio.RadioDeviceProfile;
+import se.lublin.mumla.radio.RadioProcessWatchdog;
 import se.lublin.mumla.radio.RadioShellActivity;
 
 /**
@@ -112,6 +113,17 @@ public class MumlaService extends HumlaService implements
     private boolean mPttInputDown;
     private boolean mPttWatchdogLockout;
     private final RadioReceiveTracker mRadioReceiveTracker = new RadioReceiveTracker();
+    private final Runnable mRadioProcessWatchdogHeartbeat = new Runnable() {
+        @Override
+        public void run() {
+            if (!isManagedRadioDevice()) {
+                return;
+            }
+            RadioProcessWatchdog.arm(MumlaService.this);
+            mPttWatchdogHandler.postDelayed(this,
+                    RadioProcessWatchdog.HEARTBEAT_INTERVAL_MS);
+        }
+    };
     private long mPttPressStartedElapsedRealtime;
     private boolean mPttFailureAlerted;
     private long mLastRadioWakeElapsedRealtime;
@@ -402,6 +414,11 @@ public class MumlaService extends HumlaService implements
 
         initializePttMediaSession();
         updatePttMediaSessionState();
+        if (isManagedRadioDevice()) {
+            RadioProcessWatchdog.arm(this);
+            mPttWatchdogHandler.postDelayed(mRadioProcessWatchdogHeartbeat,
+                    RadioProcessWatchdog.HEARTBEAT_INTERVAL_MS);
+        }
 
         // Instantiate overlay view
         mChannelOverlay = new MumlaOverlay(this);
@@ -421,6 +438,7 @@ public class MumlaService extends HumlaService implements
 
     @Override
     public void onDestroy() {
+        mPttWatchdogHandler.removeCallbacks(mRadioProcessWatchdogHeartbeat);
         mRadioReceiveTracker.clear();
         releasePttForSafety(true);
         setPttMediaSessionActive(false);

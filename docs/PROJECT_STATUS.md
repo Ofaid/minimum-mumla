@@ -55,8 +55,10 @@ document disagrees with this file, verify the code and update this file first.
   resuming an Activity mid-transmission cannot incorrectly activate a pending config.
 - Managed-radio reconnect now covers every unexpected Mumble disconnect with indefinite capped
   backoff (2/4/8/16/32/60 seconds), immediate network-return retry, a 60-second OEM broadcast
-  fallback and Android service-intent redelivery after process death. A certificate pin/policy
-  failure remains an intentional fail-closed retry hold.
+  fallback and Android service-intent redelivery after process death. T99/T88 also renew a
+  process-independent 30-second AlarmManager lease every 10 seconds because T99 firmware can defer
+  a killed service restart for roughly 16 minutes. A certificate pin/policy failure remains an
+  intentional fail-closed retry hold.
 - Replaced the touch PTT screen with a compact full-screen hardware-first UI: whole-screen
   connecting/RX/TX/error states, speaker identity sourced from the long-lived service, room-join
   gating before Ready, connection attempt count and a live TX elapsed timer.
@@ -113,16 +115,16 @@ document disagrees with this file, verify the code and update this file first.
   token. The successful endpoint configuration remains local/device-private.
 - T88 boot/dashboard and legacy shortcut behavior still require live-device verification. Each new
   firmware must pass the no-ResolverActivity provisioning check.
-- Pending-config promotion and failure rollback pass JVM tests and APK build, but their physical
-  T99 acceptance run remains open because the workstation ADB host wedged before the trial could
-  start. The device's active v1001 config stayed unchanged and the v1002 candidate remained staged,
-  which is the intended fail-safe state. The final APK containing the service-owned RX tracker was
-  built but could not be installed during that wedged ADB session.
-- Reconnect, wake-screen, modern UI, half-duplex and PTT-failure behavior pass JVM/build checks but
-  still require the physical matrix in `RECONNECT_TEST_PLAN.md`. A full T99 power cycle on
-  2026-08-04 did not clear the host wedge: Windows still reported the MI_03 ADB Interface healthy,
-  while both platform-tools 36.0.0 and an isolated official 34.0.5 daemon hung identically. The next
-  recovery step is a Windows reboot, not a handset reset or app-data clear.
+- Pending-config promotion and failure rollback pass JVM tests. Physical T99 inspection after the
+  workstation reboot showed active v1002, no pending file and previous v1001; v1002 connected and
+  joined the configured room. A physical failed-candidate rollback injection remains open.
+- The workstation reboot cleared the Windows USB/ADB wedge. The latest APK was installed and the
+  guarded 30-second Wi-Fi/LTE outage restored both original settings and returned to Ready without
+  operator intervention. A same-UID SIGKILL initially exposed T99's roughly 16-minute OEM service
+  restart backoff; after adding the renewable watchdog lease, a second physical run produced a new
+  PID in 23.9 seconds and restored RadioShell/Ready in 30.9 seconds without `am start` or PTT.
+- Wake-screen, reconnect visual state, half-duplex and PTT-failure behavior still require the
+  remaining supervised matrix in `RECONNECT_TEST_PLAN.md`.
 - The reconnect harness now validates that both original network settings are exactly `0` or `1`,
   verifies their restored values, and detects Ready through the stable accessibility marker
   `minimum-state-ready` rather than localized UI text.
@@ -134,13 +136,13 @@ document disagrees with this file, verify the code and update this file first.
 
 ## Immediate next work
 
-1. Reconnect USB/ADB, install the latest APK and run `scripts/test-radio-reconnect.ps1`, then execute
-   the supervised server-restart, long-outage, process-death, wake-screen and PTT-failure matrix.
+1. Execute the supervised server-restart, long-outage, reconnect visual, wake-screen, half-duplex
+   and PTT-failure portions of `RECONNECT_TEST_PLAN.md`.
 2. Capture the successful T99 screen-off PTT event's keyCode, scanCode and input device to determine
    whether the physical control arrives as Button Jack `KEY_MEDIA` or raw GPIO F1/F2.
 3. Connect T88, capture its hardware profile and repeat provisioning, boot, room and PTT tests.
 4. Exercise two or more room presets, denied-room fallback and safe room switching during traffic.
-5. Re-run physical T99 success/failure acceptance for pending config, then add config signatures.
+5. Run physical failed-candidate rollback acceptance, then add config signatures.
 6. Add hidden key/config/audio diagnostics, then decide the dedicated radio flavor/application ID.
 
 The detailed Technical Brief comparison and implementation order are maintained in

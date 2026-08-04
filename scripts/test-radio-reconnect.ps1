@@ -84,6 +84,24 @@ function Wait-NetworkState {
     throw "Network restore verification failed: expected Wi-Fi=$ExpectedWifiState mobile-data=$ExpectedDataState; got Wi-Fi=$actualWifiState mobile-data=$actualDataState"
 }
 
+function Ensure-DisplayAwakeForInspection {
+    $powerState = (Invoke-TargetAdb -Arguments @("shell", "dumpsys", "power")) -join "`n"
+    if ($powerState -notmatch "Display Power: state=OFF" -and
+            $powerState -notmatch "mWakefulness=(Asleep|Dozing)") {
+        return
+    }
+
+    Invoke-TargetAdb -Arguments @("shell", "input", "keyevent", "224") | Out-Null
+    Start-Sleep -Seconds 1
+    $powerState = (Invoke-TargetAdb -Arguments @("shell", "dumpsys", "power")) -join "`n"
+    if ($powerState -match "Display Power: state=OFF" -or
+            $powerState -match "mWakefulness=(Asleep|Dozing)") {
+        # The T99 firmware ignores KEYCODE_WAKEUP from shell, but honors KEYCODE_POWER while off.
+        Invoke-TargetAdb -Arguments @("shell", "input", "keyevent", "26") | Out-Null
+        Start-Sleep -Seconds 2
+    }
+}
+
 function Restore-Network {
     param([string]$WifiState, [string]$DataState)
     if ($WifiState -eq "1") {
@@ -132,6 +150,7 @@ if ($WhatIfPreference) { exit 0 }
 $deadline = (Get-Date).AddSeconds($RecoveryTimeoutSeconds)
 $ready = $false
 while ((Get-Date) -lt $deadline) {
+    Ensure-DisplayAwakeForInspection
     Invoke-TargetAdb -Arguments @("shell", "uiautomator", "dump", "/sdcard/minimum-reconnect.xml") | Out-Null
     $ui = (Invoke-TargetAdb -Arguments @("shell", "cat", "/sdcard/minimum-reconnect.xml")) -join "`n"
     Invoke-TargetAdb -Arguments @("shell", "rm", "/sdcard/minimum-reconnect.xml") | Out-Null

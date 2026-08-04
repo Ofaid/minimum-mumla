@@ -24,7 +24,7 @@ the full-screen UI instead states that connection is blocked for certificate saf
 | Port closed | Use a disposable candidate with an unused port | Same Last Known Good rollback behavior; no false Ready state |
 | Server reject/kick | Use a disposable test account/server policy | Full-screen retry state and continuing capped retry; record server reason without credentials |
 | Network absent for hours | Leave transports unavailable for at least two hours | Service remains safe, fallback polling continues, and return to Ready requires no app restart |
-| Android kills process | Kill the process without force-stopping the package | Service intent is redelivered and the radio reconnects/joins the configured room |
+| Android kills process | Kill the process without force-stopping the package | Watchdog lease opens RadioShell, a new PID appears and the radio reconnects/joins the configured room |
 | Certificate changes | Present a certificate that mismatches the configured pin | No auto-trust, no retry storm, full-screen certificate safety hold |
 | PTT while offline | Press the certified hardware PTT path while reconnecting | Failure tone once per press, no TX state and no stuck input |
 | Encoder produces no packet | Deny/break audio only in a disposable test environment | Failure tone if no encoded packet is handed to the synchronized connection within 1.5 seconds |
@@ -34,7 +34,9 @@ the full-screen UI instead states that connection is blocked for certificate saf
 mobile-data state, disables both transports for a bounded interval, restores the exact prior state
 in `finally`, verifies both settings after restoration, and waits for the stable ASCII accessibility
 marker `minimum-state-ready`. It refuses to begin if either original transport setting is not an
-unambiguous `0` or `1`. It never presses PTT, mutates config, clears app data or prints tokens.
+unambiguous `0` or `1`. Because API-22 `uiautomator` returns no app nodes while the T99 display is
+off, the verification loop wakes an off display before reading the marker; this does not launch a
+new connection or inject PTT. It never presses PTT, mutates config, clears app data or prints tokens.
 
 ```powershell
 Set-Location D:\mumla-dev
@@ -52,3 +54,13 @@ in Minimum covers every locally detectable failure and must not be described as 
 
 Never inject a test transmission without an operator explicitly pressing PTT. Keep the supplied
 access token and any certificate material outside logs, screenshots and this repository.
+
+## T99 results on 2026-08-05
+
+- A guarded 30-second Wi-Fi/LTE outage restored the original `1`/`1` transport settings and returned
+  to `minimum-state-ready` without operator action.
+- A baseline same-UID SIGKILL proved that T99 scheduled normal service redelivery roughly 16 minutes
+  later, which is too slow for radio availability.
+- With the renewable process watchdog installed, a same-UID SIGKILL changed the PID in 23.9 seconds
+  and RadioShell returned to the configured Ready state in 30.9 seconds. No force-stop, app-data
+  clear, manual Activity launch after the kill or PTT transmission was used.

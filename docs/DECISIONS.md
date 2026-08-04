@@ -85,3 +85,11 @@ the synchronized Mumble connection within the confirmation window. Mumble voice 
 visible per-packet acknowledgement, so end-to-end acceptance still requires a second client or
 server-side observer. Documentation and UI must not claim that local packet handoff proves a remote
 listener heard the audio.
+
+## D-014: Dedicated radios use a renewable process watchdog lease
+
+`START_REDELIVER_INTENT` remains the first service-recovery mechanism, but OEM firmware may impose a
+restart backoff that is unacceptable for PTT availability. T99/T88 services therefore renew a
+30-second AlarmManager lease every 10 seconds. Lease expiry explicitly reopens RadioShell and
+re-arms recovery until the service heartbeat resumes. The lease is profile-gated and modern Android
+uses an inexact permission-free alarm fallback rather than requiring special exact-alarm access.

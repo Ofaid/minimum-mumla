@@ -16,6 +16,7 @@ import android.util.Log;
 
 import se.lublin.mumla.Settings;
 import se.lublin.mumla.radio.RadioDeviceProfile;
+import se.lublin.mumla.radio.RadioProcessWatchdog;
 import se.lublin.mumla.radio.RadioShellActivity;
 
 /** Opens the radio client after boot on hardware that permits boot-time activity launches. */
@@ -33,10 +34,12 @@ public class MumlaBootReceiver extends BroadcastReceiver {
         }
 
         String profile = RadioDeviceProfile.detectCurrent();
-        Class<?> launchClass = RadioDeviceProfile.T99.equals(profile)
-                || RadioDeviceProfile.T88.equals(profile)
-                ? RadioShellActivity.class
-                : MumlaActivity.class;
+        boolean radioProfile = RadioDeviceProfile.T99.equals(profile)
+                || RadioDeviceProfile.T88.equals(profile);
+        if (radioProfile) {
+            RadioProcessWatchdog.arm(context);
+        }
+        Class<?> launchClass = radioProfile ? RadioShellActivity.class : MumlaActivity.class;
         Intent launchIntent = new Intent(context, launchClass);
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                 | Intent.FLAG_ACTIVITY_CLEAR_TOP
