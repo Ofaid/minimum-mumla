@@ -1,5 +1,8 @@
 # Codex worker workflow
 
+The executable project-wide rules are in the repository-root `AGENTS.md`. Codex loads that file as
+durable project guidance; this document provides the human-readable hand-off detail.
+
 The personal custom agent used for this project is:
 
 ```text
@@ -28,3 +31,8 @@ Every delegated task must state:
 
 The parent agent must inspect the returned diff and test evidence. A worker result is not evidence
 that the feature is complete until it is integrated and verified from the main working tree.
+
+Prefer independent read-heavy delegation and non-overlapping write ownership. Sol must retain
+cross-cutting architecture, security/trust policy, hardware capability claims and final acceptance.
+After Luna returns, Sol reviews the exact diff, checks for scope drift and secrets, and reruns the
+relevant tests rather than relying only on the worker's report.
