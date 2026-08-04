@@ -78,6 +78,14 @@ This short log records meaningful project milestones. Detailed code truth remain
 - Added `scripts/test-radio-reconnect.ps1` and `docs/RECONNECT_TEST_PLAN.md` for repeatable network,
   server, process, certificate and supervised PTT-failure acceptance. Physical execution remains
   blocked by the workstation ADB host wedge.
+- Retried device acceptance after a full T99 power cycle. Windows continued to report the composite
+  device and MI_03 ADB Interface as healthy, but ADB daemons from platform-tools 36.0.0 and an
+  isolated official 34.0.5 both hung. This isolates the remaining recovery action to a Windows
+  USB-stack reboot; no handset reset, app-data clear, network outage or PTT transmission was made.
+- Hardened reconnect acceptance before the next physical run: the script rejects ambiguous network
+  state, reads both settings back after restoration, and uses a stable ASCII accessibility marker
+  from RadioShell instead of localized Thai text. Windows PowerShell 5.1 parsing, JVM tests and the
+  FOSS debug APK build pass.
 
 ## Prior milestones
 

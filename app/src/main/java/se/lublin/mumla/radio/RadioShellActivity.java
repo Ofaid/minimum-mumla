@@ -72,6 +72,7 @@ public final class RadioShellActivity extends AppCompatActivity {
     private static final int COLOR_TX = Color.rgb(92, 7, 20);
     private static final int COLOR_OFFLINE = Color.rgb(25, 28, 33);
     private static final int COLOR_ERROR = Color.rgb(82, 8, 18);
+    private static final String AUTOMATION_STATE_READY = "minimum-state-ready";
 
     private IMumlaService service;
     private MumlaDatabase database;
@@ -858,6 +859,7 @@ public final class RadioShellActivity extends AppCompatActivity {
             return;
         }
         setStatus(COLOR_READY, getString(R.string.radio_ready));
+        statusView.setContentDescription(AUTOMATION_STATE_READY);
         detailView.setText(R.string.radio_hardware_ptt_hint);
     }
 
@@ -912,6 +914,7 @@ public final class RadioShellActivity extends AppCompatActivity {
     private void setStatus(int color, String text) {
         rootView.setBackgroundColor(color);
         statusView.setBackgroundColor(Color.TRANSPARENT);
+        statusView.setContentDescription(null);
         statusView.setText(text);
         detailView.setText("");
         connectionProgress.setVisibility(color == COLOR_BUSY ? View.VISIBLE : View.GONE);

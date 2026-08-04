@@ -119,7 +119,13 @@ document disagrees with this file, verify the code and update this file first.
   which is the intended fail-safe state. The final APK containing the service-owned RX tracker was
   built but could not be installed during that wedged ADB session.
 - Reconnect, wake-screen, modern UI, half-duplex and PTT-failure behavior pass JVM/build checks but
-  still require the physical matrix in `RECONNECT_TEST_PLAN.md`; the ADB host remains wedged.
+  still require the physical matrix in `RECONNECT_TEST_PLAN.md`. A full T99 power cycle on
+  2026-08-04 did not clear the host wedge: Windows still reported the MI_03 ADB Interface healthy,
+  while both platform-tools 36.0.0 and an isolated official 34.0.5 daemon hung identically. The next
+  recovery step is a Windows reboot, not a handset reset or app-data clear.
+- The reconnect harness now validates that both original network settings are exactly `0` or `1`,
+  verifies their restored values, and detects Ready through the stable accessibility marker
+  `minimum-state-ready` rather than localized UI text.
 - Thai TTS depends on the Android TTS engine and Thai voice data installed on each device. Missing
   Thai data does not block radio operation.
 - Boot activity launch can be blocked by newer Android/OEM policy. T99 is API 22 and passed an

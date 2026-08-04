@@ -32,8 +32,9 @@ the full-screen UI instead states that connection is blocked for certificate saf
 
 `scripts/test-radio-reconnect.ps1` automates the reversible network-loss case. It records Wi-Fi and
 mobile-data state, disables both transports for a bounded interval, restores the exact prior state
-in `finally`, and waits for Ready. It never presses PTT, mutates config, clears app data or prints
-tokens.
+in `finally`, verifies both settings after restoration, and waits for the stable ASCII accessibility
+marker `minimum-state-ready`. It refuses to begin if either original transport setting is not an
+unambiguous `0` or `1`. It never presses PTT, mutates config, clears app data or prints tokens.
 
 ```powershell
 Set-Location D:\mumla-dev

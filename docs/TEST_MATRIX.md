@@ -33,7 +33,7 @@
 | Remote room path selection | PASS | Exact full-path resolver JVM tests plus live T99 join to the supplied nested room |
 | Connection-time token integration | PASS | Live T99 authentication through existing Humla extras; token remained local and was not logged |
 | Config-driven auto-connect/reconnect | PASS | Live T99 ready state and automatic return after a real reboot |
-| Indefinite reconnect policy | PASS IN JVM / T99 MATRIX OPEN | Retry-all policy plus capped 2–60 s backoff tests; network-return fallback and process-intent redelivery build successfully |
+| Indefinite reconnect policy | PASS IN JVM / T99 MATRIX OPEN | Retry-all policy plus capped 2–60 s backoff tests; guarded harness now verifies network restoration and uses an encoding-safe Ready marker |
 | Reconnect full-screen UI | IMPLEMENTED / T99 VISUAL OPEN | Whole-screen connecting/reconnecting state, attempt count and no false Ready before room join |
 | PTT local-delivery warning | IMPLEMENTED / SUPERVISED TEST OPEN | Offline/no-encoded-packet tone and full-screen failure; server receipt still requires a second listener |
 | Radio audio defaults | PASS IN CODE / DEVICE AUDIO OPEN | Preprocessor, PTT confirmation, half-duplex and TTS forced for T99/T88 profiles; VAD setter and teardown unmute corrected |

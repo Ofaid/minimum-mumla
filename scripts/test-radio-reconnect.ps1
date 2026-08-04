@@ -55,6 +55,35 @@ function Get-GlobalSetting {
     return ((Invoke-TargetAdb -Arguments @("shell", "settings", "get", "global", $Name)) -join "").Trim()
 }
 
+function Assert-NetworkStateValue {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Value
+    )
+    if ($Value -notin @("0", "1")) {
+        throw "Cannot safely test: $Name returned '$Value' instead of 0 or 1"
+    }
+}
+
+function Wait-NetworkState {
+    param(
+        [Parameter(Mandatory)][string]$ExpectedWifiState,
+        [Parameter(Mandatory)][string]$ExpectedDataState,
+        [ValidateRange(1, 60)][int]$TimeoutSeconds = 20
+    )
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $actualWifiState = Get-GlobalSetting -Name "wifi_on"
+        $actualDataState = Get-GlobalSetting -Name "mobile_data"
+        if ($actualWifiState -eq $ExpectedWifiState -and $actualDataState -eq $ExpectedDataState) {
+            return
+        }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $deadline)
+
+    throw "Network restore verification failed: expected Wi-Fi=$ExpectedWifiState mobile-data=$ExpectedDataState; got Wi-Fi=$actualWifiState mobile-data=$actualDataState"
+}
+
 function Restore-Network {
     param([string]$WifiState, [string]$DataState)
     if ($WifiState -eq "1") {
@@ -76,6 +105,8 @@ if (-not $Force -and -not $WhatIfPreference) {
 
 $wifiState = Get-GlobalSetting -Name "wifi_on"
 $dataState = Get-GlobalSetting -Name "mobile_data"
+Assert-NetworkStateValue -Name "wifi_on" -Value $wifiState
+Assert-NetworkStateValue -Name "mobile_data" -Value $dataState
 Write-Host "Target: $targetLabel"
 Write-Host "Original network state: Wi-Fi=$wifiState mobile-data=$dataState"
 
@@ -91,7 +122,8 @@ try {
 } finally {
     if (-not $WhatIfPreference) {
         Restore-Network -WifiState $wifiState -DataState $dataState
-        Write-Host "Original network state restored."
+        Wait-NetworkState -ExpectedWifiState $wifiState -ExpectedDataState $dataState
+        Write-Host "Original network state restored and verified."
     }
 }
 
@@ -103,7 +135,7 @@ while ((Get-Date) -lt $deadline) {
     Invoke-TargetAdb -Arguments @("shell", "uiautomator", "dump", "/sdcard/minimum-reconnect.xml") | Out-Null
     $ui = (Invoke-TargetAdb -Arguments @("shell", "cat", "/sdcard/minimum-reconnect.xml")) -join "`n"
     Invoke-TargetAdb -Arguments @("shell", "rm", "/sdcard/minimum-reconnect.xml") | Out-Null
-    if ($ui -match "พร้อมรับ") {
+    if ($ui -match 'content-desc="minimum-state-ready"') {
         $ready = $true
         break
     }

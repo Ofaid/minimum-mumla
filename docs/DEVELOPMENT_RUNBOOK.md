@@ -41,8 +41,15 @@ $adb = "adb -P 5041 -s 12344321"
 Avoid `pm clear` on the working T99 unless a fresh first-run test is explicitly needed; it removes
 the device's current certificates, favourites and test state.
 
+If `adb devices` hangs instead of returning an offline/unauthorized/device row, stop every `adb.exe`
+process and retry ports 5041 and 5037. Confirm that Windows still reports the MI_03 `ADB Interface`
+with problem code 0. A T99 power cycle does not repair a wedged Windows USB stack; if both the
+installed platform-tools and a known-good isolated ADB exhibit the same hang, reboot Windows before
+changing the handset, driver or app. Never factory-reset the radio for this host-side symptom.
+
 For the reversible network-loss/recovery acceptance test, use the guarded script below. It restores
-the exact prior Wi-Fi/mobile-data state in a `finally` block and never presses PTT:
+and reads back the exact prior Wi-Fi/mobile-data state in a `finally` block, refuses ambiguous
+original settings, and never presses PTT:
 
 ```powershell
 .\scripts\test-radio-reconnect.ps1 -WhatIf
