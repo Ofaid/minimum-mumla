@@ -126,6 +126,13 @@ public final class RadioShellActivity extends AppCompatActivity {
     };
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private final Runnable radioTrafficRefresh = () -> {
+        if (destroyed || service == null) {
+            return;
+        }
+        showTrafficOrReady();
+        maybeApplyPendingConfiguration();
+    };
     private final Runnable txTimerTick = new Runnable() {
         @Override
         public void run() {
@@ -236,7 +243,7 @@ public final class RadioShellActivity extends AppCompatActivity {
                 roomView.setText(RoomPathResolver.fullPath(newChannel));
                 joinedConfiguredRoom = isSelectedRoom(newChannel);
                 updateServiceRoomReady(joinedConfiguredRoom);
-                showReadyState();
+                scheduleRadioTrafficRefresh();
                 if (pendingConfigTrial && isSelectedRoom(newChannel)) {
                     commitPendingConfiguration();
                 }
@@ -253,20 +260,17 @@ public final class RadioShellActivity extends AppCompatActivity {
                     startTxTimer();
                 } else {
                     stopTxTimer();
-                    showTrafficOrReady();
-                    maybeApplyPendingConfiguration();
+                    scheduleRadioTrafficRefresh();
                 }
                 return;
             }
 
-            showTrafficOrReady();
-            maybeApplyPendingConfiguration();
+            scheduleRadioTrafficRefresh();
         }
 
         @Override
         public void onUserRemoved(IUser user, String reason) {
-            showTrafficOrReady();
-            maybeApplyPendingConfiguration();
+            scheduleRadioTrafficRefresh();
         }
 
         @Override
@@ -337,6 +341,7 @@ public final class RadioShellActivity extends AppCompatActivity {
     @Override
     protected void onStop() {
         releasePtt();
+        uiHandler.removeCallbacks(radioTrafficRefresh);
         cancelPendingHardwareActions(false);
         if (configReceiverRegistered) {
             unregisterReceiver(configReceiver);
@@ -901,7 +906,7 @@ public final class RadioShellActivity extends AppCompatActivity {
         } else {
             joinedConfiguredRoom = true;
             updateServiceRoomReady(true);
-            showReadyState();
+            scheduleRadioTrafficRefresh();
             if (pendingConfigTrial) {
                 commitPendingConfiguration();
             }
@@ -919,16 +924,31 @@ public final class RadioShellActivity extends AppCompatActivity {
     private void showTrafficOrReady() {
         List<String> activeTalkers = service == null
                 ? java.util.Collections.emptyList() : service.getRadioTalkers();
-        if (activeTalkers.isEmpty()) {
-            showReadyState();
-        } else if (activeTalkers.size() == 1) {
-            String talker = activeTalkers.get(0);
-            setStatus(COLOR_RX, talker.isEmpty() ? getString(R.string.radio_receiving) : talker);
-            detailView.setText(R.string.radio_receiving);
-        } else {
-            setStatus(COLOR_RX, getString(R.string.radio_multiple_talkers));
-            detailView.setText(R.string.radio_receiving);
+        RadioTrafficUiState traffic = RadioTrafficUiState.from(activeTalkers);
+        switch (traffic.getKind()) {
+            case SINGLE_TALKER:
+                String talker = traffic.getTalker();
+                setStatus(COLOR_RX,
+                        talker.isEmpty() ? getString(R.string.radio_receiving) : talker);
+                detailView.setText(R.string.radio_receiving);
+                break;
+            case MULTIPLE_TALKERS:
+                setStatus(COLOR_RX, getString(R.string.radio_multiple_talkers));
+                detailView.setText(R.string.radio_receiving);
+                break;
+            case READY:
+            default:
+                showReadyState();
+                break;
         }
+    }
+
+    private void scheduleRadioTrafficRefresh() {
+        // Humla fans observers out through an unordered concurrent set. Deferring until the
+        // current fan-out completes guarantees MumlaService's tracker has applied this same event,
+        // regardless of whether the Activity observer happened to run first or last.
+        uiHandler.removeCallbacks(radioTrafficRefresh);
+        uiHandler.post(radioTrafficRefresh);
     }
 
     private void showReadyState() {

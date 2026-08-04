@@ -62,6 +62,10 @@ document disagrees with this file, verify the code and update this file first.
   active recovery are covered by JVM tests.
 - RX idleness is service-owned and tracks all remote talking, shouting and whispering sessions, so
   resuming an Activity mid-transmission cannot incorrectly activate a pending config.
+- Fixed ordering between Humla's unordered observer fan-out and the service-owned RX tracker.
+  RadioShell now renders only after the tracker has applied the event, avoiding a Ready flash at RX
+  start and returning to Ready after the final remote talker stops; the same deferred snapshot
+  protects pending-config idle decisions.
 - Managed-radio reconnect now covers every unexpected Mumble disconnect with indefinite capped
   backoff (2/4/8/16/32/60 seconds), immediate network-return retry, a 60-second OEM broadcast
   fallback and Android service-intent redelivery after process death. T99/T88 also renew a
@@ -151,6 +155,9 @@ document disagrees with this file, verify the code and update this file first.
   PID in 23.9 seconds and restored RadioShell/Ready in 30.9 seconds without `am start` or PTT.
 - Wake-screen, reconnect visual state, half-duplex and PTT-failure behavior still require the
   remaining supervised matrix in `RECONNECT_TEST_PLAN.md`.
+- The RX state ordering fix has JVM coverage and is installed on T99; the first 45-second passive
+  observation and a second 55-second awake observation contained no server RX, so one natural live
+  `Ready -> speaker -> Ready` cycle remains to be visually confirmed.
 - The reconnect harness now validates that both original network settings are exactly `0` or `1`,
   verifies their restored values, and detects Ready through the stable accessibility marker
   `minimum-state-ready` rather than localized UI text.

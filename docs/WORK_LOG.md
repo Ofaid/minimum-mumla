@@ -36,6 +36,11 @@ This short log records meaningful project milestones. Detailed code truth remain
 - Installed private config v1003 on T99, verified the app preference and active config both use
   `GYZ3DE`, and observed a fresh schema-2 launch return to the exact configured room in Ready state.
   The temporary workstation migration copy (which could contain room access data) was removed.
+- Fixed the RX UI race caused by Humla's unordered observer fan-out. Activity rendering and config
+  idle evaluation are now deferred/coalesced until `MumlaService` has applied the same talk-state
+  event to `RadioReceiveTracker`; room-join completion now uses the same RX-aware path. Added pure
+  Ready/single/multiple-state tests, built and installed the APK. Two passive device observations
+  totalling 100 seconds saw no incoming traffic, so natural live cycle acceptance remains open.
 
 ## 2026-08-04
 

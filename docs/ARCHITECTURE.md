@@ -139,6 +139,14 @@ mutes playback only while TX is active and explicitly unmutes during audio teard
 disconnect during TX. The UI timer is display-only; the 120-second safety watchdog remains owned by
 the service.
 
+Humla observer fan-out uses an unordered concurrent set. `RadioShellActivity` therefore defers and
+coalesces RX rendering until the current callback fan-out has completed, ensuring
+`MumlaService` has updated `RadioReceiveTracker` first. This prevents a Ready flash before the
+speaker name, guarantees the final remote PASSIVE/removal event returns the UI to Ready, and keeps
+pending-config idle checks aligned with the same service-owned snapshot.
+Room-join completion uses this same refresh path so it cannot overwrite an already-active RX state
+with Ready.
+
 ## Managed-radio reconnect lifecycle
 
 ```text
