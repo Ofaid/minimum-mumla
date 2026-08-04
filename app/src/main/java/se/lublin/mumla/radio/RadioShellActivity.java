@@ -96,14 +96,18 @@ public final class RadioShellActivity extends AppCompatActivity {
     private boolean connectOnPttRequest;
     private int pendingExitKey = KeyEvent.KEYCODE_UNKNOWN;
     private int pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
+    private long pendingExitStartedAt = -1L;
+    private long pendingRoomStartedAt = -1L;
 
     private final Runnable protectedExitAction = () -> {
         pendingExitKey = KeyEvent.KEYCODE_UNKNOWN;
+        pendingExitStartedAt = -1L;
         openRecoveryDashboard();
     };
     private final Runnable roomChangeAction = () -> {
         int keyCode = pendingRoomKey;
         pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
+        pendingRoomStartedAt = -1L;
         int direction = RadioKeyActionPolicy.roomDirection(keyCode);
         if (direction != 0) {
             selectRelativeRoom(direction);
@@ -417,11 +421,11 @@ public final class RadioShellActivity extends AppCompatActivity {
             return true;
         }
         if (isProtectedExitKey(keyCode)) {
-            cancelProtectedExit(keyCode, true);
+            finishProtectedExit(keyCode, event);
             return true;
         }
         if (RadioKeyActionPolicy.isRoomChangeKey(keyCode)) {
-            cancelRoomChange(keyCode, true);
+            finishRoomChange(keyCode, event);
             return true;
         }
         if (isNavigationKey(keyCode)) {
@@ -1033,17 +1037,23 @@ public final class RadioShellActivity extends AppCompatActivity {
         }
         cancelPendingHardwareActions(false);
         pendingExitKey = keyCode;
+        pendingExitStartedAt = event.getEventTime();
         setStatus(COLOR_BUSY, getString(R.string.radio_hold_to_exit));
         uiHandler.postDelayed(protectedExitAction, RadioKeyActionPolicy.EXIT_HOLD_MS);
     }
 
-    private void cancelProtectedExit(int keyCode, boolean restoreStatus) {
+    private void finishProtectedExit(int keyCode, KeyEvent event) {
         if (pendingExitKey != keyCode) {
             return;
         }
+        boolean completed = RadioKeyActionPolicy.heldLongEnough(pendingExitStartedAt,
+                event.getEventTime(), RadioKeyActionPolicy.EXIT_HOLD_MS);
         pendingExitKey = KeyEvent.KEYCODE_UNKNOWN;
+        pendingExitStartedAt = -1L;
         uiHandler.removeCallbacks(protectedExitAction);
-        if (restoreStatus) {
+        if (completed) {
+            openRecoveryDashboard();
+        } else {
             updateFromService();
         }
     }
@@ -1054,17 +1064,25 @@ public final class RadioShellActivity extends AppCompatActivity {
         }
         cancelPendingHardwareActions(false);
         pendingRoomKey = keyCode;
+        pendingRoomStartedAt = event.getEventTime();
         setStatus(COLOR_BUSY, getString(R.string.radio_hold_to_change_room));
         uiHandler.postDelayed(roomChangeAction, RadioKeyActionPolicy.ROOM_CHANGE_HOLD_MS);
     }
 
-    private void cancelRoomChange(int keyCode, boolean restoreStatus) {
+    private void finishRoomChange(int keyCode, KeyEvent event) {
         if (pendingRoomKey != keyCode) {
             return;
         }
+        int direction = RadioKeyActionPolicy.roomDirection(keyCode);
+        boolean completed = RadioKeyActionPolicy.heldLongEnough(pendingRoomStartedAt,
+                event.getEventTime(), RadioKeyActionPolicy.ROOM_CHANGE_HOLD_MS);
         pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
+        pendingRoomStartedAt = -1L;
         uiHandler.removeCallbacks(roomChangeAction);
-        if (restoreStatus) {
+        if (completed && direction != 0) {
+            selectRelativeRoom(direction);
+            joinSelectedRoom();
+        } else {
             updateFromService();
         }
     }
@@ -1074,6 +1092,8 @@ public final class RadioShellActivity extends AppCompatActivity {
                 || pendingRoomKey != KeyEvent.KEYCODE_UNKNOWN;
         pendingExitKey = KeyEvent.KEYCODE_UNKNOWN;
         pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
+        pendingExitStartedAt = -1L;
+        pendingRoomStartedAt = -1L;
         uiHandler.removeCallbacks(protectedExitAction);
         uiHandler.removeCallbacks(roomChangeAction);
         if (restoreStatus && hadPendingAction) {

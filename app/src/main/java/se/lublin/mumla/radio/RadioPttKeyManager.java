@@ -33,7 +33,7 @@ public final class RadioPttKeyManager {
                 .putBoolean(Settings.PREF_PREPROCESSOR_ENABLED, true)
                 .putBoolean(Settings.PREF_HALF_DUPLEX, true)
                 .putBoolean(Settings.PREF_USE_TTS, true)
-                .putBoolean(Settings.PREF_PTT_SOUND, true);
+                .putBoolean(Settings.PREF_PTT_SOUND, false);
         if (RadioDeviceProfile.T99.equals(profile)
                 || !preferences.contains(Settings.PREF_PUSH_KEY)) {
             editor.putInt(Settings.PREF_PUSH_KEY, KeyEvent.KEYCODE_F1);
@@ -79,6 +79,11 @@ public final class RadioPttKeyManager {
 
     public static boolean isRadioProfile(String profile) {
         return RadioDeviceProfile.T99.equals(profile) || RadioDeviceProfile.T88.equals(profile);
+    }
+
+    public static boolean shouldEnablePttConfirmationSound(String profile,
+                                                           boolean preferenceEnabled) {
+        return !isRadioProfile(profile) && preferenceEnabled;
     }
 
     public static boolean isDiagnosticHardwareKey(int keyCode) {

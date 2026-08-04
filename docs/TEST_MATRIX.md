@@ -18,7 +18,7 @@
 | T99 simulated boot launch | PASS | Activity appeared after valid simulated broadcast |
 | T99 radio dashboard pages | PASS | Installed APK: Minimum -> Settings swipe path |
 | T99 ten-button map | PASS | Kernel capture plus Android metadata/keylayout: Power, F1 PTT, volumes, MENU/EXIT, up/down, green/red documented |
-| T99 accidental-exit guard | PASS | Short EXIT/MENU/red remain in RadioShell; raw F2 hold >5 s opens dashboard; green reopens RadioShell |
+| T99 accidental-exit guard | PASS | Red is app-level `KEYCODE_BACK`/scan 60/gpio-keys; release-timestamp fallback makes a 5.06 s hold open dashboard even if UI callback is delayed; green reopens RadioShell |
 | T99 room-key hold | PASS WITH ONE ROOM | Raw Up hold >1 s executed once and returned Ready; multi-room direction still needs live evidence |
 | PTT dashboard recovery | HOTFIX INSTALLED / PHYSICAL RETEST REQUIRED | First physical run opened RadioShell but cross-window F1 started TX; release-required lockout now arms in service and Activity before launch, build passes and installed app is Ready |
 | Managed-radio configured-room TX gate | PASS IN JVM / LIVE TRANSITION OPEN | Pure policy requires synchronized session, PTT mode and verified room readiness for every service input path |
@@ -41,7 +41,7 @@
 | T99 process-death watchdog | PASS | Same-UID SIGKILL, no force-stop/manual relaunch/PTT; renewable 30-second lease bypassed OEM roughly 16-minute service restart backoff |
 | Reconnect full-screen UI | IMPLEMENTED / T99 VISUAL OPEN | Whole-screen connecting/reconnecting state, attempt count and no false Ready before room join |
 | PTT local-delivery warning | IMPLEMENTED / SUPERVISED TEST OPEN | Offline/no-encoded-packet tone and full-screen failure; server receipt still requires a second listener |
-| Radio audio defaults | PASS IN CODE / DEVICE AUDIO OPEN | Preprocessor, PTT confirmation, half-duplex and TTS forced for T99/T88 profiles; VAD setter and teardown unmute corrected |
+| Radio audio defaults | PASS IN CODE / DEVICE AUDIO OPEN | Preprocessor, half-duplex and TTS forced for T99/T88; normal PTT confirmation click forced off while failure alert remains; VAD setter and teardown unmute corrected |
 | Thai TTS selection | IMPLEMENTED / DEVICE VOICE OPEN | Requests `th-TH` only when installed engine reports support; radio continues if voice data is missing |
 | RX/TX display wake | IMPLEMENTED / T99 OPEN | Five-second wake on RX/TX/disconnect edge; OEM/API-22 behavior requires physical verification |
 | Hardware-first RadioShell UI | PASS IN BUILD / T99 VISUAL OPEN | Touch PTT removed, compact 132dp layout, service-owned speaker list and TX elapsed timer |

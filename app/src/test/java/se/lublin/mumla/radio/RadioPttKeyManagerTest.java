@@ -39,4 +39,16 @@ public class RadioPttKeyManagerTest {
         assertTrue(RadioPttKeyManager.isProfileDefaultPttKey(
                 RadioDeviceProfile.T88, KeyEvent.KEYCODE_F2));
     }
+
+    @Test
+    public void managedRadiosAlwaysSuppressNormalPttConfirmationSound() {
+        assertFalse(RadioPttKeyManager.shouldEnablePttConfirmationSound(
+                RadioDeviceProfile.T99, true));
+        assertFalse(RadioPttKeyManager.shouldEnablePttConfirmationSound(
+                RadioDeviceProfile.T88, true));
+        assertTrue(RadioPttKeyManager.shouldEnablePttConfirmationSound(
+                RadioDeviceProfile.GENERIC, true));
+        assertFalse(RadioPttKeyManager.shouldEnablePttConfirmationSound(
+                RadioDeviceProfile.GENERIC, false));
+    }
 }

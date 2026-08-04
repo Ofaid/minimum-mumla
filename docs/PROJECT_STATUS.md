@@ -71,7 +71,7 @@ document disagrees with this file, verify the code and update this file first.
   connecting/RX/TX/error states, speaker identity sourced from the long-lived service, room-join
   gating before Ready, connection attempt count and a live TX elapsed timer.
 - Managed radios automatically enable PTT mode, input preprocessing, half-duplex playback muting,
-  auto-reconnect, PTT confirmation sound and TTS. The Speex VAD setter and half-duplex runtime/
+  auto-reconnect and TTS, while suppressing the normal Mumla PTT confirmation click. The Speex VAD setter and half-duplex runtime/
   teardown unmute paths were corrected; Thai TTS is selected when the installed engine provides a
   `th-TH` voice.
 - RX, TX and disconnect edges wake the small-radio display for a bounded five seconds. Offline or
@@ -126,6 +126,10 @@ document disagrees with this file, verify the code and update this file first.
   opened and the original held press began TX. The installed hotfix now arms service and Activity
   release lockouts before launch and can force-stop any accidental TX; physical regression retest
   remains required before this path is marked PASS.
+- Current app diagnostics from the user's red-button hold report `KEYCODE_BACK`, scanCode 60,
+  `gpio-keys`, with 5.06-5.16 second DOWN-to-UP durations. The original delayed callback could be
+  cancelled by UP despite a valid hold; release-time duration fallback is now installed and passed
+  the exact scan-60 device test.
 - Multiple configured room presets and one-second hold switching are implemented but have only
   been exercised with one live room. Permission-denied fallback and room changes during real
   traffic still need a multi-room acceptance test.

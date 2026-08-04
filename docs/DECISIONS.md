@@ -106,3 +106,10 @@ configured room. On T99, MENU/EXIT/red require a five-second hold to leave Radio
 Up/Down require a one-second hold and then select and join directly. Raw F1 is not described as a
 global Android key: unrelated foreground apps require a separately proven OEM, privileged or
 keylayout integration.
+
+## D-016: Managed radios suppress normal PTT confirmation sound
+
+The short Mumla sound played when local TX begins is disabled for T99/T88 at both managed defaults
+and service runtime, including when a stale preference requests it. Hardware feel and the full-
+screen TX state provide sufficient normal feedback. The separate failure tone remains mandatory so
+an operator is warned when a press cannot be delivered locally.

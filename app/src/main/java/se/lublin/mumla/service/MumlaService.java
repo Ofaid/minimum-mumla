@@ -408,7 +408,8 @@ public class MumlaService extends HumlaService implements
 
         // Register for preference changes
         mSettings = Settings.getInstance(this);
-        mPTTSoundEnabled = mSettings.isPttSoundEnabled();
+        mPTTSoundEnabled = RadioPttKeyManager.shouldEnablePttConfirmationSound(
+                RadioDeviceProfile.detectCurrent(), mSettings.isPttSoundEnabled());
         mShortTtsMessagesEnabled = mSettings.isShortTextToSpeechMessagesEnabled();
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
         preferences.registerOnSharedPreferenceChangeListener(this);
@@ -617,7 +618,8 @@ public class MumlaService extends HumlaService implements
                         mSettings.getEchoCancellationMethod());
                 break;
             case Settings.PREF_PTT_SOUND:
-                mPTTSoundEnabled = mSettings.isPttSoundEnabled();
+                mPTTSoundEnabled = RadioPttKeyManager.shouldEnablePttConfirmationSound(
+                        RadioDeviceProfile.detectCurrent(), mSettings.isPttSoundEnabled());
                 break;
             case Settings.PREF_INPUT_QUALITY:
                 changedExtras.putInt(EXTRAS_INPUT_QUALITY, mSettings.getInputQuality());

@@ -33,4 +33,11 @@ public class RadioKeyActionPolicyTest {
         assertEquals(1, RadioKeyActionPolicy.roomDirection(KeyEvent.KEYCODE_DPAD_DOWN));
         assertEquals(0, RadioKeyActionPolicy.roomDirection(KeyEvent.KEYCODE_MENU));
     }
+
+    @Test
+    public void releaseTimestampCompletesHoldEvenWhenHandlerWasDelayed() {
+        assertTrue(RadioKeyActionPolicy.heldLongEnough(10_000L, 15_060L, 5_000L));
+        assertFalse(RadioKeyActionPolicy.heldLongEnough(10_000L, 14_999L, 5_000L));
+        assertFalse(RadioKeyActionPolicy.heldLongEnough(-1L, 15_060L, 5_000L));
+    }
 }

@@ -19,6 +19,11 @@ This short log records meaningful project milestones. Detailed code truth remain
 - Physical dashboard-F1 acceptance found a cross-window race: the old press reached RadioShell and
   started TX. Added a pre-launch service safety action plus Activity/service release-required state,
   rebuilt and installed the hotfix, and left the physical regression honestly open.
+- User-reported red hold traces proved app-level `KEYCODE_BACK`/scan 60/gpio-keys and valid 5.06+
+  second durations. Added release-timestamp completion so UI-handler delay cannot cancel a completed
+  hold; exact scan-60 retest opened MinimumHome and green returned to RadioShell.
+- Disabled the normal Mumla PTT confirmation click for every managed radio in defaults and runtime;
+  verified the installed T99 preference is false while retaining the PTT failure alert.
 
 ## 2026-08-04
 

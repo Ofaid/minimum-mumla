@@ -44,4 +44,9 @@ public final class RadioKeyActionPolicy {
         }
         return 0;
     }
+
+    public static boolean heldLongEnough(long startedAt, long endedAt, long requiredDuration) {
+        return startedAt >= 0L && endedAt >= startedAt
+                && endedAt - startedAt >= requiredDuration;
+    }
 }

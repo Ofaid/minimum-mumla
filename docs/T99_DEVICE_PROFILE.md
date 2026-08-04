@@ -64,7 +64,7 @@ The T99 application defaults overwrite the managed push key with F1 at every pro
 | Up | `KEY_UP` | `KEYCODE_DPAD_UP` 19 / scan 103 | `matrix_keypad.71` | Hold 1 s: previous room and join |
 | Down | `KEY_DOWN` | `KEYCODE_DPAD_DOWN` 20 / scan 108 | `matrix_keypad.71` | Hold 1 s: next room and join |
 | Green | `KEY_MENU` | `KEYCODE_MENU` 82 / scan 139 | `matrix_keypad.71` | Confirm/join selected room |
-| Red | `KEY_BACK` | `KEYCODE_BACK` 4 / scan 158 | `matrix_keypad.71` | Hold 5 s for recovery dashboard |
+| Red | raw code 60 (`KEY_F2`) in latest trace | `KEYCODE_BACK` 4 / scan 60 | `gpio-keys` | Hold 5 s for recovery dashboard |
 
 Activity diagnostics physically confirmed PTT, volume, direction and MENU metadata. EXIT/green/red
 behavior was additionally verified with the captured kernel event, installed Android keylayout and
@@ -82,6 +82,17 @@ new RadioShell window, which started TX despite the dashboard recovery policy. M
 service safety action before launching RadioShell, forces TX off, and requires a physical key-up
 before any subsequent PTT DOWN is accepted. The corrected build is installed; physical retest is
 still required.
+
+Latest app-private traces taken while the user identified the red control revise the earlier
+provisional ordered mapping: Android reports `KEYCODE_BACK` with scanCode 60 from `gpio-keys`, not
+scan 158. The app deliberately classifies by
+`KEYCODE_BACK` and does not depend on the scan value. Two real holds lasted about 5.06 and 5.16
+seconds; a delayed UI callback was cancelled by UP, so the installed implementation now rechecks
+DOWN-to-UP duration on release. An exact 5.06-second scan-60 test now opens MinimumHome.
+
+Managed Minimum profiles force the ordinary Mumla PTT confirmation click off at both preference and
+runtime levels. The distinct failure tone for an offline, blocked or locally undeliverable PTT is
+retained because it signals an operational fault.
 
 ## Software found on T99
 
