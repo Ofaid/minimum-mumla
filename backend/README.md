@@ -20,5 +20,6 @@ future secure-store reference and must never put the token value in this directo
 
 ## GitHub Pages
 
-The workflow in `.github/workflows/deploy-pages.yml` publishes this directory. In the repository
-settings, set Pages `Source` to `GitHub Actions` once before the first deployment.
+The workflow in `.github/workflows/deploy-pages.yml` publishes this directory. The repository Pages
+source is already configured as `GitHub Actions`; after the workflow reaches `main`, the expected
+base URL is `https://awatchar.github.io/minimum/`.

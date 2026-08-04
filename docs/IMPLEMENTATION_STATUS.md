@@ -39,7 +39,8 @@ T88 ยังไม่มีข้อมูล runtime จากเครื่�
 
 มี static backend ใน `backend/` พร้อม manifest, default config, model profiles สำหรับ T99/T88 และ
 JSON Schema รวมถึง GitHub Pages workflow `deploy-pages.yml` โดย default config ปิด auto-connect
-และใช้ host placeholder จนกว่าจะใส่ Mumble server จริงอย่างตั้งใจ
+และใช้ host placeholder จนกว่าจะใส่ Mumble server จริงอย่างตั้งใจ ตอนนี้ GitHub Pages ของ
+`awatchar/minimum` ตั้ง Source เป็น `GitHub Actions` แล้ว
 
 ## แนวทางลดขนาดของ Radio build
 
