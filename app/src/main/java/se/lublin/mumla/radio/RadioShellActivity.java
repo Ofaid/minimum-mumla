@@ -370,6 +370,9 @@ public final class RadioShellActivity extends AppCompatActivity {
         if (RadioPttKeyManager.isConfiguredPttKey(keyCode, settings)
                 && !RadioPttKeyManager.isMediaStyleKey(keyCode)) {
             if (event.getRepeatCount() == 0) {
+                if (RadioPttRecoveryGuard.isReleaseRequired()) {
+                    return true;
+                }
                 boolean readyForConfiguredRoom = service != null
                         && service.isConnected() && joinedConfiguredRoom;
                 if (!readyForConfiguredRoom) {
@@ -409,6 +412,7 @@ public final class RadioShellActivity extends AppCompatActivity {
     public boolean onKeyUp(int keyCode, KeyEvent event) {
         if (RadioPttKeyManager.isConfiguredPttKey(keyCode, settings)
                 && !RadioPttKeyManager.isMediaStyleKey(keyCode)) {
+            RadioPttRecoveryGuard.noteRelease();
             releasePtt();
             return true;
         }

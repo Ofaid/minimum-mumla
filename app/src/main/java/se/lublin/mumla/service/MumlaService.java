@@ -63,6 +63,7 @@ import se.lublin.mumla.Settings;
 import se.lublin.mumla.service.ipc.TalkBroadcastReceiver;
 import se.lublin.mumla.util.HtmlUtils;
 import se.lublin.mumla.radio.RadioPttKeyManager;
+import se.lublin.mumla.radio.RadioPttRecoveryGuard;
 import se.lublin.mumla.radio.RadioPttSafetyPolicy;
 import se.lublin.mumla.radio.RadioReceiveTracker;
 import se.lublin.mumla.radio.RadioDeviceProfile;
@@ -81,6 +82,10 @@ public class MumlaService extends HumlaService implements
     private static final String TAG = MumlaService.class.getName();
     public static final String ACTION_RADIO_PTT_FAILURE =
             "se.lublin.mumla.action.RADIO_PTT_FAILURE";
+    public static final String ACTION_RADIO_REQUIRE_PTT_RELEASE =
+            "se.lublin.mumla.action.RADIO_REQUIRE_PTT_RELEASE";
+    public static final String ACTION_RADIO_PTT_RELEASED =
+            "se.lublin.mumla.action.RADIO_PTT_RELEASED";
 
     /** Undocumented constant that permits a proximity-sensing wake lock. */
     public static final int PROXIMITY_SCREEN_OFF_WAKE_LOCK = 32;
@@ -440,6 +445,18 @@ public class MumlaService extends HumlaService implements
     }
 
     @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null) {
+            if (ACTION_RADIO_REQUIRE_PTT_RELEASE.equals(intent.getAction())) {
+                requirePttRelease();
+            } else if (ACTION_RADIO_PTT_RELEASED.equals(intent.getAction())) {
+                onTalkKeyUp();
+            }
+        }
+        return super.onStartCommand(intent, flags, startId);
+    }
+
+    @Override
     public void onDestroy() {
         mPttWatchdogHandler.removeCallbacks(mRadioProcessWatchdogHeartbeat);
         mRadioReceiveTracker.clear();
@@ -761,6 +778,9 @@ public class MumlaService extends HumlaService implements
         if (!isManagedRadioDevice()) {
             return;
         }
+        if (connectOnPtt) {
+            RadioPttRecoveryGuard.requireRelease();
+        }
         long now = SystemClock.elapsedRealtime();
         if (now - mLastRadioWakeElapsedRealtime < RADIO_WAKE_COOLDOWN_MS) {
             return;
@@ -926,6 +946,7 @@ public class MumlaService extends HumlaService implements
      */
     @Override
     public void onTalkKeyUp() {
+        RadioPttRecoveryGuard.noteRelease();
         boolean hadNoAudioPacket = mPttInputDown && mPttPressStartedElapsedRealtime > 0L
                 && getLastAudioPacketSentElapsedRealtime() < mPttPressStartedElapsedRealtime;
         mPttInputDown = false;
@@ -945,6 +966,12 @@ public class MumlaService extends HumlaService implements
             playPttFailureAlert();
         }
         mPttFailureAlerted = false;
+    }
+
+    @Override
+    public void requirePttRelease() {
+        RadioPttRecoveryGuard.requireRelease();
+        releasePttForSafety(true);
     }
 
     @Override

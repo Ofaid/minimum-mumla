@@ -16,6 +16,9 @@ This short log records meaningful project milestones. Detailed code truth remain
   recovery intent returned Ready in one second.
 - Recorded the standard Android limitation: F1 cannot be captured globally while an unrelated app
   owns the foreground; a global route needs separately verified OEM/privileged/keylayout support.
+- Physical dashboard-F1 acceptance found a cross-window race: the old press reached RadioShell and
+  started TX. Added a pre-launch service safety action plus Activity/service release-required state,
+  rebuilt and installed the hotfix, and left the physical regression honestly open.
 
 ## 2026-08-04
 

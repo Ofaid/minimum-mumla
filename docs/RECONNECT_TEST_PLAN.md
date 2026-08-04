@@ -72,3 +72,7 @@ access token and any certificate material outside logs, screenshots and this rep
   completed the room action and returned to Ready. No PTT event was injected.
 - A stopped-process recovery simulation launched RadioShell with the same explicit intent used by
   the dashboard/media recovery path and reached `minimum-state-ready` in one second without TX.
+- The first physical dashboard-F1 run revealed a cross-window key race and incorrectly started the
+  TX timer. The hotfix arms a service/Activity release-required lock before the launch, force-stops
+  any TX and waits for key-up. Do not mark the scenario PASS until the physical retest confirms that
+  the first press only opens/alerts and a fresh post-Ready press is the first one that can TX.

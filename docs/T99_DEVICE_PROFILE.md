@@ -77,6 +77,12 @@ hold completes the room action and returns to Ready. F1 received while MinimumHo
 opens RadioShell and requests connection, but Android does not deliver arbitrary F1 events globally
 when an unrelated application owns the foreground.
 
+The first real F1-from-dashboard run exposed that Android can retarget the still-held press to the
+new RadioShell window, which started TX despite the dashboard recovery policy. Minimum now starts a
+service safety action before launching RadioShell, forces TX off, and requires a physical key-up
+before any subsequent PTT DOWN is accepted. The corrected build is installed; physical retest is
+still required.
+
 ## Software found on T99
 
 พบ package `com.loudtalks` (Zello) version 5.9.1 / versionCode 2600751 ซึ่งมี component/filter ที่เกี่ยวข้องกับ PTT เช่น media button และ vendor-style PTT actions การมี filter ใน APK ไม่ใช่หลักฐานว่า firmware ของ T99 จะส่ง action เหล่านั้นให้แอปอื่น จึงใช้เป็นข้อมูลสำหรับ diagnostic และการทดลองเท่านั้น

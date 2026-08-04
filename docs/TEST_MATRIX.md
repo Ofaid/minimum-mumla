@@ -20,7 +20,7 @@
 | T99 ten-button map | PASS | Kernel capture plus Android metadata/keylayout: Power, F1 PTT, volumes, MENU/EXIT, up/down, green/red documented |
 | T99 accidental-exit guard | PASS | Short EXIT/MENU/red remain in RadioShell; raw F2 hold >5 s opens dashboard; green reopens RadioShell |
 | T99 room-key hold | PASS WITH ONE ROOM | Raw Up hold >1 s executed once and returned Ready; multi-room direction still needs live evidence |
-| PTT dashboard recovery | PASS IN BUILD / PHYSICAL F1 OPEN | MinimumHome consumes T99 F1, alerts, opens RadioShell and requests immediate connect without queuing TX; recovery intent reached Ready after a simulated stopped process |
+| PTT dashboard recovery | HOTFIX INSTALLED / PHYSICAL RETEST REQUIRED | First physical run opened RadioShell but cross-window F1 started TX; release-required lockout now arms in service and Activity before launch, build passes and installed app is Ready |
 | Managed-radio configured-room TX gate | PASS IN JVM / LIVE TRANSITION OPEN | Pure policy requires synchronized session, PTT mode and verified room readiness for every service input path |
 | Arbitrary-app global F1 capture | UNSUPPORTED BY STANDARD API | Requires OEM/privileged input or a tested keylayout remap; MediaSession covers only media-style keys |
 | T99 system HOME chooser | PASS | Launcher3 opens directly; ResolverActivity absent |

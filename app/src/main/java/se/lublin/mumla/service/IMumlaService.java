@@ -22,6 +22,9 @@ public interface IMumlaService extends IHumlaService {
 
     void onTalkKeyUp();
 
+    /** Blocks PTT until a subsequent key-up proves the recovery press has ended. */
+    void requirePttRelease();
+
     /** Updates the managed-radio TX gate after the configured room has been verified. */
     void setRadioRoomReady(boolean ready);
 

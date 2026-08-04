@@ -33,7 +33,8 @@ document disagrees with this file, verify the code and update this file first.
 - Added fail-safe PTT recovery. F1 received by the T99 recovery dashboard opens RadioShell, sounds
   a local failure alert and requests an immediate connection; a disconnected RadioShell does the
   same. The triggering press is never queued for later TX, so the operator must press again after
-  Ready and a lost key-up cannot create a stuck transmission.
+  Ready. A service-backed release-required lock is armed before the Activity transition and cleared
+  only after key-up, preventing the original press from becoming a new RadioShell DOWN event.
 - Added a 120-second PTT watchdog, release-on-disconnect/service-destroy behavior and lockout until
   the physical key is released after a timeout.
 - Added a service-owned managed-radio TX gate: synchronization, PTT mode and verified entry into the
@@ -121,6 +122,10 @@ document disagrees with this file, verify the code and update this file first.
   foreground. Instant T99 PTT recovery is therefore implemented for RadioShell and MinimumHome; a
   truly global path would require a separately tested OEM broadcast, privileged integration or
   provisioning-time keylayout remap. Media/headset keys already have the public MediaSession path.
+- The first physical F1-from-dashboard acceptance exposed a cross-window event race: RadioShell
+  opened and the original held press began TX. The installed hotfix now arms service and Activity
+  release lockouts before launch and can force-stop any accidental TX; physical regression retest
+  remains required before this path is marked PASS.
 - Multiple configured room presets and one-second hold switching are implemented but have only
   been exercised with one live room. Permission-denied fallback and room changes during real
   traffic still need a multi-room acceptance test.

@@ -30,6 +30,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import se.lublin.mumla.R;
+import se.lublin.mumla.service.MumlaService;
 
 /**
  * A deliberately small radio-device dashboard. Each page has one large, recoverable action.
@@ -119,9 +120,12 @@ public final class MinimumHomeActivity extends Activity {
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if ((RadioPttKeyManager.isConfiguredPttKey(keyCode, settings)
-                && !RadioPttKeyManager.isMediaStyleKey(keyCode))
-                || isPreviousPageKey(keyCode) || isNextPageKey(keyCode)
+        if (RadioPttKeyManager.isConfiguredPttKey(keyCode, settings)
+                && !RadioPttKeyManager.isMediaStyleKey(keyCode)) {
+            signalPttReleased();
+            return true;
+        }
+        if (isPreviousPageKey(keyCode) || isNextPageKey(keyCode)
                 || isActivateKey(keyCode)) {
             return true;
         }
@@ -221,9 +225,28 @@ public final class MinimumHomeActivity extends Activity {
     }
 
     private void launchRadioForPttRecovery() {
+        RadioPttRecoveryGuard.requireRelease();
+        signalPttReleaseRequired();
         startActivity(new Intent(this, RadioShellActivity.class)
                 .putExtra(RadioShellActivity.EXTRA_CONNECT_ON_PTT, true)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+    }
+
+    private void signalPttReleaseRequired() {
+        sendPttSafetyAction(MumlaService.ACTION_RADIO_REQUIRE_PTT_RELEASE);
+    }
+
+    private void signalPttReleased() {
+        RadioPttRecoveryGuard.noteRelease();
+        sendPttSafetyAction(MumlaService.ACTION_RADIO_PTT_RELEASED);
+    }
+
+    private void sendPttSafetyAction(String action) {
+        try {
+            startService(new Intent(this, MumlaService.class).setAction(action));
+        } catch (RuntimeException ignored) {
+            // RadioShell also applies the release lock once its service binding completes.
+        }
     }
 
     private void playPttRecoveryAlert() {

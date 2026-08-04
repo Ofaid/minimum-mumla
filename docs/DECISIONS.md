@@ -99,7 +99,9 @@ uses an inexact permission-free alarm fallback rather than requiring special exa
 An offline PTT press alerts, foregrounds RadioShell where Android permits and requests an immediate
 connection, but that press is never replayed after connection. The operator presses again after
 Ready; this avoids stuck TX when the original key-up is delivered to another window or lost during
-recovery. Managed-radio TX is service-gated on synchronization, PTT mode and verified entry into the
+recovery. Because Android can retarget a still-held key into the new Activity, Minimum arms a
+service-backed release-required lock before launching RadioShell and keeps the Activity locked until
+key-up. Managed-radio TX is service-gated on synchronization, PTT mode and verified entry into the
 configured room. On T99, MENU/EXIT/red require a five-second hold to leave RadioShell, while
 Up/Down require a one-second hold and then select and join directly. Raw F1 is not described as a
 global Android key: unrelated foreground apps require a separately proven OEM, privileged or
