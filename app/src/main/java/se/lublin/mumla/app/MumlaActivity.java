@@ -462,7 +462,11 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (mService != null && keyCode == mSettings.getPushToTalkKey()) {
+        // Media-style keys are handled by MumlaService's MediaSession so they continue to work
+        // when the Activity loses focus or the screen turns off. Keeping them out of this path
+        // also prevents toggle-PTT from receiving the same key twice while the screen is on.
+        if (mService != null && keyCode == mSettings.getPushToTalkKey()
+                && !isMediaPttKey(keyCode)) {
             mService.onTalkKeyDown();
             return true;
         }
@@ -471,11 +475,22 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (mService != null && keyCode == mSettings.getPushToTalkKey()) {
+        if (mService != null && keyCode == mSettings.getPushToTalkKey()
+                && !isMediaPttKey(keyCode)) {
             mService.onTalkKeyUp();
             return true;
         }
         return super.onKeyUp(keyCode, event);
+    }
+
+    private static boolean isMediaPttKey(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_MEDIA_PLAY
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                || keyCode == KeyEvent.KEYCODE_MEDIA_STOP
+                || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS
+                || keyCode == KeyEvent.KEYCODE_HEADSETHOOK;
     }
 
     @Override

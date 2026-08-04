@@ -22,14 +22,18 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.media.AudioManager;
+import android.media.session.MediaSession;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.widget.Toast;
 
 import androidx.preference.PreferenceManager;
@@ -70,6 +74,7 @@ public class MumlaService extends HumlaService implements
     public static final int PROXIMITY_SCREEN_OFF_WAKE_LOCK = 32;
     public static final int TTS_THRESHOLD = 250; // Maximum number of characters to read
     public static final int RECONNECT_DELAY = 10000;
+    private static final int MAX_PTT_SECONDS = 120;
 
     private Settings mSettings;
     private MumlaConnectionNotification mNotification;
@@ -81,6 +86,34 @@ public class MumlaService extends HumlaService implements
     private PowerManager.WakeLock mProximityLock;
     /** Play sound when push to talk key is pressed */
     private boolean mPTTSoundEnabled;
+    /**
+     * Media-session bridge for hardware/media PTT keys while the Activity is not focused.
+     *
+     * T99 exposes a Button Jack with KEY_MEDIA. A MediaSession is the app-level Android API
+     * that can receive media-button events while the screen is off. F1/F2 and raw GPIO keys
+     * still require an OEM broadcast or privileged input path.
+     */
+    private MediaSession mPttMediaSession;
+    private boolean mPttMediaKeyDown;
+    private final Handler mPttWatchdogHandler = new Handler(Looper.getMainLooper());
+    private boolean mPttInputDown;
+    private boolean mPttWatchdogLockout;
+    private final Runnable mPttWatchdog = new Runnable() {
+        @Override
+        public void run() {
+            if (!mPttInputDown) {
+                return;
+            }
+
+            // Fail safe: stop transmitting and require a real release before another TX.
+            mPttWatchdogLockout = true;
+            mPttInputDown = false;
+            if (isTalking()) {
+                setTalkingState(false);
+            }
+            Log.w(TAG, "PTT watchdog stopped transmission after " + MAX_PTT_SECONDS + " seconds");
+        }
+    };
     /** Try to shorten spoken messages when using TTS */
     private boolean mShortTtsMessagesEnabled;
     /**
@@ -307,6 +340,8 @@ public class MumlaService extends HumlaService implements
         mMessageLog = new ArrayList<>();
         mMessageNotification = new MumlaMessageNotification(MumlaService.this);
 
+        initializePttMediaSession();
+
         // Instantiate overlay view
         mChannelOverlay = new MumlaOverlay(this);
         mHotCorner = new MumlaHotCorner(this, mSettings.getHotCornerGravity(), mHotCornerListener);
@@ -325,6 +360,12 @@ public class MumlaService extends HumlaService implements
 
     @Override
     public void onDestroy() {
+        releasePttForSafety(true);
+        setPttMediaSessionActive(false);
+        if (mPttMediaSession != null) {
+            mPttMediaSession.release();
+            mPttMediaSession = null;
+        }
         if (mNotification != null) {
             mNotification.hide();
             mNotification = null;
@@ -386,11 +427,15 @@ public class MumlaService extends HumlaService implements
         if (mSettings.isHandsetMode()) {
             setProximitySensorOn(true);
         }
+
+        updatePttMediaSessionState();
     }
 
     @Override
     public void onConnectionDisconnected(HumlaException e) {
+        releasePttForSafety(true);
         super.onConnectionDisconnected(e);
+        setPttMediaSessionActive(false);
         try {
             unregisterReceiver(mTalkReceiver);
         } catch (IllegalArgumentException iae) {
@@ -421,6 +466,7 @@ public class MumlaService extends HumlaService implements
                 int inputMethod = mSettings.getHumlaInputMethod();
                 changedExtras.putInt(HumlaService.EXTRAS_TRANSMIT_MODE, inputMethod);
                 mChannelOverlay.setPushToTalkShown(inputMethod == Constants.TRANSMIT_PUSH_TO_TALK);
+                updatePttMediaSessionState();
                 break;
             case Settings.PREF_HANDSET_MODE:
                 setProximitySensorOn(isConnectionEstablished() && mSettings.isHandsetMode());
@@ -604,15 +650,103 @@ public class MumlaService extends HumlaService implements
     }
 
     /**
+     * Creates the media-session bridge used for media-style hardware PTT keys.
+     *
+     * This deliberately does not claim arbitrary F1/F2 keys. Android only routes media-button
+     * keys through MediaSession for an ordinary application; T99's GPIO/F-key path needs a
+     * device-specific broadcast or privileged input integration discovered separately.
+     */
+    private void initializePttMediaSession() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            return;
+        }
+
+        mPttMediaSession = new MediaSession(this, TAG + ".PttMediaSession");
+        mPttMediaSession.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS);
+        mPttMediaSession.setCallback(new MediaSession.Callback() {
+            @Override
+            public boolean onMediaButtonEvent(Intent mediaButtonIntent) {
+                KeyEvent keyEvent = mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
+                if (keyEvent == null || !isConfiguredMediaPttKey(keyEvent.getKeyCode())) {
+                    return super.onMediaButtonEvent(mediaButtonIntent);
+                }
+
+                if (keyEvent.getAction() == KeyEvent.ACTION_DOWN) {
+                    if (!mPttMediaKeyDown && keyEvent.getRepeatCount() == 0) {
+                        mPttMediaKeyDown = true;
+                        onTalkKeyDown();
+                    }
+                    return true;
+                }
+
+                if (keyEvent.getAction() == KeyEvent.ACTION_UP) {
+                    if (mPttMediaKeyDown) {
+                        mPttMediaKeyDown = false;
+                        onTalkKeyUp();
+                    }
+                    return true;
+                }
+
+                return true;
+            }
+        });
+    }
+
+    /**
+     * Only media-style keys can reach this callback. The configured key still controls whether
+     * the event is treated as PTT, so ordinary media buttons are not hijacked by default.
+     */
+    private boolean isConfiguredMediaPttKey(int keyCode) {
+        if (mSettings == null || keyCode != mSettings.getPushToTalkKey()) {
+            return false;
+        }
+
+        return keyCode == KeyEvent.KEYCODE_MEDIA_PLAY
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                || keyCode == KeyEvent.KEYCODE_MEDIA_STOP
+                || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS
+                || keyCode == KeyEvent.KEYCODE_HEADSETHOOK;
+    }
+
+    private void updatePttMediaSessionState() {
+        boolean shouldBeActive = isConnectionEstablished()
+                && Settings.ARRAY_INPUT_METHOD_PTT.equals(mSettings.getInputMethod());
+        setPttMediaSessionActive(shouldBeActive);
+    }
+
+    private void setPttMediaSessionActive(boolean active) {
+        if (mPttMediaSession == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            return;
+        }
+
+        if (active == mPttMediaSession.isActive()) {
+            return;
+        }
+
+        if (!active && mPttMediaKeyDown) {
+            mPttMediaKeyDown = false;
+            onTalkKeyUp();
+        }
+        mPttMediaSession.setActive(active);
+    }
+
+    /**
      * Called when a user presses a talk key down (i.e. when they want to talk).
      * Accounts for talk logic if toggle PTT is on.
      */
     @Override
     public void onTalkKeyDown() {
+        if (mPttInputDown || mPttWatchdogLockout) {
+            return;
+        }
         if(isConnectionEstablished()
                 && Settings.ARRAY_INPUT_METHOD_PTT.equals(mSettings.getInputMethod())) {
+            mPttInputDown = true;
             if (!mSettings.isPushToTalkToggle() && !isTalking()) {
                 setTalkingState(true); // Start talking
+                mPttWatchdogHandler.postDelayed(mPttWatchdog, MAX_PTT_SECONDS * 1000L);
             }
         }
     }
@@ -623,6 +757,9 @@ public class MumlaService extends HumlaService implements
      */
     @Override
     public void onTalkKeyUp() {
+        mPttInputDown = false;
+        mPttWatchdogLockout = false;
+        mPttWatchdogHandler.removeCallbacks(mPttWatchdog);
         if(isConnectionEstablished()
                 && Settings.ARRAY_INPUT_METHOD_PTT.equals(mSettings.getInputMethod())) {
             if (mSettings.isPushToTalkToggle()) {
@@ -630,6 +767,16 @@ public class MumlaService extends HumlaService implements
             } else if (isTalking()) {
                 setTalkingState(false); // Stop talking
             }
+        }
+    }
+
+    /** Stops TX and clears pending watchdog work during lifecycle or connection failures. */
+    private void releasePttForSafety(boolean requireRelease) {
+        mPttWatchdogHandler.removeCallbacks(mPttWatchdog);
+        mPttInputDown = false;
+        mPttWatchdogLockout = requireRelease;
+        if (isTalking()) {
+            setTalkingState(false);
         }
     }
 

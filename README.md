@@ -1,4 +1,15 @@
 
+# Minimum — Public PoC Radio Client
+
+This repository is the T99-focused public PoC built from Mumla/Humla. The project keeps the
+Mumble protocol, TLS, Opus, audio and foreground-service core, while the planned radio build
+reduces the user-facing surface for small Android radio hardware.
+
+Project status and T99 hardware notes:
+
+- [Implementation status](docs/IMPLEMENTATION_STATUS.md)
+- [T99 device profile](docs/T99_DEVICE_PROFILE.md)
+
 # Software maintenance situation
 
 Current maintainer [Daniel Lublin](https://lublin.se)
