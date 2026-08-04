@@ -15,6 +15,9 @@ This short log records meaningful project milestones. Detailed code truth remain
 - Added the non-launcher `RadioShellActivity` with Device ID/profile display and touch PTT bridge.
 - Added the hand-off, architecture, runbook, backend contract, test matrix and decision records.
 - FOSS debug unit tests and APK build passed after the code changes.
+- Applied the user-provided Minimum logo to the Android adaptive icon and added an API 21+
+  legacy launcher resource for T99. Changed the launcher label to `Minimum` and retained the
+  editable SVG source at `docs/Minimum-app-icon-foreground.svg`.
 
 ## Prior milestones
 
