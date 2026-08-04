@@ -38,11 +38,16 @@ document disagrees with this file, verify the code and update this file first.
   a Pages workflow. No user token is committed.
 - Added Android-side `RadioConfigRepository`: embedded safe default, HTTPS-only remote fetch,
   default/model/device merge, validation, size limits and active/previous cache files.
+- Added `AccessTokenResolver` with JVM tests for public-token trimming, case preservation,
+  first-seen ordering, deduplication and safe exclusion of malformed/none/protected entries. It is
+  deliberately not connected to Mumble yet.
 - Added a best-effort six-hour background refresh scheduler. It never delays normal startup and
   falls back to the embedded/cache configuration when Pages or the response is unavailable.
 - Added `MinimumHomeActivity` as the small-device radio dashboard with one large icon per swipe
   page: Minimum and Settings. It is intentionally not an Android HOME handler because the T99 OEM
   resolver excludes it and displays an unusable chooser. T99/T88 boot opens the dashboard directly.
+- Minimum now defaults to dark mode while preserving an explicit user choice of light or system
+  theme.
 - Added a legacy Launcher3 recovery shortcut installer and provisioning receiver. Launcher3 now
   contains Minimum plus Settings, while provisioning verifies that system HOME has no chooser.
 - Verified the FOSS debug unit tests and APK build after the current changes.
@@ -58,8 +63,8 @@ document disagrees with this file, verify the code and update this file first.
 - The config repository refreshes in the background, but the resulting radio config is not yet wired
   to automatic Mumble connection/room selection. The checked-in backend intentionally has
   `autoConnect: false` and a placeholder host.
-- Mumble room path and access-token resolution from a remote radio room preset are not implemented.
-  The supplied test server is documented without its token; keep that token local-only.
+- Mumble room path selection and connection-time use of resolved tokens are not implemented. The
+  supplied test server is documented without its token; keep that token local-only.
 - T88 boot/dashboard and legacy shortcut behavior still require live-device verification. Each new
   firmware must pass the no-ResolverActivity provisioning check.
 - Boot activity launch can be blocked by newer Android/OEM policy. T99 is API 22 and passed the
@@ -67,7 +72,7 @@ document disagrees with this file, verify the code and update this file first.
 
 ## Immediate next work
 
-1. Connect the repository to a worker and add cache refresh/rollback diagnostics.
+1. Finish the config helper/test slice and add cache downgrade/rollback diagnostics.
 2. Add a local-only test configuration for the supplied Mumble endpoint and resolve the target room
    through the existing server database without committing the access token.
 3. Capture T88 and T99 screen-off input events; verify F2 and determine whether an OEM input path is
@@ -75,6 +80,10 @@ document disagrees with this file, verify the code and update this file first.
 4. Decide the dedicated radio flavor/application ID after the minimal shell is exercised on T99.
 5. Add an instrumentation/manual acceptance pass for screen-off PTT, boot, network loss and a
    120-second watchdog timeout.
+
+The detailed Technical Brief comparison and implementation order are maintained in
+`docs/TECHNICAL_BRIEF_GAP_ANALYSIS.md`. The bounded Sol/Luna delegation contract is in
+`docs/CODEX_WORKFLOW.md`.
 
 ## Important safety rules
 

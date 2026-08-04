@@ -24,6 +24,11 @@ RadioConfigRepository
   ├─ schema and safety validation
   └─ active/previous private cache
 
+AccessTokenResolver
+  ├─ reads public room tokens from a complete config
+  ├─ trims and de-duplicates in first-seen order
+  └─ excludes protected references until secure storage exists
+
 MinimumHomeActivity (radio dashboard, not Android HOME)
   ├── one large Minimum icon per page
   ├── swipe: Minimum -> Settings

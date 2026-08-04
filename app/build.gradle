@@ -159,4 +159,6 @@ dependencies {
 
     googImplementation 'com.android.billingclient:billing:7.1.1'
     testImplementation 'junit:junit:4.13.2'
+    // Android's local unit-test jar only contains stubbed org.json methods.
+    testImplementation 'org.json:json:20251224'
 }

@@ -28,8 +28,10 @@
 | GitHub Pages workflow | CONFIGURED | Deploy occurs after workflow reaches `main` |
 | Android config embedded fallback | PASS | Asset + validation in repository |
 | Android remote config fetch/cache | IMPLEMENTED | Background six-hour refresh; T99 correctly falls back on old CA failure |
+| Public access-token resolver | PASS | JVM tests cover trimming, case, ordering, duplicates and malformed/protected entries |
 | Remote room path selection | OPEN | Extend URL/server connection contract |
-| Remote access-token resolver | OPEN | Keep token local-only |
+| Connection-time token integration | OPEN | Feed resolved tokens into existing Mumla/Humla authentication; keep test token local-only |
+| Dark mode default | PASS | Fresh/unset preference resolves to `forceDark`; update installed and visually checked on T99 |
 | Radio shell | FOUNDATION ONLY | Non-launcher activity; exercise on T99 |
 | T88 profile | OPEN | Capture actual T88 runtime data |
 

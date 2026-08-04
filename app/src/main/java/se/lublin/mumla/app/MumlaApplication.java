@@ -50,10 +50,8 @@ public class MumlaApplication extends Application implements SharedPreferences.O
     }
 
     private static void applyTheme(SharedPreferences preferences) {
-        // The "system" and "force*" values are new (see preference_notranslate.xml).
-        // We let other (older) value result in system default theme, and write that
-        // to the preference store.
-        switch (preferences.getString(PREF_THEME, "system")) {
+        // Minimum starts in dark mode unless the user has explicitly selected another theme.
+        switch (preferences.getString(PREF_THEME, "forceDark")) {
             case "forceLight":
                 AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO);
                 break;
@@ -64,8 +62,8 @@ public class MumlaApplication extends Application implements SharedPreferences.O
                 AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
                 break;
             default:
-                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
-                preferences.edit().putString(PREF_THEME, "system").apply();
+                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES);
+                preferences.edit().putString(PREF_THEME, "forceDark").apply();
                 break;
         }
     }

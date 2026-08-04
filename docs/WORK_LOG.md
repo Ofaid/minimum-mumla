@@ -27,6 +27,13 @@ This short log records meaningful project milestones. Detailed code truth remain
 - Added physical-key dashboard navigation after the T99 proved non-touch in practice: up/left and
   down/right change pages, while Select/Enter/Call activates the visible page. PTT F1/F2 remain
   isolated from dashboard actions.
+- Re-read the complete Technical Brief and added a phase/acceptance-test gap analysis instead of
+  treating foundation classes as completed end-to-end features.
+- Changed Minimum's unset/invalid theme default to dark while preserving explicit light/system
+  choices, then visually verified the updated APK on T99.
+- Added and reviewed the bounded Luna worker configuration outside the repository. Its first task
+  produced `AccessTokenResolver`; Sol review corrected its test fixtures, added a test-only JSON
+  runtime, and the full FOSS unit-test/APK build passed.
 
 ## Prior milestones
 
