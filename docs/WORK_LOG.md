@@ -62,7 +62,8 @@ This short log records meaningful project milestones. Detailed code truth remain
   RX safety state is now owned by the long-lived service and covers talk, shout and whisper events.
   Repository/updater/policy JVM tests and the FOSS APK build pass. A physical T99 acceptance attempt
   left active v1001 untouched and v1002 safely pending when the workstation ADB host wedged; no
-  candidate was falsely marked active.
+  candidate was falsely marked active. The final APK passed build but remains to be installed after
+  USB/ADB is reconnected.
 
 ## Prior milestones
 

@@ -100,7 +100,8 @@ document disagrees with this file, verify the code and update this file first.
 - Pending-config promotion and failure rollback pass JVM tests and APK build, but their physical
   T99 acceptance run remains open because the workstation ADB host wedged before the trial could
   start. The device's active v1001 config stayed unchanged and the v1002 candidate remained staged,
-  which is the intended fail-safe state.
+  which is the intended fail-safe state. The final APK containing the service-owned RX tracker was
+  built but could not be installed during that wedged ADB session.
 - Boot activity launch can be blocked by newer Android/OEM policy. T99 is API 22 and passed an
   actual reboot-to-ready-room test; a newer-device foreground-service/notification fallback remains
   future work.
