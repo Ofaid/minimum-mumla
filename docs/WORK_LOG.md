@@ -24,6 +24,9 @@ This short log records meaningful project milestones. Detailed code truth remain
   production solutions. The final design removes Minimum from the HOME resolver, launches the radio
   dashboard explicitly at boot, installs a Minimum recovery shortcut in Launcher3, and verifies no
   ResolverActivity. Reboot and shortcut recovery passed on the physical T99.
+- Added physical-key dashboard navigation after the T99 proved non-touch in practice: up/left and
+  down/right change pages, while Select/Enter/Call activates the visible page. PTT F1/F2 remain
+  isolated from dashboard actions.
 
 ## Prior milestones
 

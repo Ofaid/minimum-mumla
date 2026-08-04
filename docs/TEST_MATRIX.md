@@ -17,6 +17,7 @@
 | Boot receiver registration | PASS | Manifest and receiver present |
 | T99 simulated boot launch | PASS | Activity appeared after valid simulated broadcast |
 | T99 radio dashboard pages | PASS | Installed APK: Minimum -> Settings swipe path |
+| T99 dashboard physical navigation | IMPLEMENTED | DPAD up/down page change; Select/Enter/Call activate; verify live green key |
 | T99 system HOME chooser | PASS | Launcher3 opens directly; ResolverActivity absent |
 | T99 Launcher3 recovery shortcut | PASS | Minimum and Settings icons visible after provisioning |
 | T99 reboot radio dashboard | PASS | Reboot resumes `MinimumHomeActivity`; no chooser |

@@ -18,6 +18,7 @@ import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.GestureDetector;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
@@ -79,6 +80,37 @@ public final class MinimumHomeActivity extends Activity {
             gestureDetector.onTouchEvent(event);
         }
         return super.dispatchTouchEvent(event);
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (isPreviousPageKey(keyCode)) {
+            if (event.getRepeatCount() == 0) {
+                showPage(page == PAGE_MINIMUM ? PAGE_SETTINGS : page - 1);
+            }
+            return true;
+        }
+        if (isNextPageKey(keyCode)) {
+            if (event.getRepeatCount() == 0) {
+                showPage(page == PAGE_SETTINGS ? PAGE_MINIMUM : page + 1);
+            }
+            return true;
+        }
+        if (isActivateKey(keyCode)) {
+            if (event.getRepeatCount() == 0) {
+                launchPageAction();
+            }
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (isPreviousPageKey(keyCode) || isNextPageKey(keyCode) || isActivateKey(keyCode)) {
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
     }
 
     @Override
@@ -161,6 +193,22 @@ public final class MinimumHomeActivity extends Activity {
                 showPage(PAGE_MINIMUM);
             }
         }
+    }
+
+    private boolean isPreviousPageKey(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_LEFT;
+    }
+
+    private boolean isNextPageKey(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT;
+    }
+
+    private boolean isActivateKey(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+                || keyCode == KeyEvent.KEYCODE_ENTER
+                || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                || keyCode == KeyEvent.KEYCODE_BUTTON_SELECT
+                || keyCode == KeyEvent.KEYCODE_CALL;
     }
 
     private int dp(int value) {

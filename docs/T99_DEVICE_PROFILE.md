@@ -67,6 +67,9 @@ Mumla มี MediaSession bridge สำหรับ media-style PTT แล้ว
   installs a legacy Minimum shortcut into Launcher3 as the recovery path.
 - Physical reboot verification passed: no `ResolverActivity`, dashboard focused after boot, and the
   Launcher3 fallback visibly contains both Minimum and Settings.
+- The dashboard supports non-touch operation: DPAD up/left and down/right change pages; DPAD center,
+  Enter, Button Select (`KEY_SELECT`) and Call activate the visible page. F1/F2 remain reserved for
+  PTT and are intentionally not dashboard activation keys.
 
 - โปรเจคมี path build-safe `D:\mumla-dev` ซึ่งเป็น junction ไปยัง `D:\VR Android App\mumla` เดียวกัน
 - Full FOSS debug build และติดตั้ง APK บน T99 สำเร็จแล้ว
