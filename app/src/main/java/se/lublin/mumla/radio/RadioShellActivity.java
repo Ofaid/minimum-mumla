@@ -65,6 +65,8 @@ import se.lublin.mumla.util.MumlaTrustStore;
 
 /** Single-screen radio client driven by the Last Known Good Minimum config. */
 public final class RadioShellActivity extends AppCompatActivity {
+    public static final String EXTRA_CONNECT_ON_PTT =
+            "se.lublin.mumla.extra.CONNECT_ON_PTT";
     private static final int MICROPHONE_PERMISSION_REQUEST = 73;
     private static final int COLOR_READY = Color.rgb(5, 48, 38);
     private static final int COLOR_RX = Color.rgb(0, 60, 68);
@@ -91,6 +93,23 @@ public final class RadioShellActivity extends AppCompatActivity {
     private boolean joinedConfiguredRoom;
     private int connectionAttempt;
     private long txStartedElapsedRealtime;
+    private boolean connectOnPttRequest;
+    private int pendingExitKey = KeyEvent.KEYCODE_UNKNOWN;
+    private int pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
+
+    private final Runnable protectedExitAction = () -> {
+        pendingExitKey = KeyEvent.KEYCODE_UNKNOWN;
+        openRecoveryDashboard();
+    };
+    private final Runnable roomChangeAction = () -> {
+        int keyCode = pendingRoomKey;
+        pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
+        int direction = RadioKeyActionPolicy.roomDirection(keyCode);
+        if (direction != 0) {
+            selectRelativeRoom(direction);
+            joinSelectedRoom();
+        }
+    };
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final Runnable txTimerTick = new Runnable() {
@@ -147,6 +166,7 @@ public final class RadioShellActivity extends AppCompatActivity {
             connectionAttempt = 0;
             connectionRetrySuspended = false;
             joinedConfiguredRoom = false;
+            updateServiceRoomReady(false);
             joinSelectedRoom();
             updateFromService();
             if (!pendingConfigTrial) {
@@ -158,6 +178,7 @@ public final class RadioShellActivity extends AppCompatActivity {
         public void onDisconnected(HumlaException error) {
             connectRequested = false;
             joinedConfiguredRoom = false;
+            updateServiceRoomReady(false);
             stopTxTimer();
             if (retryAfterConfiguredCertificateTrust) {
                 retryAfterConfiguredCertificateTrust = false;
@@ -200,6 +221,7 @@ public final class RadioShellActivity extends AppCompatActivity {
             if (isSelf(user)) {
                 roomView.setText(RoomPathResolver.fullPath(newChannel));
                 joinedConfiguredRoom = isSelectedRoom(newChannel);
+                updateServiceRoomReady(joinedConfiguredRoom);
                 showReadyState();
                 if (pendingConfigTrial && isSelectedRoom(newChannel)) {
                     commitPendingConfiguration();
@@ -246,6 +268,7 @@ public final class RadioShellActivity extends AppCompatActivity {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
             service = ((MumlaService.MumlaBinder) binder).getService();
+            service.setRadioRoomReady(false);
             service.registerObserver(observer);
             updateFromService();
             maybeApplyPendingConfiguration();
@@ -268,7 +291,16 @@ public final class RadioShellActivity extends AppCompatActivity {
         database = new MumlaSQLiteDatabase(this);
         database.open();
         buildUi();
+        acceptPttRecoveryIntent(getIntent());
         loadConfiguration();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        acceptPttRecoveryIntent(intent);
+        maybeConnect();
     }
 
     @Override
@@ -291,6 +323,7 @@ public final class RadioShellActivity extends AppCompatActivity {
     @Override
     protected void onStop() {
         releasePtt();
+        cancelPendingHardwareActions(false);
         if (configReceiverRegistered) {
             unregisterReceiver(configReceiver);
             configReceiverRegistered = false;
@@ -316,6 +349,10 @@ public final class RadioShellActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
+        openRecoveryDashboard();
+    }
+
+    private void openRecoveryDashboard() {
         Intent recoveryDashboard = new Intent(this, MinimumHomeActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         startActivity(recoveryDashboard);
@@ -332,27 +369,24 @@ public final class RadioShellActivity extends AppCompatActivity {
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (RadioPttKeyManager.isConfiguredPttKey(keyCode, settings)
                 && !RadioPttKeyManager.isMediaStyleKey(keyCode)) {
-            if (event.getRepeatCount() == 0 && service != null) {
-                service.onTalkKeyDown();
+            if (event.getRepeatCount() == 0) {
+                boolean readyForConfiguredRoom = service != null
+                        && service.isConnected() && joinedConfiguredRoom;
+                if (!readyForConfiguredRoom) {
+                    requestConnectionFromPtt();
+                }
+                if (service != null) {
+                    service.onTalkKeyDown();
+                }
             }
             return true;
         }
-        if (isT99PhysicalExitKey(keyCode) || isT99PhysicalMenuKey(keyCode)) {
-            if (event.getRepeatCount() == 0) {
-                onBackPressed();
-            }
+        if (isProtectedExitKey(keyCode)) {
+            beginProtectedExit(keyCode, event);
             return true;
         }
-        if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-            if (event.getRepeatCount() == 0) {
-                selectRelativeRoom(-1);
-            }
-            return true;
-        }
-        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-            if (event.getRepeatCount() == 0) {
-                selectRelativeRoom(1);
-            }
+        if (RadioKeyActionPolicy.isRoomChangeKey(keyCode)) {
+            beginRoomChange(keyCode, event);
             return true;
         }
         if (isConfirmKey(keyCode)) {
@@ -376,6 +410,14 @@ public final class RadioShellActivity extends AppCompatActivity {
         if (RadioPttKeyManager.isConfiguredPttKey(keyCode, settings)
                 && !RadioPttKeyManager.isMediaStyleKey(keyCode)) {
             releasePtt();
+            return true;
+        }
+        if (isProtectedExitKey(keyCode)) {
+            cancelProtectedExit(keyCode, true);
+            return true;
+        }
+        if (RadioKeyActionPolicy.isRoomChangeKey(keyCode)) {
+            cancelRoomChange(keyCode, true);
             return true;
         }
         if (isNavigationKey(keyCode)) {
@@ -488,6 +530,7 @@ public final class RadioShellActivity extends AppCompatActivity {
         config = loaded;
         connectionRetrySuspended = false;
         joinedConfiguredRoom = false;
+        updateServiceRoomReady(false);
         selectedRoomIndex = loaded.getDefaultRoomIndex();
         serviceNameView.setText(loaded.getServiceName());
         roomView.setText(loaded.getDefaultRoom().getLabel());
@@ -665,8 +708,9 @@ public final class RadioShellActivity extends AppCompatActivity {
     }
 
     private void maybeConnect() {
+        boolean explicitlyRequested = connectOnPttRequest;
         if (destroyed || config == null || service == null || connectRequested
-                || pendingConfigIoInFlight || !config.isAutoConnect()) {
+                || pendingConfigIoInFlight || (!config.isAutoConnect() && !explicitlyRequested)) {
             return;
         }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
@@ -680,10 +724,12 @@ public final class RadioShellActivity extends AppCompatActivity {
         if (state == HumlaService.ConnectionState.CONNECTING
                 || (state == HumlaService.ConnectionState.CONNECTION_LOST
                 && service.isReconnecting())) {
+            connectOnPttRequest = false;
             updateFromService();
             return;
         }
         if (service.isConnected()) {
+            connectOnPttRequest = false;
             Server target = service.getTargetServer();
             if (target != null && config.getHost().equalsIgnoreCase(target.getHost())
                     && config.getPort() == target.getPort()) {
@@ -702,6 +748,7 @@ public final class RadioShellActivity extends AppCompatActivity {
         }
 
         connectRequested = true;
+        connectOnPttRequest = false;
         setStatus(COLOR_BUSY, getString(R.string.radio_preparing_identity));
         RadioCertificateManager.ensureCertificate(this, available -> {
             if (!available || destroyed) {
@@ -807,7 +854,7 @@ public final class RadioShellActivity extends AppCompatActivity {
         selectedRoomIndex = (selectedRoomIndex + direction + count) % count;
         RadioConnectionConfig.Room room = config.getRooms().get(selectedRoomIndex);
         roomView.setText(room.getLabel());
-        setStatus(COLOR_BUSY, getString(R.string.radio_press_ok));
+        setStatus(COLOR_BUSY, getString(R.string.radio_joining_room));
     }
 
     private void joinSelectedRoom() {
@@ -831,10 +878,12 @@ public final class RadioShellActivity extends AppCompatActivity {
         roomView.setText(room.getLabel());
         if (!target.equals(session.getSessionChannel())) {
             joinedConfiguredRoom = false;
+            updateServiceRoomReady(false);
             setStatus(COLOR_BUSY, getString(R.string.radio_joining_room));
             session.joinChannel(target.getId());
         } else {
             joinedConfiguredRoom = true;
+            updateServiceRoomReady(true);
             showReadyState();
             if (pendingConfigTrial) {
                 commitPendingConfiguration();
@@ -949,19 +998,89 @@ public final class RadioShellActivity extends AppCompatActivity {
                 || keyCode == KeyEvent.KEYCODE_DPAD_LEFT
                 || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
                 || keyCode == KeyEvent.KEYCODE_ENDCALL
-                || isT99PhysicalExitKey(keyCode)
-                || isT99PhysicalMenuKey(keyCode)
+                || isProtectedExitKey(keyCode)
                 || isConfirmKey(keyCode);
     }
 
-    private boolean isT99PhysicalExitKey(int keyCode) {
-        return RadioDeviceProfile.T99.equals(RadioDeviceProfile.detectCurrent())
-                && keyCode == KeyEvent.KEYCODE_F2;
+    private boolean isProtectedExitKey(int keyCode) {
+        return RadioKeyActionPolicy.isProtectedExitKey(
+                RadioDeviceProfile.detectCurrent(), keyCode);
     }
 
-    private boolean isT99PhysicalMenuKey(int keyCode) {
-        return RadioDeviceProfile.T99.equals(RadioDeviceProfile.detectCurrent())
-                && keyCode == KeyEvent.KEYCODE_DPAD_CENTER;
+    private void acceptPttRecoveryIntent(Intent intent) {
+        if (intent != null && intent.getBooleanExtra(EXTRA_CONNECT_ON_PTT, false)) {
+            connectOnPttRequest = true;
+            intent.removeExtra(EXTRA_CONNECT_ON_PTT);
+            setStatus(COLOR_BUSY, getString(R.string.radio_ptt_recovery));
+            detailView.setText(R.string.radio_ptt_recovery_detail);
+        }
+    }
+
+    private void requestConnectionFromPtt() {
+        connectOnPttRequest = true;
+        setStatus(COLOR_BUSY, getString(R.string.radio_ptt_recovery));
+        detailView.setText(R.string.radio_ptt_recovery_detail);
+        maybeConnect();
+    }
+
+    private void beginProtectedExit(int keyCode, KeyEvent event) {
+        if (event.getRepeatCount() != 0 || pendingExitKey == keyCode) {
+            return;
+        }
+        cancelPendingHardwareActions(false);
+        pendingExitKey = keyCode;
+        setStatus(COLOR_BUSY, getString(R.string.radio_hold_to_exit));
+        uiHandler.postDelayed(protectedExitAction, RadioKeyActionPolicy.EXIT_HOLD_MS);
+    }
+
+    private void cancelProtectedExit(int keyCode, boolean restoreStatus) {
+        if (pendingExitKey != keyCode) {
+            return;
+        }
+        pendingExitKey = KeyEvent.KEYCODE_UNKNOWN;
+        uiHandler.removeCallbacks(protectedExitAction);
+        if (restoreStatus) {
+            updateFromService();
+        }
+    }
+
+    private void beginRoomChange(int keyCode, KeyEvent event) {
+        if (event.getRepeatCount() != 0 || pendingRoomKey == keyCode) {
+            return;
+        }
+        cancelPendingHardwareActions(false);
+        pendingRoomKey = keyCode;
+        setStatus(COLOR_BUSY, getString(R.string.radio_hold_to_change_room));
+        uiHandler.postDelayed(roomChangeAction, RadioKeyActionPolicy.ROOM_CHANGE_HOLD_MS);
+    }
+
+    private void cancelRoomChange(int keyCode, boolean restoreStatus) {
+        if (pendingRoomKey != keyCode) {
+            return;
+        }
+        pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
+        uiHandler.removeCallbacks(roomChangeAction);
+        if (restoreStatus) {
+            updateFromService();
+        }
+    }
+
+    private void cancelPendingHardwareActions(boolean restoreStatus) {
+        boolean hadPendingAction = pendingExitKey != KeyEvent.KEYCODE_UNKNOWN
+                || pendingRoomKey != KeyEvent.KEYCODE_UNKNOWN;
+        pendingExitKey = KeyEvent.KEYCODE_UNKNOWN;
+        pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
+        uiHandler.removeCallbacks(protectedExitAction);
+        uiHandler.removeCallbacks(roomChangeAction);
+        if (restoreStatus && hadPendingAction) {
+            updateFromService();
+        }
+    }
+
+    private void updateServiceRoomReady(boolean ready) {
+        if (service != null) {
+            service.setRadioRoomReady(ready);
+        }
     }
 
     private int dp(int value) {

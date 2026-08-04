@@ -51,6 +51,10 @@
     <string name="radio_tx_timer_label">TX · ระยะเวลาที่ส่ง</string>
     <string name="radio_tx_failed">ส่งเสียงไม่ได้</string>
     <string name="radio_tx_failed_detail">ตรวจการเชื่อมต่อและไมโครโฟน</string>
+    <string name="radio_ptt_recovery">PTT ยังไม่ถูกส่ง</string>
+    <string name="radio_ptt_recovery_detail">กำลังเปิดและเชื่อมต่อ กด PTT ใหม่เมื่อขึ้นพร้อม</string>
+    <string name="radio_hold_to_exit">กดค้าง 5 วินาทีเพื่อออก</string>
+    <string name="radio_hold_to_change_room">กดค้าง 1 วินาทีเพื่อเปลี่ยนช่อง</string>
     <string name="notification_message">%1$s: %2$s</string>
     <string name="certificate_export_format">mumla_%s.p12</string>
 </resources>

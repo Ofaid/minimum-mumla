@@ -15,6 +15,8 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
+import android.media.AudioManager;
+import android.media.ToneGenerator;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.GestureDetector;
@@ -41,6 +43,8 @@ public final class MinimumHomeActivity extends Activity {
     private TextView pageIndicator;
     private int page = PAGE_MINIMUM;
     private GestureDetector gestureDetector;
+    private se.lublin.mumla.Settings settings;
+    private ToneGenerator pttRecoveryTone;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -48,6 +52,7 @@ public final class MinimumHomeActivity extends Activity {
         Window window = getWindow();
         window.setStatusBarColor(Color.rgb(7, 25, 43));
         window.setNavigationBarColor(Color.rgb(7, 25, 43));
+        settings = se.lublin.mumla.Settings.getInstance(this);
 
         gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
@@ -83,6 +88,14 @@ public final class MinimumHomeActivity extends Activity {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (RadioPttKeyManager.isConfiguredPttKey(keyCode, settings)
+                && !RadioPttKeyManager.isMediaStyleKey(keyCode)) {
+            if (event.getRepeatCount() == 0) {
+                playPttRecoveryAlert();
+                launchRadioForPttRecovery();
+            }
+            return true;
+        }
         if (isPreviousPageKey(keyCode)) {
             if (event.getRepeatCount() == 0) {
                 showPage(page == PAGE_MINIMUM ? PAGE_SETTINGS : page - 1);
@@ -106,10 +119,22 @@ public final class MinimumHomeActivity extends Activity {
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (isPreviousPageKey(keyCode) || isNextPageKey(keyCode) || isActivateKey(keyCode)) {
+        if ((RadioPttKeyManager.isConfiguredPttKey(keyCode, settings)
+                && !RadioPttKeyManager.isMediaStyleKey(keyCode))
+                || isPreviousPageKey(keyCode) || isNextPageKey(keyCode)
+                || isActivateKey(keyCode)) {
             return true;
         }
         return super.onKeyUp(keyCode, event);
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (pttRecoveryTone != null) {
+            pttRecoveryTone.release();
+            pttRecoveryTone = null;
+        }
+        super.onDestroy();
     }
 
     @Override
@@ -195,6 +220,23 @@ public final class MinimumHomeActivity extends Activity {
         }
     }
 
+    private void launchRadioForPttRecovery() {
+        startActivity(new Intent(this, RadioShellActivity.class)
+                .putExtra(RadioShellActivity.EXTRA_CONNECT_ON_PTT, true)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+    }
+
+    private void playPttRecoveryAlert() {
+        try {
+            if (pttRecoveryTone == null) {
+                pttRecoveryTone = new ToneGenerator(AudioManager.STREAM_MUSIC, 90);
+            }
+            pttRecoveryTone.startTone(ToneGenerator.TONE_SUP_ERROR, 700);
+        } catch (RuntimeException ignored) {
+            // The full-screen recovery state is still shown when an OEM audio path is unavailable.
+        }
+    }
+
     private boolean isPreviousPageKey(int keyCode) {
         return keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_LEFT;
     }
@@ -204,6 +246,10 @@ public final class MinimumHomeActivity extends Activity {
     }
 
     private boolean isActivateKey(int keyCode) {
+        if (RadioDeviceProfile.T99.equals(RadioDeviceProfile.detectCurrent())) {
+            return keyCode == KeyEvent.KEYCODE_MENU
+                    || keyCode == KeyEvent.KEYCODE_DPAD_CENTER;
+        }
         return keyCode == KeyEvent.KEYCODE_DPAD_CENTER
                 || keyCode == KeyEvent.KEYCODE_ENTER
                 || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER

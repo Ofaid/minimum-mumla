@@ -63,6 +63,7 @@ import se.lublin.mumla.Settings;
 import se.lublin.mumla.service.ipc.TalkBroadcastReceiver;
 import se.lublin.mumla.util.HtmlUtils;
 import se.lublin.mumla.radio.RadioPttKeyManager;
+import se.lublin.mumla.radio.RadioPttSafetyPolicy;
 import se.lublin.mumla.radio.RadioReceiveTracker;
 import se.lublin.mumla.radio.RadioDeviceProfile;
 import se.lublin.mumla.radio.RadioKeyDiagnostics;
@@ -109,6 +110,7 @@ public class MumlaService extends HumlaService implements
      * still require an OEM broadcast or privileged input path.
      */
     private MediaSession mPttMediaSession;
+    private boolean mRadioRoomReady;
     private boolean mPttMediaKeyDown;
     private final Handler mPttWatchdogHandler = new Handler(Looper.getMainLooper());
     private boolean mPttInputDown;
@@ -522,6 +524,7 @@ public class MumlaService extends HumlaService implements
     @Override
     public void onConnectionDisconnected(HumlaException e) {
         mRadioReceiveTracker.clear();
+        mRadioRoomReady = false;
         releasePttForSafety(true);
         super.onConnectionDisconnected(e);
         updatePttMediaSessionState();
@@ -751,6 +754,10 @@ public class MumlaService extends HumlaService implements
 
     @SuppressWarnings("deprecation")
     private void wakeRadioDisplay() {
+        wakeRadioDisplay(false);
+    }
+
+    private void wakeRadioDisplay(boolean connectOnPtt) {
         if (!isManagedRadioDevice()) {
             return;
         }
@@ -778,6 +785,9 @@ public class MumlaService extends HumlaService implements
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP
                         | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        if (connectOnPtt) {
+            radio.putExtra(RadioShellActivity.EXTRA_CONNECT_ON_PTT, true);
+        }
         try {
             startActivity(radio);
         } catch (RuntimeException error) {
@@ -888,9 +898,13 @@ public class MumlaService extends HumlaService implements
         if (mPttInputDown || mPttWatchdogLockout) {
             return;
         }
-        wakeRadioDisplay();
-        if (!isSynchronized()
-                || !Settings.ARRAY_INPUT_METHOD_PTT.equals(mSettings.getInputMethod())) {
+        boolean synchronizedSession = isSynchronized();
+        boolean managedRadio = isManagedRadioDevice();
+        boolean pttMode = Settings.ARRAY_INPUT_METHOD_PTT.equals(mSettings.getInputMethod());
+        boolean readyToTransmit = RadioPttSafetyPolicy.canStartTransmission(
+                synchronizedSession, pttMode, managedRadio, mRadioRoomReady);
+        wakeRadioDisplay(!readyToTransmit);
+        if (!readyToTransmit) {
             playPttFailureAlert();
             return;
         }
@@ -931,6 +945,11 @@ public class MumlaService extends HumlaService implements
             playPttFailureAlert();
         }
         mPttFailureAlerted = false;
+    }
+
+    @Override
+    public void setRadioRoomReady(boolean ready) {
+        mRadioRoomReady = ready;
     }
 
     /** Stops TX and clears pending watchdog work during lifecycle or connection failures. */

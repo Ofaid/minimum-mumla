@@ -3,6 +3,20 @@
 This short log records meaningful project milestones. Detailed code truth remains in
 `PROJECT_STATUS.md` and the source files.
 
+## 2026-08-05 — PTT recovery and deliberate hardware actions
+
+- Added fail-safe PTT recovery from MinimumHome and disconnected RadioShell: alert, foreground
+  RadioShell and request connection immediately, but never queue the triggering press for TX.
+- Added a service-owned room-ready gate so no Activity or MediaSession PTT path can transmit before
+  the configured room join has been verified.
+- Added a five-second hold requirement for T99 MENU/EXIT/red and a one-second Up/Down hold that
+  selects and joins the configured room without green confirmation.
+- Installed and checked on T99 without injecting PTT: short exit keys stayed in RadioShell, long F2
+  opened MinimumHome, green reopened RadioShell, long Up returned Ready, and a stopped-process
+  recovery intent returned Ready in one second.
+- Recorded the standard Android limitation: F1 cannot be captured globally while an unrelated app
+  owns the foreground; a global route needs separately verified OEM/privileged/keylayout support.
+
 ## 2026-08-04
 
 - Confirmed the working tree and GitHub draft PR #1 for `awatchar/minimum`.

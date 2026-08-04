@@ -22,6 +22,9 @@ public interface IMumlaService extends IHumlaService {
 
     void onTalkKeyUp();
 
+    /** Updates the managed-radio TX gate after the configured room has been verified. */
+    void setRadioRoomReady(boolean ready);
+
     boolean isRadioReceiving();
 
     List<String> getRadioTalkers();

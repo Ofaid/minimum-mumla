@@ -30,8 +30,14 @@ document disagrees with this file, verify the code and update this file first.
 - Added the six-character persistent public Device ID and unit tests. It is now created at app
   process startup by `MumlaApplication`.
 - Added MediaSession handling for Android public media-style PTT keys.
+- Added fail-safe PTT recovery. F1 received by the T99 recovery dashboard opens RadioShell, sounds
+  a local failure alert and requests an immediate connection; a disconnected RadioShell does the
+  same. The triggering press is never queued for later TX, so the operator must press again after
+  Ready and a lost key-up cannot create a stuck transmission.
 - Added a 120-second PTT watchdog, release-on-disconnect/service-destroy behavior and lockout until
   the physical key is released after a timeout.
+- Added a service-owned managed-radio TX gate: synchronization, PTT mode and verified entry into the
+  configured room must all be true before Activity or MediaSession input can start transmission.
 - Made first-run client certificate creation automatic with retry on failure.
 - Added boot auto-start, enabled by default, with an OEM/background-launch exception guard.
 - Removed Zello for user 0 on the connected T99 and evolved the guarded PowerShell workflow into
@@ -71,14 +77,16 @@ document disagrees with this file, verify the code and update this file first.
   locally undeliverable PTT produces an error tone and full-screen failure state; encoded-packet
   confirmation is explicitly not claimed as remote server receipt.
 - Added `MinimumHomeActivity` as the small-device recovery dashboard with one large icon per swipe
-  page: Minimum and Settings. It is intentionally not an Android HOME handler because the T99 OEM
+  page: Minimum and Settings. T99 F1 reopens the radio from this dashboard, and physical green
+  activates the visible page. It is intentionally not an Android HOME handler because the T99 OEM
   resolver excludes it and displays an unusable chooser.
 - Completed the dark `RadioShellActivity`: it loads the Last Known Good config, silently ensures a
   client certificate, connects/reconnects automatically, authenticates with resolved public room
   tokens, resolves the default room by its exact full path, joins it, and displays offline,
-  connecting, ready, RX, TX and access-denied states. Direction keys select configured rooms;
-  physical green (`KEY_MENU`) confirms, while MENU (`DPAD_CENTER`), EXIT (F2) and red (Back) open
-  the recovery dashboard.
+  connecting, ready, RX, TX and access-denied states. Holding Up/Down for one second selects and
+  joins the adjacent configured room without confirmation. MENU (`DPAD_CENTER`), EXIT (F2) and red
+  (Back) must be held for five seconds before opening the recovery dashboard; physical green
+  (`KEY_MENU`) remains an immediate confirm/rejoin control.
 - Added config-authorized automatic trust for managed/self-signed Mumble servers. Normal Android
   trust is attempted first; on failure, `autoTrustServerCertificate` defaults to true, stores the
   presented leaf certificate app-privately and retries without a dialog. An optional SHA-256 pin is
@@ -109,9 +117,13 @@ document disagrees with this file, verify the code and update this file first.
   EXIT and is explicitly excluded from T99 PTT.
 - T88 has no runtime capture yet. Do not add T88 keycodes or USB values until the real device is
   connected and inspected.
-- Multiple configured room presets and physical room switching are implemented but have only been
-  exercised with one live room. Permission-denied fallback and room changes during real traffic
-  still need a multi-room acceptance test.
+- Android cannot route an arbitrary F1 key to an ordinary app while another application owns the
+  foreground. Instant T99 PTT recovery is therefore implemented for RadioShell and MinimumHome; a
+  truly global path would require a separately tested OEM broadcast, privileged integration or
+  provisioning-time keylayout remap. Media/headset keys already have the public MediaSession path.
+- Multiple configured room presets and one-second hold switching are implemented but have only
+  been exercised with one live room. Permission-denied fallback and room changes during real
+  traffic still need a multi-room acceptance test.
 - The checked-in backend intentionally has `autoConnect: false`, a placeholder host and no access
   token. The successful endpoint configuration remains local/device-private.
 - T88 boot/dashboard and legacy shortcut behavior still require live-device verification. Each new
@@ -137,12 +149,15 @@ document disagrees with this file, verify the code and update this file first.
 
 ## Immediate next work
 
-1. Execute the supervised server-restart, long-outage, reconnect visual, wake-screen, half-duplex
+1. With the operator present, verify one physical F1 press from MinimumHome opens/reconnects without
+   TX, then press again only after Ready; decide whether T99 provisioning needs a tested global
+   keylayout/OEM path for unrelated foreground apps.
+2. Execute the supervised server-restart, long-outage, reconnect visual, wake-screen, half-duplex
    and PTT-failure portions of `RECONNECT_TEST_PLAN.md`.
-2. Connect T88, capture its hardware profile and repeat provisioning, boot, room and PTT tests.
-3. Exercise two or more room presets, denied-room fallback and safe room switching during traffic.
-4. Run physical failed-candidate rollback acceptance, then add config signatures.
-5. Extend the new private key diagnostics with config/audio health, then decide the dedicated radio
+3. Connect T88, capture its hardware profile and repeat provisioning, boot, room and PTT tests.
+4. Exercise two or more room presets, denied-room fallback and safe room switching during traffic.
+5. Run physical failed-candidate rollback acceptance, then add config signatures.
+6. Extend the new private key diagnostics with config/audio health, then decide the dedicated radio
    flavor/application ID.
 
 The detailed Technical Brief comparison and implementation order are maintained in

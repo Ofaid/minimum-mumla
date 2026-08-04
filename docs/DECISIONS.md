@@ -93,3 +93,14 @@ restart backoff that is unacceptable for PTT availability. T99/T88 services ther
 30-second AlarmManager lease every 10 seconds. Lease expiry explicitly reopens RadioShell and
 re-arms recovery until the service heartbeat resumes. The lease is profile-gated and modern Android
 uses an inexact permission-free alarm fallback rather than requiring special exact-alarm access.
+
+## D-015: Recovery PTT is never queued, and deliberate keys require holds
+
+An offline PTT press alerts, foregrounds RadioShell where Android permits and requests an immediate
+connection, but that press is never replayed after connection. The operator presses again after
+Ready; this avoids stuck TX when the original key-up is delivered to another window or lost during
+recovery. Managed-radio TX is service-gated on synchronization, PTT mode and verified entry into the
+configured room. On T99, MENU/EXIT/red require a five-second hold to leave RadioShell, while
+Up/Down require a one-second hold and then select and join directly. Raw F1 is not described as a
+global Android key: unrelated foreground apps require a separately proven OEM, privileged or
+keylayout integration.

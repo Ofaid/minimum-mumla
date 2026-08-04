@@ -56,6 +56,11 @@ to the recovery dashboard. `RadioConnectionConfig` provides the typed validated 
 the shell, and `RoomPathResolver` performs exact full-path channel lookup. `MinimumHomeActivity`
 remains a deliberate recovery route to Minimum and Android Settings.
 
+On T99, the recovery dashboard consumes F1 by sounding a local failure alert and opening
+RadioShell with an explicit connection request; it never queues that press for later TX. RadioShell
+requires a one-second Up/Down hold to select and join a room, and requires a five-second hold on
+physical MENU/EXIT/red before returning to the dashboard.
+
 ## Configuration precedence
 
 The intended merge order is:
@@ -119,6 +124,15 @@ disconnect / service destroy / network loss
 
 The service owns the safety behavior. UI surfaces must call the service and must not implement a
 second independent PTT timer.
+
+An offline PTT press is intentionally not queued. Minimum sounds/shows failure, opens the radio UI
+when the dashboard or MediaSession path receives the event, and requests connection immediately.
+The user presses PTT again after Ready. This avoids a stuck transmission when key-up belongs to the
+old window or is lost during process/activity recovery. `MumlaService` additionally gates every
+managed-radio PTT source on Mumble synchronization, PTT mode and verified entry into the configured
+room. Standard Android cannot globally capture T99's arbitrary F1 key while an unrelated app is
+foreground; that requires a separately verified OEM broadcast, privileged input component or
+provisioning-time keylayout remap.
 
 Managed radios also enable Speex input preprocessing and half-duplex automatically. Half-duplex
 mutes playback only while TX is active and explicitly unmutes during audio teardown, including a

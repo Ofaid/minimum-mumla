@@ -59,17 +59,23 @@ The T99 application defaults overwrite the managed push key with F1 at every pro
 | PTT | `KEY_F1` | `KEYCODE_F1` 131 / scan 59 | `gpio-keys` | PTT hold; F1 only on T99 |
 | Volume + | `KEY_VOLUMEUP` | `KEYCODE_VOLUME_UP` 24 / scan 115 | `gpio-keys` | Android volume |
 | Volume - | `KEY_VOLUMEDOWN` | `KEYCODE_VOLUME_DOWN` 25 / scan 114 | `qpnp_pon` | Android volume |
-| MENU | `KEY_SELECT` | `KEYCODE_DPAD_CENTER` 23 / scan 353 | `matrix_keypad.71` | Open recovery dashboard from RadioShell |
-| EXIT | `KEY_F2` | `KEYCODE_F2` 132 / scan 60 | `gpio-keys` | Open recovery dashboard; never PTT |
-| Up | `KEY_UP` | `KEYCODE_DPAD_UP` 19 / scan 103 | `matrix_keypad.71` | Previous room/page |
-| Down | `KEY_DOWN` | `KEYCODE_DPAD_DOWN` 20 / scan 108 | `matrix_keypad.71` | Next room/page |
+| MENU | `KEY_SELECT` | `KEYCODE_DPAD_CENTER` 23 / scan 353 | `matrix_keypad.71` | Hold 5 s for recovery dashboard |
+| EXIT | `KEY_F2` | `KEYCODE_F2` 132 / scan 60 | `gpio-keys` | Hold 5 s for dashboard; never PTT |
+| Up | `KEY_UP` | `KEYCODE_DPAD_UP` 19 / scan 103 | `matrix_keypad.71` | Hold 1 s: previous room and join |
+| Down | `KEY_DOWN` | `KEYCODE_DPAD_DOWN` 20 / scan 108 | `matrix_keypad.71` | Hold 1 s: next room and join |
 | Green | `KEY_MENU` | `KEYCODE_MENU` 82 / scan 139 | `matrix_keypad.71` | Confirm/join selected room |
-| Red | `KEY_BACK` | `KEYCODE_BACK` 4 / scan 158 | `matrix_keypad.71` | Back to recovery dashboard |
+| Red | `KEY_BACK` | `KEYCODE_BACK` 4 / scan 158 | `matrix_keypad.71` | Hold 5 s for recovery dashboard |
 
 Activity diagnostics physically confirmed PTT, volume, direction and MENU metadata. EXIT/green/red
 behavior was additionally verified with the captured kernel event, installed Android keylayout and
 non-PTT ADB key injection. The app-private bounded trace is
 `files/radio-diagnostics/key-events.log`; it records no text, config, token or audio data.
+
+The installed T99 build also passed deliberate-action checks: short EXIT/MENU/red presses remain in
+RadioShell, a 5.4-second raw F2 hold opens MinimumHome, green reopens RadioShell, and a 1.2-second Up
+hold completes the room action and returns to Ready. F1 received while MinimumHome is foreground
+opens RadioShell and requests connection, but Android does not deliver arbitrary F1 events globally
+when an unrelated application owns the foreground.
 
 ## Software found on T99
 
@@ -88,8 +94,9 @@ non-PTT ADB key injection. The app-private bounded trace is
 - Physical reboot verification passed: no `ResolverActivity`, dashboard focused after boot, and the
   Launcher3 fallback visibly contains both Minimum and Settings.
 - The dashboard supports non-touch operation: DPAD up/left and down/right change pages; DPAD center,
-  Enter, Button Select (`KEY_SELECT`) and Call activate the visible page. On T99, F1 is PTT and F2
-  is the labelled EXIT key; F2 is never accepted as PTT.
+  Enter, Button Select (`KEY_SELECT`), Call and T99 physical green (`KEY_MENU`) activate the visible
+  page. On T99, F1 opens/reconnects Minimum from the dashboard and F2 is the labelled EXIT key; F2
+  is never accepted as PTT.
 
 - โปรเจคมี path build-safe `D:\mumla-dev` ซึ่งเป็น junction ไปยัง `D:\VR Android App\mumla` เดียวกัน
 - Full FOSS debug build และติดตั้ง APK บน T99 สำเร็จแล้ว

@@ -1,6 +1,6 @@
 # Minimum reconnect and TX-failure acceptance plan
 
-Last reviewed: 2026-08-04
+Last reviewed: 2026-08-05
 
 ## Required behavior
 
@@ -27,6 +27,9 @@ the full-screen UI instead states that connection is blocked for certificate saf
 | Android kills process | Kill the process without force-stopping the package | Watchdog lease opens RadioShell, a new PID appears and the radio reconnects/joins the configured room |
 | Certificate changes | Present a certificate that mismatches the configured pin | No auto-trust, no retry storm, full-screen certificate safety hold |
 | PTT while offline | Press the certified hardware PTT path while reconnecting | Failure tone once per press, no TX state and no stuck input |
+| PTT from Minimum dashboard | Leave RadioShell through a deliberate five-second exit, then press physical PTT | Failure tone, RadioShell opens, connection starts immediately, current press is not queued, next press after Ready transmits |
+| Accidental exit key | Tap T99 MENU, EXIT and red; then hold each for five seconds in separate runs | Taps remain in RadioShell; each deliberate hold opens MinimumHome exactly once |
+| Room hold action | Tap then hold Up/Down for one second with at least two configured rooms | Tap does nothing; hold changes and joins exactly one adjacent room without green confirmation |
 | Encoder produces no packet | Deny/break audio only in a disposable test environment | Failure tone if no encoded packet is handed to the synchronized connection within 1.5 seconds |
 | Disconnect during TX | Remove network while a supervised test transmission is active | TX releases immediately, watchdog work clears, playback unmutes and reconnect starts |
 
@@ -64,3 +67,8 @@ access token and any certificate material outside logs, screenshots and this rep
 - With the renewable process watchdog installed, a same-UID SIGKILL changed the PID in 23.9 seconds
   and RadioShell returned to the configured Ready state in 30.9 seconds. No force-stop, app-data
   clear, manual Activity launch after the kill or PTT transmission was used.
+- Short injected EXIT/MENU/red events remained in RadioShell; a raw F2 hold of 5.4 seconds opened
+  MinimumHome and physical-green Android mapping reopened RadioShell. A raw Up hold of 1.2 seconds
+  completed the room action and returned to Ready. No PTT event was injected.
+- A stopped-process recovery simulation launched RadioShell with the same explicit intent used by
+  the dashboard/media recovery path and reached `minimum-state-ready` in one second without TX.

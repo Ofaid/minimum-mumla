@@ -18,6 +18,11 @@
 | T99 simulated boot launch | PASS | Activity appeared after valid simulated broadcast |
 | T99 radio dashboard pages | PASS | Installed APK: Minimum -> Settings swipe path |
 | T99 ten-button map | PASS | Kernel capture plus Android metadata/keylayout: Power, F1 PTT, volumes, MENU/EXIT, up/down, green/red documented |
+| T99 accidental-exit guard | PASS | Short EXIT/MENU/red remain in RadioShell; raw F2 hold >5 s opens dashboard; green reopens RadioShell |
+| T99 room-key hold | PASS WITH ONE ROOM | Raw Up hold >1 s executed once and returned Ready; multi-room direction still needs live evidence |
+| PTT dashboard recovery | PASS IN BUILD / PHYSICAL F1 OPEN | MinimumHome consumes T99 F1, alerts, opens RadioShell and requests immediate connect without queuing TX; recovery intent reached Ready after a simulated stopped process |
+| Managed-radio configured-room TX gate | PASS IN JVM / LIVE TRANSITION OPEN | Pure policy requires synchronized session, PTT mode and verified room readiness for every service input path |
+| Arbitrary-app global F1 capture | UNSUPPORTED BY STANDARD API | Requires OEM/privileged input or a tested keylayout remap; MediaSession covers only media-style keys |
 | T99 system HOME chooser | PASS | Launcher3 opens directly; ResolverActivity absent |
 | T99 Launcher3 recovery shortcut | PASS | Minimum and Settings icons visible after provisioning |
 | T99 reboot radio client | PASS | Real reboot resumes `RadioShellActivity`, auto-connects and rejoins the exact configured room; no chooser |
@@ -46,7 +51,7 @@
 | Pending config idle gate | PASS IN JVM | Candidate blocked during RX, TX and connection transitions; service tracker covers talk/shout/whisper and disconnect clear |
 | Pending config promotion/rollback | PROMOTION PASS T99 / FAILURE INJECTION OPEN | Active v1002, no pending and previous v1001 physically verified; failed-candidate rollback still needs live injection |
 | Screen-off connection persistence | PASS | T99 display OFF/dozing for 10 seconds with `MumlaService` still started and no disconnect |
-| Multi-room preset switching | IMPLEMENTED IN CODE | Direction/select/default keys exist; requires a live config with at least two rooms |
+| Multi-room preset switching | IMPLEMENTED IN CODE | One-second Up/Down hold joins directly; requires a live config with at least two rooms |
 | Dark mode default | PASS | Fresh/unset preference resolves to `forceDark`; update installed and visually checked on T99 |
 | Radio shell | PASS ON T99 | Dark ready/RX/TX/status UI, full room path, Device ID/profile and enabled touch PTT verified |
 | T88 profile | OPEN | Capture actual T88 runtime data |
