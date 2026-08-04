@@ -104,6 +104,16 @@ public final class RadioShellActivity extends AppCompatActivity {
         pendingExitStartedAt = -1L;
         openRecoveryDashboard();
     };
+    private final Runnable protectedExitPromptTick = new Runnable() {
+        @Override
+        public void run() {
+            if (pendingExitKey == KeyEvent.KEYCODE_UNKNOWN || destroyed) {
+                return;
+            }
+            setStatus(COLOR_BUSY, getString(R.string.radio_hold_to_exit));
+            uiHandler.postDelayed(this, 250L);
+        }
+    };
     private final Runnable roomChangeAction = () -> {
         int keyCode = pendingRoomKey;
         pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
@@ -366,6 +376,15 @@ public final class RadioShellActivity extends AppCompatActivity {
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         RadioKeyDiagnostics.record(this, "activity", event);
+        if (event != null && isProtectedExitKey(event.getKeyCode())) {
+            RadioKeyDiagnostics.record(this, "protected-exit", event);
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                beginProtectedExit(event.getKeyCode(), event);
+            } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                finishProtectedExit(event.getKeyCode(), event);
+            }
+            return true;
+        }
         return super.dispatchKeyEvent(event);
     }
 
@@ -386,10 +405,6 @@ public final class RadioShellActivity extends AppCompatActivity {
                     service.onTalkKeyDown();
                 }
             }
-            return true;
-        }
-        if (isProtectedExitKey(keyCode)) {
-            beginProtectedExit(keyCode, event);
             return true;
         }
         if (RadioKeyActionPolicy.isRoomChangeKey(keyCode)) {
@@ -418,10 +433,6 @@ public final class RadioShellActivity extends AppCompatActivity {
                 && !RadioPttKeyManager.isMediaStyleKey(keyCode)) {
             RadioPttRecoveryGuard.noteRelease();
             releasePtt();
-            return true;
-        }
-        if (isProtectedExitKey(keyCode)) {
-            finishProtectedExit(keyCode, event);
             return true;
         }
         if (RadioKeyActionPolicy.isRoomChangeKey(keyCode)) {
@@ -1039,6 +1050,8 @@ public final class RadioShellActivity extends AppCompatActivity {
         pendingExitKey = keyCode;
         pendingExitStartedAt = event.getEventTime();
         setStatus(COLOR_BUSY, getString(R.string.radio_hold_to_exit));
+        uiHandler.removeCallbacks(protectedExitPromptTick);
+        uiHandler.postDelayed(protectedExitPromptTick, 250L);
         uiHandler.postDelayed(protectedExitAction, RadioKeyActionPolicy.EXIT_HOLD_MS);
     }
 
@@ -1051,6 +1064,7 @@ public final class RadioShellActivity extends AppCompatActivity {
         pendingExitKey = KeyEvent.KEYCODE_UNKNOWN;
         pendingExitStartedAt = -1L;
         uiHandler.removeCallbacks(protectedExitAction);
+        uiHandler.removeCallbacks(protectedExitPromptTick);
         if (completed) {
             openRecoveryDashboard();
         } else {
@@ -1095,6 +1109,7 @@ public final class RadioShellActivity extends AppCompatActivity {
         pendingExitStartedAt = -1L;
         pendingRoomStartedAt = -1L;
         uiHandler.removeCallbacks(protectedExitAction);
+        uiHandler.removeCallbacks(protectedExitPromptTick);
         uiHandler.removeCallbacks(roomChangeAction);
         if (restoreStatus && hadPendingAction) {
             updateFromService();

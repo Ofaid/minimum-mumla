@@ -19,9 +19,14 @@ This short log records meaningful project milestones. Detailed code truth remain
 - Physical dashboard-F1 acceptance found a cross-window race: the old press reached RadioShell and
   started TX. Added a pre-launch service safety action plus Activity/service release-required state,
   rebuilt and installed the hotfix, and left the physical regression honestly open.
-- User-reported red hold traces proved app-level `KEYCODE_BACK`/scan 60/gpio-keys and valid 5.06+
-  second durations. Added release-timestamp completion so UI-handler delay cannot cancel a completed
-  hold; exact scan-60 retest opened MinimumHome and green returned to RadioShell.
+- Corrected an earlier red-button misidentification with an isolated physical capture: the T99
+  kernel reports matrix-keypad scan 2 / `KEY_BACK`, while its vendor WindowManager remaps the event
+  to Android `KEYCODE_DPAD_RIGHT` (22). Added DPAD_RIGHT to the protected five-second exit and
+  diagnostic paths while retaining BACK for firmware compatibility.
+- Added release-timestamp completion so UI-handler delay cannot cancel a completed hold, and moved
+  protected-exit interception ahead of normal Activity dispatch so repeated vendor key events stay
+  inside the deliberate-action path. Physical acceptance then passed: the prompt appeared and a
+  greater-than-five-second red hold opened MinimumHome.
 - Disabled the normal Mumla PTT confirmation click for every managed radio in defaults and runtime;
   verified the installed T99 preference is false while retaining the PTT failure alert.
 

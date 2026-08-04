@@ -51,4 +51,9 @@ public class RadioPttKeyManagerTest {
         assertFalse(RadioPttKeyManager.shouldEnablePttConfirmationSound(
                 RadioDeviceProfile.GENERIC, false));
     }
+
+    @Test
+    public void diagnosticsIncludeVendorRemappedT99RedKey() {
+        assertTrue(RadioPttKeyManager.isDiagnosticHardwareKey(KeyEvent.KEYCODE_DPAD_RIGHT));
+    }
 }

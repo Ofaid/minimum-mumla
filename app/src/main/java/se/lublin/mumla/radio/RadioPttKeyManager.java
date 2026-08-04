@@ -97,6 +97,7 @@ public final class RadioPttKeyManager {
                 || keyCode == KeyEvent.KEYCODE_DPAD_CENTER
                 || keyCode == KeyEvent.KEYCODE_DPAD_UP
                 || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+                || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
                 || isMediaStyleKey(keyCode);
     }
 }

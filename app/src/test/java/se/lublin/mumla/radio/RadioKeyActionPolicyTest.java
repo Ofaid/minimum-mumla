@@ -18,6 +18,8 @@ public class RadioKeyActionPolicyTest {
                 RadioDeviceProfile.T99, KeyEvent.KEYCODE_F2));
         assertTrue(RadioKeyActionPolicy.isProtectedExitKey(
                 RadioDeviceProfile.T99, KeyEvent.KEYCODE_BACK));
+        assertTrue(RadioKeyActionPolicy.isProtectedExitKey(
+                RadioDeviceProfile.T99, KeyEvent.KEYCODE_DPAD_RIGHT));
         assertFalse(RadioKeyActionPolicy.isProtectedExitKey(
                 RadioDeviceProfile.T99, KeyEvent.KEYCODE_MENU));
         assertFalse(RadioKeyActionPolicy.isProtectedExitKey(

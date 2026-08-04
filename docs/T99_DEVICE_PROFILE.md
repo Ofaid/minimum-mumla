@@ -64,11 +64,13 @@ The T99 application defaults overwrite the managed push key with F1 at every pro
 | Up | `KEY_UP` | `KEYCODE_DPAD_UP` 19 / scan 103 | `matrix_keypad.71` | Hold 1 s: previous room and join |
 | Down | `KEY_DOWN` | `KEYCODE_DPAD_DOWN` 20 / scan 108 | `matrix_keypad.71` | Hold 1 s: next room and join |
 | Green | `KEY_MENU` | `KEYCODE_MENU` 82 / scan 139 | `matrix_keypad.71` | Confirm/join selected room |
-| Red | raw code 60 (`KEY_F2`) in latest trace | `KEYCODE_BACK` 4 / scan 60 | `gpio-keys` | Hold 5 s for recovery dashboard |
+| Red | `KEY_BACK`, scan 2 | vendor-remapped `KEYCODE_DPAD_RIGHT` 22 | `matrix_keypad.71` | Hold 5 s for recovery dashboard |
 
-Activity diagnostics physically confirmed PTT, volume, direction and MENU metadata. EXIT/green/red
-behavior was additionally verified with the captured kernel event, installed Android keylayout and
-non-PTT ADB key injection. The app-private bounded trace is
+Activity diagnostics physically confirmed PTT, volume, direction and MENU metadata. EXIT/green
+behavior was additionally checked with the captured kernel event, installed Android keylayout and
+non-PTT ADB key injection. A controlled physical red-button capture on 2026-08-05 recorded
+`matrix_keypad.71` scan 2 / Linux `KEY_BACK` for 6.91 seconds while the vendor WindowManager logged
+Android `KEYCODE_DPAD_RIGHT` (22) repeats. The app-private bounded trace is
 `files/radio-diagnostics/key-events.log`; it records no text, config, token or audio data.
 
 The installed T99 build also passed deliberate-action checks: short EXIT/MENU/red presses remain in
@@ -83,12 +85,13 @@ service safety action before launching RadioShell, forces TX off, and requires a
 before any subsequent PTT DOWN is accepted. The corrected build is installed; physical retest is
 still required.
 
-Latest app-private traces taken while the user identified the red control revise the earlier
-provisional ordered mapping: Android reports `KEYCODE_BACK` with scanCode 60 from `gpio-keys`, not
-scan 158. The app deliberately classifies by
-`KEYCODE_BACK` and does not depend on the scan value. Two real holds lasted about 5.06 and 5.16
-seconds; a delayed UI callback was cancelled by UP, so the installed implementation now rechecks
-DOWN-to-UP duration on release. An exact 5.06-second scan-60 test now opens MinimumHome.
+Earlier app-private scan-60 `KEYCODE_BACK` traces were incorrectly attributed to the physical red
+control. The isolated kernel and WindowManager capture above supersedes that claim: this T99's red
+control reaches applications as `KEYCODE_DPAD_RIGHT`. Minimum classifies both DPAD_RIGHT and BACK as
+protected T99 exit paths for compatibility, checks DOWN-to-UP duration on release, and records
+DPAD_RIGHT in the bounded diagnostic trace. Physical acceptance passed after installing the fix:
+the trace recorded both `activity` and `protected-exit` paths, the hold prompt remained visible,
+and a hold longer than five seconds opened MinimumHome.
 
 Managed Minimum profiles force the ordinary Mumla PTT confirmation click off at both preference and
 runtime levels. The distinct failure tone for an offline, blocked or locally undeliverable PTT is

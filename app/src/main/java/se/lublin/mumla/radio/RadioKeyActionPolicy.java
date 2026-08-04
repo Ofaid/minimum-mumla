@@ -21,13 +21,15 @@ public final class RadioKeyActionPolicy {
 
     /**
      * T99 labels do not match Android key names: MENU is DPAD_CENTER, EXIT is F2 and
-     * the red key is BACK. All three must be held to prevent an accidental dashboard exit.
+     * the red key reaches apps as DPAD_RIGHT even though the kernel reports KEY_BACK.
+     * Keep BACK as a compatibility path for firmware variants and injected diagnostics.
      */
     public static boolean isProtectedExitKey(String profile, int keyCode) {
         return RadioDeviceProfile.T99.equals(profile)
                 && (keyCode == KeyEvent.KEYCODE_DPAD_CENTER
                 || keyCode == KeyEvent.KEYCODE_F2
-                || keyCode == KeyEvent.KEYCODE_BACK);
+                || keyCode == KeyEvent.KEYCODE_BACK
+                || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT);
     }
 
     public static boolean isRoomChangeKey(int keyCode) {
