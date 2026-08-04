@@ -9,8 +9,13 @@
 
 package se.lublin.mumla.radio;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.util.Log;
 
 import androidx.preference.PreferenceManager;
@@ -18,37 +23,104 @@ import androidx.preference.PreferenceManager;
 import org.json.JSONException;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Schedules a quiet, best-effort config refresh without delaying the normal Mumla startup. */
+/** Schedules quiet config refreshes and stages validated candidates for idle radio activation. */
 public final class RadioConfigUpdater {
+    public static final String ACTION_CONFIG_PENDING =
+            "se.lublin.mumla.action.RADIO_CONFIG_PENDING";
+
     private static final String TAG = RadioConfigUpdater.class.getName();
-    private static final String PREF_LAST_ATTEMPT = "radio_config_last_attempt_ms";
+    private static final String PREF_LAST_SUCCESS = "radio_config_last_success_ms";
     private static final long REFRESH_INTERVAL_MS = 6L * 60L * 60L * 1000L;
+    private static final AtomicBoolean REFRESH_IN_FLIGHT = new AtomicBoolean(false);
+    private static final Object NETWORK_MONITOR_LOCK = new Object();
+
+    private static boolean networkMonitorRegistered;
+    private static boolean lastNetworkConnected;
 
     private RadioConfigUpdater() {
     }
 
+    /** Starts the six-hour refresh and a process-lifetime network-return trigger. */
+    public static void start(Context context) {
+        Context applicationContext = context.getApplicationContext();
+        registerNetworkReturnMonitor(applicationContext);
+        schedule(applicationContext, false);
+    }
+
     public static void schedule(Context context) {
+        schedule(context, false);
+    }
+
+    static boolean shouldRefresh(long now, long lastSuccess, boolean force) {
+        return force || lastSuccess <= 0L || now - lastSuccess >= REFRESH_INTERVAL_MS;
+    }
+
+    private static void schedule(Context context, boolean force) {
         Context applicationContext = context.getApplicationContext();
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(applicationContext);
         long now = System.currentTimeMillis();
-        long lastAttempt = preferences.getLong(PREF_LAST_ATTEMPT, 0L);
-        if (lastAttempt > 0L && now - lastAttempt < REFRESH_INTERVAL_MS) {
+        long lastSuccess = preferences.getLong(PREF_LAST_SUCCESS, 0L);
+        if (!shouldRefresh(now, lastSuccess, force)
+                || !REFRESH_IN_FLIGHT.compareAndSet(false, true)) {
             return;
         }
-        preferences.edit().putLong(PREF_LAST_ATTEMPT, now).apply();
 
         new Thread(() -> {
             try {
                 String deviceId = new DeviceIdentityManager(preferences).getOrCreateDeviceId();
                 String modelProfile = RadioDeviceProfile.detectCurrent();
-                new RadioConfigRepository(applicationContext).refresh(deviceId, modelProfile);
+                RadioConfigRepository repository = new RadioConfigRepository(applicationContext);
+                repository.refresh(deviceId, modelProfile);
+                preferences.edit().putLong(PREF_LAST_SUCCESS,
+                        System.currentTimeMillis()).apply();
+                if (repository.hasPending()) {
+                    Intent available = new Intent(ACTION_CONFIG_PENDING)
+                            .setPackage(applicationContext.getPackageName());
+                    applicationContext.sendBroadcast(available);
+                }
             } catch (IOException | JSONException | RuntimeException exception) {
                 // Remote config is optional. The repository's embedded/cache fallback remains the
                 // source of truth when the network is unavailable or the response is unsafe.
                 Log.w(TAG, "Radio config refresh skipped; using local configuration ("
                         + exception.getClass().getSimpleName() + ")");
+            } finally {
+                REFRESH_IN_FLIGHT.set(false);
             }
         }, "minimum-radio-config").start();
+    }
+
+    private static void registerNetworkReturnMonitor(Context applicationContext) {
+        synchronized (NETWORK_MONITOR_LOCK) {
+            if (networkMonitorRegistered) {
+                return;
+            }
+            lastNetworkConnected = isNetworkConnected(applicationContext);
+            BroadcastReceiver receiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    boolean connected = isNetworkConnected(applicationContext);
+                    boolean returned;
+                    synchronized (NETWORK_MONITOR_LOCK) {
+                        returned = connected && !lastNetworkConnected;
+                        lastNetworkConnected = connected;
+                    }
+                    if (returned) {
+                        schedule(applicationContext, true);
+                    }
+                }
+            };
+            applicationContext.registerReceiver(receiver,
+                    new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION));
+            networkMonitorRegistered = true;
+        }
+    }
+
+    static boolean isNetworkConnected(Context context) {
+        ConnectivityManager manager = (ConnectivityManager)
+                context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo network = manager == null ? null : manager.getActiveNetworkInfo();
+        return network != null && network.isConnected();
     }
 }

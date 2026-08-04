@@ -41,7 +41,11 @@ public final class RadioConfigRepository {
     private static final String ASSET_DEFAULT = "radio/default.json";
     private static final String ACTIVE_FILE = "active-config.json";
     private static final String PREVIOUS_FILE = "previous-config.json";
+    private static final String PENDING_FILE = "pending-config.json";
     private static final String TEMP_FILE = "downloaded-config.tmp";
+    private static final String ROLLBACK_TEMP_FILE = "rollback-config.tmp";
+    private static final String PREVIOUS_BACKUP_FILE = "previous-config.backup";
+    private static final Object CACHE_LOCK = new Object();
 
     private final Context context;
     private final String baseUrl;
@@ -63,14 +67,28 @@ public final class RadioConfigRepository {
 
     /** Returns the validated active cache, or the embedded default if the cache is absent/bad. */
     public JSONObject loadActiveOrDefault() throws IOException, JSONException {
-        File active = new File(cacheDirectory(), ACTIVE_FILE);
-        if (active.isFile()) {
-            try {
-                JSONObject cached = readJson(active);
-                validateConfig(cached, null);
-                return cached;
-            } catch (JSONException | IOException ignored) {
-                // A bad active cache must never prevent the radio client from starting.
+        synchronized (CACHE_LOCK) {
+            File directory = cacheDirectory();
+            File active = new File(directory, ACTIVE_FILE);
+            if (active.isFile()) {
+                try {
+                    JSONObject cached = readJson(active);
+                    validateConfig(cached, null);
+                    return cached;
+                } catch (JSONException | IOException ignored) {
+                    // Try the previous Last Known Good before the embedded fallback.
+                }
+            }
+            File previous = new File(directory, PREVIOUS_FILE);
+            if (previous.isFile()) {
+                try {
+                    JSONObject recovered = readJson(previous);
+                    validateConfig(recovered, null);
+                    rollbackFiles(directory);
+                    return recovered;
+                } catch (JSONException | IOException ignored) {
+                    // A bad cache must never prevent the radio client from starting.
+                }
             }
         }
         JSONObject fallback = readEmbeddedDefault();
@@ -79,8 +97,8 @@ public final class RadioConfigRepository {
     }
 
     /**
-     * Fetches and merges default, model and optional device configuration. The result is written
-     * atomically to the active cache; the prior active config is retained as a rollback copy.
+     * Fetches and merges default, model and optional device configuration. The result is staged as
+     * pending and cannot replace the Last Known Good active config until the radio proves it works.
      */
     public JSONObject refresh(String deviceId, String modelProfile)
             throws IOException, JSONException {
@@ -109,21 +127,99 @@ public final class RadioConfigRepository {
         }
 
         validateConfig(merged, deviceId);
-        File active = new File(cacheDirectory(), ACTIVE_FILE);
-        if (active.isFile()) {
-            JSONObject current = null;
-            try {
-                current = readJson(active);
-                validateConfig(current, null);
-            } catch (IOException | JSONException ignored) {
-                // An unreadable active cache is not a valid downgrade baseline.
+        synchronized (CACHE_LOCK) {
+            File active = new File(cacheDirectory(), ACTIVE_FILE);
+            if (active.isFile()) {
+                JSONObject current = null;
+                try {
+                    current = readJson(active);
+                    validateConfig(current, null);
+                } catch (IOException | JSONException ignored) {
+                    // An unreadable active cache is not a valid equality baseline.
+                }
+                if (current != null) {
+                    rejectDowngrade(merged, current);
+                    if (current.optInt("configVersion", -1)
+                            == merged.optInt("configVersion", -2)) {
+                        if (!current.toString().equals(merged.toString())) {
+                            throw new JSONException(
+                                    "config content changed without version advance");
+                        }
+                        discardPendingLocked();
+                        return merged;
+                    }
+                }
             }
-            if (current != null) {
-                rejectDowngrade(merged, current);
-            }
+            writePendingLocked(merged);
         }
-        writeActive(merged);
         return merged;
+    }
+
+    /** Returns the validated candidate waiting for an idle radio trial, or null when absent. */
+    public JSONObject loadPending() throws IOException, JSONException {
+        synchronized (CACHE_LOCK) {
+            File pending = new File(cacheDirectory(), PENDING_FILE);
+            if (!pending.isFile()) {
+                return null;
+            }
+            JSONObject candidate = readJson(pending);
+            validateConfig(candidate, null);
+            return candidate;
+        }
+    }
+
+    public boolean hasPending() {
+        synchronized (CACHE_LOCK) {
+            return new File(cacheDirectory(), PENDING_FILE).isFile();
+        }
+    }
+
+    /** Commits a candidate only after the radio connected and joined its configured room. */
+    public JSONObject commitPending() throws IOException, JSONException {
+        synchronized (CACHE_LOCK) {
+            File directory = cacheDirectory();
+            File pending = new File(directory, PENDING_FILE);
+            if (!pending.isFile()) {
+                throw new IOException("no pending config to commit");
+            }
+            JSONObject candidate = readJson(pending);
+            validateConfig(candidate, null);
+            File active = new File(directory, ACTIVE_FILE);
+            if (active.isFile()) {
+                try {
+                    JSONObject current = readJson(active);
+                    validateConfig(current, null);
+                    rejectDowngrade(candidate, current);
+                } catch (JSONException error) {
+                    throw error;
+                } catch (IOException ignored) {
+                    // An unreadable active cache is not a valid downgrade baseline.
+                }
+            }
+            promotePendingFiles(directory);
+            return candidate;
+        }
+    }
+
+    /** Explicitly restores the previous Last Known Good config and returns it. */
+    public JSONObject rollbackToPrevious() throws IOException, JSONException {
+        synchronized (CACHE_LOCK) {
+            File directory = cacheDirectory();
+            File previous = new File(directory, PREVIOUS_FILE);
+            if (!previous.isFile()) {
+                throw new IOException("no previous config to roll back");
+            }
+            JSONObject restored = readJson(previous);
+            validateConfig(restored, null);
+            rollbackFiles(directory);
+            return restored;
+        }
+    }
+
+    public void discardPending() throws IOException {
+        synchronized (CACHE_LOCK) {
+            discardPendingLocked();
+        }
     }
 
     /** Rejects a candidate that would replace a newer Last Known Good configuration. */
@@ -270,20 +366,91 @@ public final class RadioConfigRepository {
         return directory;
     }
 
-    private void writeActive(JSONObject config) throws IOException {
+    private void writePendingLocked(JSONObject config) throws IOException {
         File directory = cacheDirectory();
-        File active = new File(directory, ACTIVE_FILE);
-        File previous = new File(directory, PREVIOUS_FILE);
+        File pending = new File(directory, PENDING_FILE);
         File temporary = new File(directory, TEMP_FILE);
         try (FileOutputStream output = new FileOutputStream(temporary)) {
             output.write(config.toString().getBytes(StandardCharsets.UTF_8));
             output.getFD().sync();
         }
-        if (active.isFile() && !active.renameTo(previous)) {
-            throw new IOException("cannot preserve previous config");
+        deleteIfPresent(pending, "cannot replace pending config");
+        if (!temporary.renameTo(pending)) {
+            throw new IOException("cannot stage downloaded config");
         }
-        if (!temporary.renameTo(active)) {
-            throw new IOException("cannot activate downloaded config");
+    }
+
+    private void discardPendingLocked() throws IOException {
+        File directory = cacheDirectory();
+        deleteIfPresent(new File(directory, PENDING_FILE), "cannot discard pending config");
+        deleteIfPresent(new File(directory, TEMP_FILE), "cannot discard temporary config");
+    }
+
+    static void promotePendingFiles(File directory) throws IOException {
+        File active = new File(directory, ACTIVE_FILE);
+        File previous = new File(directory, PREVIOUS_FILE);
+        File pending = new File(directory, PENDING_FILE);
+        File previousBackup = new File(directory, PREVIOUS_BACKUP_FILE);
+        if (!pending.isFile()) {
+            throw new IOException("pending config is missing");
+        }
+        deleteIfPresent(previousBackup, "cannot prepare previous config backup");
+        boolean previousBackedUp = false;
+        if (previous.isFile()) {
+            if (!previous.renameTo(previousBackup)) {
+                throw new IOException("cannot preserve previous config backup");
+            }
+            previousBackedUp = true;
+        }
+        boolean activeMoved = false;
+        if (active.isFile()) {
+            if (!active.renameTo(previous)) {
+                if (previousBackedUp && !previousBackup.renameTo(previous)) {
+                    throw new IOException("cannot preserve active or restore previous config");
+                }
+                throw new IOException("cannot preserve active config");
+            }
+            activeMoved = true;
+        }
+        if (!pending.renameTo(active)) {
+            if (activeMoved && !previous.renameTo(active)) {
+                throw new IOException("cannot activate pending or restore active config");
+            }
+            if (previousBackedUp && !previousBackup.renameTo(previous)) {
+                throw new IOException("cannot activate pending or restore previous config");
+            }
+            throw new IOException("cannot activate pending config");
+        }
+        deleteIfPresent(previousBackup, "cannot remove previous config backup");
+    }
+
+    static void rollbackFiles(File directory) throws IOException {
+        File active = new File(directory, ACTIVE_FILE);
+        File previous = new File(directory, PREVIOUS_FILE);
+        File rollbackTemporary = new File(directory, ROLLBACK_TEMP_FILE);
+        if (!previous.isFile()) {
+            throw new IOException("previous config is missing");
+        }
+        deleteIfPresent(rollbackTemporary, "cannot clear rollback temporary config");
+        boolean activeMoved = false;
+        if (active.isFile()) {
+            if (!active.renameTo(rollbackTemporary)) {
+                throw new IOException("cannot preserve current config during rollback");
+            }
+            activeMoved = true;
+        }
+        if (!previous.renameTo(active)) {
+            if (activeMoved && !rollbackTemporary.renameTo(active)) {
+                throw new IOException("cannot roll back or restore current config");
+            }
+            throw new IOException("cannot restore previous config");
+        }
+        deleteIfPresent(rollbackTemporary, "cannot remove rolled-back config");
+    }
+
+    private static void deleteIfPresent(File file, String error) throws IOException {
+        if (file.exists() && !file.delete()) {
+            throw new IOException(error);
         }
     }
 

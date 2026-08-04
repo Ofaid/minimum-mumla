@@ -34,6 +34,13 @@ $adb = "adb -P 5041 -s 12344321"
 Avoid `pm clear` on the working T99 unless a fresh first-run test is explicitly needed; it removes
 the device's current certificates, favourites and test state.
 
+The radio config directory has three durable states: `active-config.json` is the Last Known Good,
+`pending-config.json` is waiting for an idle trial, and `previous-config.json` is the rollback copy.
+Do not overwrite active merely to test an update. Stage pending, start `RadioShellActivity`, and
+verify it connects and joins the selected room before expecting promotion. The pending-available
+broadcast receiver is app-internal/non-exported, so an ADB `am broadcast` is intentionally not a
+valid trigger; startup and the updater both invoke the safe path.
+
 ## Boot auto-start check
 
 The receiver is enabled by default through `Settings.PREF_AUTO_START`. A valid simulated check is:

@@ -15,7 +15,7 @@ Expected base URL after Pages deploy: `https://awatchar.github.io/minimum/`.
 
 The Android implementation is `RadioConfigRepository`. It exposes `loadActiveOrDefault()` and a
 worker-thread `refresh(deviceId, modelProfile)` method. `RadioConfigUpdater` schedules a best-effort
-refresh every six hours from `MumlaApplication` without delaying startup. `RadioShellActivity`
+refresh every six hours and whenever the network returns, without delaying startup. `RadioShellActivity`
 loads the Last Known Good result immediately, connects through the existing foreground service,
 passes resolved public tokens at authentication time and joins the configured default room by its
 exact full path.
@@ -43,9 +43,16 @@ modern Android device before choosing whether a reviewed CA-store update is need
 - PTT maximum is 1..120 seconds.
 - `releaseOnNetworkLoss` must be true.
 - Device-specific files are optional; missing files are ignored.
-- The active cache is in app-private `files/radio-config/active-config.json`.
-- Before activation, the old active file is kept as `previous-config.json`.
+- A validated download is staged as app-private `files/radio-config/pending-config.json`; download
+  success alone never changes the running Last Known Good config.
+- Pending config is trialled only while no connection transition, RX or TX is active. It becomes
+  `active-config.json` only after the candidate connects and joins its selected room.
+- On successful promotion, the old active file is retained as `previous-config.json`. A failed
+  candidate is discarded and the radio reconnects with active; explicit previous rollback is also
+  available in the repository.
 - A lower `configVersion` is rejected while a valid newer active config exists.
+- Changed content at the same `configVersion` is rejected; every effective backend change must
+  advance the version.
 - A bad cache falls back to the embedded asset `app/src/main/assets/radio/default.json`.
 
 ## Secrets and test server
@@ -71,7 +78,7 @@ not implemented yet; compromising the config source could redirect a device to a
 ## Backend change checklist
 
 1. Edit the appropriate JSON and keep it schema-valid.
-2. Run JSON parsing and schema checks locally.
+2. Advance `configVersion` for every effective change and run JSON/schema checks locally.
 3. Keep `autoConnect` false until the endpoint and room policy are reviewed.
 4. Do not add protected tokens to a public commit.
 5. Deploy only through a reviewed GitHub PR.

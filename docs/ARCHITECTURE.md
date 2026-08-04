@@ -16,13 +16,14 @@ MumlaService (long-lived voice path)
   ├─ Humla/Mumble connection, TLS, Opus and audio
   ├─ MediaSession PTT bridge
   ├─ configured Activity key bridge
+  ├─ service-owned remote RX session tracker
   └─ PTT watchdog and safety release
 
 RadioConfigRepository
   ├─ embedded safe default
   ├─ GitHub Pages default/model/device overlays
   ├─ schema and safety validation
-  └─ downgrade-protected active/previous private cache
+  └─ downgrade-protected pending/active/previous private cache
 
 AccessTokenResolver
   ├─ reads public room tokens from a complete config
@@ -61,10 +62,23 @@ The intended merge order is:
 embedded default -> remote default -> model profile -> device override
 ```
 
-Object fields merge recursively. Arrays replace the previous array as a whole. A bad remote
-configuration must not replace the last valid active configuration; startup falls back to the
-embedded default, and the previous active file is retained when a new config becomes active. A
-lower `configVersion` cannot replace a valid newer active config.
+Object fields merge recursively. Arrays replace the previous array as a whole. A lower
+`configVersion` cannot replace a valid newer active config, and changed content at the same version
+is rejected.
+
+```text
+remote merge + validation
+  -> pending-config.json
+  -> wait until connection transition, RX and TX are idle
+  -> trial candidate in memory
+  -> connect and join the configured room
+     -> success: active becomes previous; pending becomes active
+     -> failure: discard pending; reconnect with active Last Known Good
+```
+
+Startup reads `active-config.json`. If it is corrupt and `previous-config.json` is valid, the
+repository restores previous; otherwise it uses the embedded safe default. Network return forces a
+new fetch, while an in-flight guard prevents overlapping refreshes.
 
 ## Radio connection and trust flow
 

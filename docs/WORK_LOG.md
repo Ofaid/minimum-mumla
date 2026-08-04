@@ -56,6 +56,13 @@ This short log records meaningful project milestones. Detailed code truth remain
 - Live-tested the new no-pin path by deleting only Minimum's app-private Mumble trust store and
   provisioning a config with automatic trust enabled. T99 recreated the store, reconnected and
   returned to the exact ready room without an operator dialog.
+- Implemented the Technical Brief's Last Known Good config lifecycle: network-return refresh,
+  non-overlapping fetches, pending staging, RX/TX/transition idle gate, in-memory candidate trial,
+  commit only after the configured room is joined, failure fallback and explicit previous rollback.
+  RX safety state is now owned by the long-lived service and covers talk, shout and whisper events.
+  Repository/updater/policy JVM tests and the FOSS APK build pass. A physical T99 acceptance attempt
+  left active v1001 untouched and v1002 safely pending when the workstation ADB host wedged; no
+  candidate was falsely marked active.
 
 ## Prior milestones
 

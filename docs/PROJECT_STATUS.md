@@ -42,8 +42,15 @@ document disagrees with this file, verify the code and update this file first.
   first-seen ordering, deduplication and safe exclusion of malformed/none/protected entries. The
   radio connection now passes the resolved values through the existing Humla authentication path
   without writing them to the server database or logs.
-- Added a best-effort six-hour background refresh scheduler. It never delays normal startup and
-  falls back to the embedded/cache configuration when Pages or the response is unavailable.
+- Added a best-effort six-hour background refresh scheduler plus a network-return trigger and an
+  in-flight guard. Failed attempts do not postpone the next retry and never delay normal startup.
+- Remote config now has an explicit Last Known Good lifecycle: validated downloads are staged as
+  `pending-config.json`, trialled only while RX/TX and connection transitions are idle, promoted to
+  active only after the candidate connects and joins its configured room, and discarded on trial
+  failure. The old active config becomes `previous-config.json`; repository rollback and corrupt-
+  active recovery are covered by JVM tests.
+- RX idleness is service-owned and tracks all remote talking, shouting and whispering sessions, so
+  resuming an Activity mid-transmission cannot incorrectly activate a pending config.
 - Added `MinimumHomeActivity` as the small-device recovery dashboard with one large icon per swipe
   page: Minimum and Settings. It is intentionally not an Android HOME handler because the T99 OEM
   resolver excludes it and displays an unusable chooser.
@@ -90,6 +97,10 @@ document disagrees with this file, verify the code and update this file first.
   token. The successful endpoint configuration remains local/device-private.
 - T88 boot/dashboard and legacy shortcut behavior still require live-device verification. Each new
   firmware must pass the no-ResolverActivity provisioning check.
+- Pending-config promotion and failure rollback pass JVM tests and APK build, but their physical
+  T99 acceptance run remains open because the workstation ADB host wedged before the trial could
+  start. The device's active v1001 config stayed unchanged and the v1002 candidate remained staged,
+  which is the intended fail-safe state.
 - Boot activity launch can be blocked by newer Android/OEM policy. T99 is API 22 and passed an
   actual reboot-to-ready-room test; a newer-device foreground-service/notification fallback remains
   future work.
@@ -100,8 +111,8 @@ document disagrees with this file, verify the code and update this file first.
    whether the physical control arrives as Button Jack `KEY_MEDIA` or raw GPIO F1/F2.
 2. Connect T88, capture its hardware profile and repeat provisioning, boot, room and PTT tests.
 3. Exercise two or more room presets, denied-room fallback and safe room switching during traffic.
-4. Add explicit previous-config rollback, signature verification, idle-only config activation and
-   network-return refresh/reconnect evidence.
+4. Re-run physical T99 success/failure acceptance for pending config after reconnecting USB/ADB,
+   then add config signature verification.
 5. Decide the dedicated radio flavor/application ID before production provisioning.
 6. Add an instrumentation/manual acceptance pass for screen-off PTT, network loss and a
    120-second watchdog timeout.

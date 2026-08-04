@@ -10,8 +10,11 @@
 package se.lublin.mumla.radio;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -30,6 +33,7 @@ import androidx.core.content.ContextCompat;
 import androidx.preference.PreferenceManager;
 
 import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.IOException;
 import java.security.KeyStore;
@@ -76,12 +80,24 @@ public final class RadioShellActivity extends AppCompatActivity {
     private boolean connectRequested;
     private boolean reconnectAfterDisconnect;
     private boolean retryAfterConfiguredCertificateTrust;
+    private boolean configReceiverRegistered;
+    private boolean pendingConfigTrial;
+    private boolean pendingConfigIoInFlight;
 
     private TextView serviceNameView;
     private TextView statusView;
     private TextView roomView;
     private TextView identityView;
     private Button pttButton;
+
+    private final BroadcastReceiver configReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (RadioConfigUpdater.ACTION_CONFIG_PENDING.equals(intent.getAction())) {
+                maybeApplyPendingConfiguration();
+            }
+        }
+    };
 
     private final HumlaObserver observer = new HumlaObserver() {
         @Override
@@ -95,6 +111,9 @@ public final class RadioShellActivity extends AppCompatActivity {
             activeTalkers.clear();
             joinSelectedRoom();
             updateFromService();
+            if (!pendingConfigTrial) {
+                maybeApplyPendingConfiguration();
+            }
         }
 
         @Override
@@ -108,6 +127,10 @@ public final class RadioShellActivity extends AppCompatActivity {
                 statusView.postDelayed(RadioShellActivity.this::maybeConnect, 400);
                 return;
             }
+            if (pendingConfigTrial && shouldRejectPendingTrial(error)) {
+                failPendingConfiguration();
+                return;
+            }
             if (reconnectAfterDisconnect) {
                 reconnectAfterDisconnect = false;
                 maybeConnect();
@@ -118,6 +141,7 @@ public final class RadioShellActivity extends AppCompatActivity {
             } else {
                 setStatus(COLOR_OFFLINE, getString(R.string.radio_offline));
             }
+            maybeApplyPendingConfiguration();
         }
 
         @Override
@@ -130,6 +154,9 @@ public final class RadioShellActivity extends AppCompatActivity {
             if (isSelf(user)) {
                 roomView.setText(RoomPathResolver.fullPath(newChannel));
                 showReadyState();
+                if (pendingConfigTrial && isSelectedRoom(newChannel)) {
+                    commitPendingConfiguration();
+                }
             }
         }
 
@@ -139,27 +166,32 @@ public final class RadioShellActivity extends AppCompatActivity {
                 return;
             }
             if (isSelf(user)) {
-                if (user.getTalkState() == TalkState.TALKING) {
+                if (isAudibleTalkState(user.getTalkState())) {
                     setStatus(COLOR_TX, getString(R.string.radio_transmitting));
                 } else {
                     showTrafficOrReady();
+                    maybeApplyPendingConfiguration();
                 }
                 return;
             }
 
             IChannel sessionChannel = getSessionChannelSafely();
             if (sessionChannel != null && sessionChannel.equals(user.getChannel())
-                    && user.getTalkState() == TalkState.TALKING) {
+                    && isAudibleTalkState(user.getTalkState())) {
                 activeTalkers.put(user.getSession(), user.getName());
             } else {
                 activeTalkers.remove(user.getSession());
             }
             showTrafficOrReady();
+            maybeApplyPendingConfiguration();
         }
 
         @Override
         public void onPermissionDenied(String reason) {
             setStatus(COLOR_ERROR, getString(R.string.radio_access_denied));
+            if (pendingConfigTrial) {
+                failPendingConfiguration();
+            }
         }
     };
 
@@ -169,6 +201,7 @@ public final class RadioShellActivity extends AppCompatActivity {
             service = ((MumlaService.MumlaBinder) binder).getService();
             service.registerObserver(observer);
             updateFromService();
+            maybeApplyPendingConfiguration();
             maybeConnect();
         }
 
@@ -194,6 +227,12 @@ public final class RadioShellActivity extends AppCompatActivity {
     @Override
     protected void onStart() {
         super.onStart();
+        if (!configReceiverRegistered) {
+            ContextCompat.registerReceiver(this, configReceiver,
+                    new IntentFilter(RadioConfigUpdater.ACTION_CONFIG_PENDING),
+                    ContextCompat.RECEIVER_NOT_EXPORTED);
+            configReceiverRegistered = true;
+        }
         if (!bound) {
             bound = bindService(new Intent(this, MumlaService.class), serviceConnection,
                     BIND_AUTO_CREATE);
@@ -203,6 +242,10 @@ public final class RadioShellActivity extends AppCompatActivity {
     @Override
     protected void onStop() {
         releasePtt();
+        if (configReceiverRegistered) {
+            unregisterReceiver(configReceiver);
+            configReceiverRegistered = false;
+        }
         if (bound) {
             if (service != null) {
                 service.unregisterObserver(observer);
@@ -358,13 +401,8 @@ public final class RadioShellActivity extends AppCompatActivity {
                     if (destroyed) {
                         return;
                     }
-                    config = loaded;
-                    selectedRoomIndex = loaded.getDefaultRoomIndex();
-                    serviceNameView.setText(loaded.getServiceName());
-                    roomView.setText(loaded.getDefaultRoom().getLabel());
-                    if (!loaded.isAutoConnect()) {
-                        setStatus(COLOR_OFFLINE, getString(R.string.radio_not_provisioned));
-                    }
+                    applyConfigurationToUi(loaded);
+                    maybeApplyPendingConfiguration();
                     maybeConnect();
                 });
             } catch (IOException | JSONException | RuntimeException error) {
@@ -374,9 +412,187 @@ public final class RadioShellActivity extends AppCompatActivity {
         }, "minimum-radio-startup").start();
     }
 
+    private void applyConfigurationToUi(RadioConnectionConfig loaded) {
+        config = loaded;
+        selectedRoomIndex = loaded.getDefaultRoomIndex();
+        serviceNameView.setText(loaded.getServiceName());
+        roomView.setText(loaded.getDefaultRoom().getLabel());
+        if (!loaded.isAutoConnect()) {
+            setStatus(COLOR_OFFLINE, getString(R.string.radio_not_provisioned));
+        }
+    }
+
+    /** Staged remote config is trialled only while neither local TX nor remote RX is active. */
+    private void maybeApplyPendingConfiguration() {
+        if (destroyed || config == null || service == null || pendingConfigTrial
+                || pendingConfigIoInFlight) {
+            return;
+        }
+        RadioConfigRepository repository = new RadioConfigRepository(this);
+        if (!repository.hasPending()) {
+            return;
+        }
+        if (!isRadioIdleForConfig()) {
+            setStatus(COLOR_BUSY, getString(R.string.radio_waiting_for_idle));
+            return;
+        }
+
+        pendingConfigIoInFlight = true;
+        setStatus(COLOR_BUSY, getString(R.string.radio_config_testing));
+        new Thread(() -> {
+            try {
+                JSONObject pending = repository.loadPending();
+                RadioConnectionConfig candidate = pending == null
+                        ? null : RadioConnectionConfig.fromJson(pending);
+                runOnUiThread(() -> {
+                    pendingConfigIoInFlight = false;
+                    if (destroyed || candidate == null) {
+                        return;
+                    }
+                    beginPendingConfigurationTrial(candidate);
+                });
+            } catch (IOException | JSONException | RuntimeException error) {
+                try {
+                    repository.discardPending();
+                } catch (IOException ignored) {
+                    // The next startup will retry or reject the same pending file safely.
+                }
+                runOnUiThread(() -> {
+                    pendingConfigIoInFlight = false;
+                    setStatus(COLOR_ERROR, getString(R.string.radio_config_invalid));
+                });
+            }
+        }, "minimum-radio-config-load-pending").start();
+    }
+
+    private boolean isRadioIdleForConfig() {
+        if (service == null) {
+            return false;
+        }
+        HumlaService.ConnectionState state = service.getConnectionState();
+        boolean transitioning = state == HumlaService.ConnectionState.CONNECTING
+                || state == HumlaService.ConnectionState.CONNECTION_LOST;
+        boolean transmitting = false;
+        try {
+            transmitting = service.isConnected() && service.HumlaSession().isTalking();
+        } catch (IllegalStateException ignored) {
+            return false;
+        }
+        return RadioConfigActivationPolicy.canTrial(true, transitioning, transmitting,
+                service.isRadioReceiving());
+    }
+
+    private static boolean isAudibleTalkState(TalkState state) {
+        return state == TalkState.TALKING || state == TalkState.SHOUTING
+                || state == TalkState.WHISPERING;
+    }
+
+    private void beginPendingConfigurationTrial(RadioConnectionConfig candidate) {
+        pendingConfigTrial = true;
+        applyConfigurationToUi(candidate);
+        setStatus(COLOR_BUSY, getString(R.string.radio_config_testing));
+
+        if (!candidate.isAutoConnect()) {
+            commitPendingConfiguration();
+            return;
+        }
+        if (service != null && service.isConnected()) {
+            reconnectAfterDisconnect = true;
+            service.disconnect();
+        } else {
+            maybeConnect();
+        }
+    }
+
+    private void commitPendingConfiguration() {
+        if (!pendingConfigTrial || pendingConfigIoInFlight) {
+            return;
+        }
+        pendingConfigIoInFlight = true;
+        RadioConfigRepository repository = new RadioConfigRepository(this);
+        new Thread(() -> {
+            try {
+                repository.commitPending();
+                runOnUiThread(() -> {
+                    pendingConfigIoInFlight = false;
+                    pendingConfigTrial = false;
+                    if (destroyed) {
+                        return;
+                    }
+                    if (!config.isAutoConnect() && service != null && service.isConnected()) {
+                        reconnectAfterDisconnect = false;
+                        service.disconnect();
+                        setStatus(COLOR_OFFLINE, getString(R.string.radio_not_provisioned));
+                    } else {
+                        showTrafficOrReady();
+                    }
+                });
+            } catch (IOException | JSONException | RuntimeException error) {
+                runOnUiThread(() -> {
+                    pendingConfigIoInFlight = false;
+                    failPendingConfiguration();
+                });
+            }
+        }, "minimum-radio-config-commit").start();
+    }
+
+    private void failPendingConfiguration() {
+        if (!pendingConfigTrial || pendingConfigIoInFlight) {
+            return;
+        }
+        pendingConfigIoInFlight = true;
+        RadioConfigRepository repository = new RadioConfigRepository(this);
+        new Thread(() -> {
+            RadioConnectionConfig restored = null;
+            try {
+                repository.discardPending();
+                restored = RadioConnectionConfig.fromJson(repository.loadActiveOrDefault());
+            } catch (IOException | JSONException | RuntimeException ignored) {
+                // The current in-memory LKG remains safer than accepting the failed candidate.
+            }
+            RadioConnectionConfig finalRestored = restored;
+            runOnUiThread(() -> {
+                pendingConfigIoInFlight = false;
+                pendingConfigTrial = false;
+                if (destroyed) {
+                    return;
+                }
+                if (finalRestored == null) {
+                    setStatus(COLOR_ERROR, getString(R.string.radio_config_invalid));
+                    return;
+                }
+                applyConfigurationToUi(finalRestored);
+                setStatus(COLOR_ERROR, getString(R.string.radio_config_rolled_back));
+                if (service != null && (service.isConnected() || service.isReconnecting()
+                        || service.getConnectionState() == HumlaService.ConnectionState.CONNECTING)) {
+                    reconnectAfterDisconnect = finalRestored.isAutoConnect();
+                    service.disconnect();
+                } else {
+                    maybeConnect();
+                }
+            });
+        }, "minimum-radio-config-rollback").start();
+    }
+
+    private boolean shouldRejectPendingTrial(HumlaException error) {
+        if (error == null) {
+            return false;
+        }
+        switch (error.getReason()) {
+            case REJECT:
+            case OTHER_ERROR:
+                return true;
+            case CONNECTION_ERROR:
+                return RadioConfigUpdater.isNetworkConnected(this);
+            case USER_REMOVE:
+            default:
+                return false;
+        }
+    }
+
     private void maybeConnect() {
         if (destroyed || config == null || service == null || connectRequested
-                || !config.isAutoConnect()) {
+                || pendingConfigIoInFlight || !config.isAutoConnect()) {
             return;
         }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
@@ -464,6 +680,9 @@ public final class RadioShellActivity extends AppCompatActivity {
     private void trustConfiguredCertificate(X509Certificate[] chain) {
         if (config == null || chain == null || chain.length == 0) {
             setStatus(COLOR_ERROR, getString(R.string.radio_certificate_untrusted));
+            if (pendingConfigTrial) {
+                failPendingConfiguration();
+            }
             return;
         }
         try {
@@ -472,9 +691,15 @@ public final class RadioShellActivity extends AppCompatActivity {
             if (!config.acceptsServerCertificate(actual)) {
                 if (config.getServerCertificateSha256() == null) {
                     setStatus(COLOR_ERROR, getString(R.string.radio_certificate_untrusted));
+                    if (pendingConfigTrial) {
+                        failPendingConfiguration();
+                    }
                     return;
                 }
                 setStatus(COLOR_ERROR, getString(R.string.radio_certificate_changed));
+                if (pendingConfigTrial) {
+                    failPendingConfiguration();
+                }
                 return;
             }
             KeyStore trustStore = MumlaTrustStore.getTrustStore(this);
@@ -485,6 +710,9 @@ public final class RadioShellActivity extends AppCompatActivity {
             setStatus(COLOR_BUSY, getString(R.string.radio_certificate_trusted));
         } catch (Exception error) {
             setStatus(COLOR_ERROR, getString(R.string.radio_certificate_failed));
+            if (pendingConfigTrial) {
+                failPendingConfiguration();
+            }
         }
     }
 
@@ -520,6 +748,9 @@ public final class RadioShellActivity extends AppCompatActivity {
         IChannel target = RoomPathResolver.resolve(session.getRootChannel(), room.getPath());
         if (target == null) {
             setStatus(COLOR_ERROR, getString(R.string.radio_room_missing));
+            if (pendingConfigTrial) {
+                failPendingConfiguration();
+            }
             return;
         }
         roomView.setText(room.getLabel());
@@ -527,7 +758,18 @@ public final class RadioShellActivity extends AppCompatActivity {
             session.joinChannel(target.getId());
         } else {
             showReadyState();
+            if (pendingConfigTrial) {
+                commitPendingConfiguration();
+            }
         }
+    }
+
+    private boolean isSelectedRoom(IChannel channel) {
+        if (config == null || channel == null) {
+            return false;
+        }
+        return config.getRooms().get(selectedRoomIndex).getPath()
+                .equals(RoomPathResolver.fullPath(channel));
     }
 
     private void showTrafficOrReady() {

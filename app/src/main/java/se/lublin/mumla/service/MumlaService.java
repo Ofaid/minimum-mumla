@@ -60,6 +60,7 @@ import se.lublin.mumla.Settings;
 import se.lublin.mumla.service.ipc.TalkBroadcastReceiver;
 import se.lublin.mumla.util.HtmlUtils;
 import se.lublin.mumla.radio.RadioPttKeyManager;
+import se.lublin.mumla.radio.RadioReceiveTracker;
 
 /**
  * An extension of the Humla service with some added Mumla-exclusive non-standard Mumble features.
@@ -99,6 +100,7 @@ public class MumlaService extends HumlaService implements
     private final Handler mPttWatchdogHandler = new Handler(Looper.getMainLooper());
     private boolean mPttInputDown;
     private boolean mPttWatchdogLockout;
+    private final RadioReceiveTracker mRadioReceiveTracker = new RadioReceiveTracker();
     private final Runnable mPttWatchdog = new Runnable() {
         @Override
         public void run() {
@@ -180,6 +182,7 @@ public class MumlaService extends HumlaService implements
 
         @Override
         public void onDisconnected(HumlaException e) {
+            mRadioReceiveTracker.clear();
             if (mNotification != null) {
                 mNotification.hide();
                 mNotification = null;
@@ -311,6 +314,9 @@ public class MumlaService extends HumlaService implements
                 Log.d(TAG, "exception in onUserTalkStateUpdated: " + e);
             }
 
+            mRadioReceiveTracker.update(user.getSession(), user.getSession() == selfSession,
+                    user.getTalkState());
+
             if (isConnectionEstablished() &&
                     user.getSession() == selfSession &&
                     getTransmitMode() == Constants.TRANSMIT_PUSH_TO_TALK &&
@@ -319,6 +325,11 @@ public class MumlaService extends HumlaService implements
                 AudioManager audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
                 audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD, -1);
             }
+        }
+
+        @Override
+        public void onUserRemoved(IUser user, String reason) {
+            mRadioReceiveTracker.remove(user.getSession());
         }
     };
 
@@ -361,6 +372,7 @@ public class MumlaService extends HumlaService implements
 
     @Override
     public void onDestroy() {
+        mRadioReceiveTracker.clear();
         releasePttForSafety(true);
         setPttMediaSessionActive(false);
         if (mPttMediaSession != null) {
@@ -434,6 +446,7 @@ public class MumlaService extends HumlaService implements
 
     @Override
     public void onConnectionDisconnected(HumlaException e) {
+        mRadioReceiveTracker.clear();
         releasePttForSafety(true);
         super.onConnectionDisconnected(e);
         setPttMediaSessionActive(false);
@@ -725,6 +738,11 @@ public class MumlaService extends HumlaService implements
             onTalkKeyUp();
         }
         mPttMediaSession.setActive(active);
+    }
+
+    /** True while at least one remote user is delivering audible voice. */
+    public boolean isRadioReceiving() {
+        return mRadioReceiveTracker.isReceiving();
     }
 
     /**

@@ -23,6 +23,8 @@
     <string name="radio_loading_config">โหลด Config</string>
     <string name="radio_not_provisioned">ยังไม่ Provision</string>
     <string name="radio_config_invalid">Config ไม่ถูกต้อง</string>
+    <string name="radio_config_testing">กำลังทดสอบ Config ใหม่</string>
+    <string name="radio_config_rolled_back">กลับไปใช้ Config เดิมแล้ว</string>
     <string name="radio_connecting">กำลังเชื่อมต่อ</string>
     <string name="radio_reconnecting">กำลังต่อใหม่</string>
     <string name="radio_offline">Offline</string>

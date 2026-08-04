@@ -24,6 +24,11 @@ app-private trust store and reconnects. The validated external config is therefo
 for selecting the server host. `mumble.serverCertificateSha256` remains an optional stricter pin;
 when present, a mismatch fails closed instead of using automatic trust.
 
+Every effective configuration change must advance `configVersion`. Minimum stages validated
+downloads as pending, waits for RX/TX and connection transitions to become idle, and promotes the
+candidate only after it connects and joins its configured room. A failed candidate is discarded and
+the device continues with its Last Known Good active config.
+
 ## GitHub Pages
 
 The workflow in `.github/workflows/deploy-pages.yml` publishes this directory. The repository Pages

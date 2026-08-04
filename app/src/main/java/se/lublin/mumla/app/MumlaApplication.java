@@ -28,7 +28,7 @@ public class MumlaApplication extends Application implements SharedPreferences.O
         new DeviceIdentityManager(preferences).getOrCreateDeviceId();
         RadioPttKeyManager.applyDefaults(preferences);
         RadioLauncherShortcutInstaller.ensureInstalled(this, preferences, false);
-        RadioConfigUpdater.schedule(this);
+        RadioConfigUpdater.start(this);
         applyTheme(preferences);
         preferences.registerOnSharedPreferenceChangeListener(this);
     }

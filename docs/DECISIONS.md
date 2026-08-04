@@ -61,3 +61,11 @@ external config is the intended trust boundary for choosing the server. An optio
 SHA-256 fingerprint is stricter: when present, it must match and automatic trust cannot bypass it.
 No system CA store or global TLS verifier is disabled. This policy means config-source compromise
 can redirect devices; signed config remains future hardening.
+
+## D-011: Downloaded config is not Last Known Good until the radio proves it
+
+A validated remote response is staged as pending and trialled only when connection state, RX and TX
+are idle. It becomes active only after Minimum connects and joins the configured room. Connection,
+permission, room or TLS failure discards the candidate and reconnects with the prior active config.
+Promotion retains the old active file as previous for explicit rollback. This separates transport
+and schema validity from operational validity and prevents a bad backend edit from bricking a radio.

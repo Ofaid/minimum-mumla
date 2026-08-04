@@ -22,6 +22,8 @@ public interface IMumlaService extends IHumlaService {
 
     void onTalkKeyUp();
 
+    boolean isRadioReceiving();
+
     List<IChatMessage> getMessageLog();
 
     void clearMessageLog();

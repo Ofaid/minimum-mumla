@@ -39,7 +39,7 @@ raw GPIO F1/F2.
 | 0 — Baseline | Partial | Upstream/Humla retained; FOSS debug tests and APK build; Minimum name/icon | Record a clean upstream voice/PTT baseline; choose a distinct application ID; decide radio/diagnostic flavor structure |
 | 1 — Radio Shell | Mostly complete | Dark `RadioShellActivity` loads LKG config, auto-connects/reconnects, joins the full-path default room, shows connection/RX/TX/access state and supports touch/physical PTT; real T99 boot-to-ready passed | Exercise multiple room presets and decide dedicated radio application ID/flavor |
 | 2 — Device Identity | Mostly complete | Six-character `SecureRandom` identity, persistence, validation and tests | Add protected admin UI/gesture for regeneration and acceptance tests across update/reboot/clear-data |
-| 3 — Remote Configuration | Partial | Embedded fallback, HTTPS fetch, default/model/device merge, limits, validation, active/previous/temp files, downgrade rejection/tests, six-hour best-effort refresh, JSON Schema | Explicit rollback API; signature verification; network-return trigger; apply only while RX/TX idle |
+| 3 — Remote Configuration | Mostly complete | Embedded fallback, HTTPS fetch, default/model/device merge, limits, validation, active/previous/pending cache, downgrade rejection, six-hour plus network-return refresh, service-owned RX/TX idle candidate trial, commit after room join, explicit rollback and JVM tests | Config signature verification and physical success/failure candidate acceptance |
 | 4 — Rooms and Tokens | Mostly complete | Resolved public tokens feed existing Humla authentication without DB/log persistence; typed presets, exact full-path lookup, default join and direction/select/default navigation; live nested-room T99 test passed | Multi-room live test, idle reconnect on token change and permission-denied/default-room fallback evidence |
 | 5 — Hardware PTT | Partial | T99/T88/generic profiles, multi-key defaults, Activity bridge, MediaSession path, key-up/disconnect/service-destroy release, 120 s watchdog | Hardware diagnostics, scancode/source capture UI, key bounce tests, F2 live test, foreground/background/screen-off matrix, OEM/vendor path if T99 F-keys do not reach the service |
 | 6 — Hardening | Partial | Automatic client certificate, auto-start, T99 provisioning/launcher recovery, config downgrade rejection, config-authorized automatic self-signed trust and optional exact pin | Network-change recovery/backoff evidence, battery-optimization handling, voice prompts, protected-token store, config signatures, sanitized diagnostics/security review |
@@ -48,8 +48,8 @@ raw GPIO F1/F2.
 ## Acceptance-test coverage
 
 - Device identity: validation/unit coverage exists; lifecycle acceptance matrix remains manual.
-- Config: parsing and downgrade tests exist; explicit rollback, signature, idle apply and broader
-  failure-mode tests are incomplete.
+- Config: parsing, downgrade, pending promotion, explicit rollback, refresh gating and RX/TX idle
+  policy tests exist. Signature verification and physical candidate success/failure evidence remain.
 - Rooms/tokens: integrated end to end and passed with one nested live room; multiple presets and
   denied-room behavior remain unproven.
 - PTT: core service safety exists; T99 physical screen-off PTT passed an operator test and the live
@@ -66,8 +66,8 @@ raw GPIO F1/F2.
 2. Capture the incoming T88 hardware profile and repeat provisioning, boot, room and PTT tests.
 3. Exercise multiple room presets, denied-room fallback, network loss/recovery and watchdog release
    with an operator present.
-4. Add explicit previous-config rollback, signed config support, idle-only config activation and
-   network-return refresh/reconnect behavior.
+4. Complete the pending-config physical success/failure acceptance run, then add signed config
+   support. The repository, idle gate and network-return implementation are already present.
 5. Add hidden key/config/audio diagnostics before claiming support for additional cheap-radio models.
 6. Complete the hardware/lifecycle/security acceptance matrix, then introduce the dedicated application
    ID/flavor and release pipeline in an isolated commit. The application ID must be chosen before

@@ -28,7 +28,7 @@
 | Static backend JSON | PASS | Parsed with PowerShell `ConvertFrom-Json` |
 | GitHub Pages workflow | CONFIGURED | Deploy occurs after workflow reaches `main` |
 | Android config embedded fallback | PASS | Asset + validation in repository |
-| Android remote config fetch/cache | IMPLEMENTED | Background six-hour refresh; T99 correctly falls back on old CA failure |
+| Android remote config fetch/cache | PASS IN JVM / DEVICE ACCEPTANCE OPEN | Six-hour and network-return refresh, in-flight guard, pending staging and LKG fallback |
 | Public access-token resolver | PASS | JVM tests cover trimming, case, ordering, duplicates and malformed/protected entries |
 | Remote room path selection | PASS | Exact full-path resolver JVM tests plus live T99 join to the supplied nested room |
 | Connection-time token integration | PASS | Live T99 authentication through existing Humla extras; token remained local and was not logged |
@@ -36,6 +36,8 @@
 | Managed self-signed TLS auto-trust | PASS | Cleared old app trust, provisioned no-pin config, app recreated private trust and returned to the exact ready room without a dialog |
 | Optional self-signed TLS pin | PASS | Exact SHA-256 pin created app-private trust and connected; mismatch remains fail-closed |
 | Active config downgrade rejection | PASS | Repository JVM tests reject a lower version and allow same/newer versions |
+| Pending config idle gate | PASS IN JVM | Candidate blocked during RX, TX and connection transitions; service tracker covers talk/shout/whisper and disconnect clear |
+| Pending config promotion/rollback | PASS IN JVM / T99 OPEN | Atomic active/previous rotation and explicit rollback tests pass; physical candidate trial awaits a healthy ADB host |
 | Screen-off connection persistence | PASS | T99 display OFF/dozing for 10 seconds with `MumlaService` still started and no disconnect |
 | Multi-room preset switching | IMPLEMENTED IN CODE | Direction/select/default keys exist; requires a live config with at least two rooms |
 | Dark mode default | PASS | Fresh/unset preference resolves to `forceDark`; update installed and visually checked on T99 |
