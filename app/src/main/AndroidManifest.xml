@@ -117,6 +117,12 @@
             </intent-filter>
         </activity>
 
+        <!-- Future radio flavor entry point; standard Mumla remains the launcher for now. -->
+        <activity
+            android:name=".radio.RadioShellActivity"
+            android:label="@string/app_name"
+            android:exported="false" />
+
         <receiver
             android:name=".app.MumlaBootReceiver"
             android:enabled="true"

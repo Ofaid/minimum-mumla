@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "configVersion": 1,
+  "deviceId": "*",
+  "service": {
+    "name": "Minimum Public PTT"
+  },
+  "mumble": {
+    "serverId": "public-main",
+    "host": "voice.example.invalid",
+    "port": 64738,
+    "defaultRoom": "main",
+    "autoConnect": false,
+    "autoReconnect": true
+  },
+  "ui": {
+    "profile": "small-radio",
+    "language": "th",
+    "showChat": false,
+    "showUserList": false,
+    "showChannelTree": false,
+    "allowExit": false,
+    "voicePrompt": true
+  },
+  "ptt": {
+    "maximumTxSeconds": 120,
+    "allowScreenOff": true,
+    "releaseOnNetworkLoss": true
+  },
+  "rooms": [
+    {
+      "id": "main",
+      "label": "ห้องหลัก",
+      "path": "/PUBLIC/MAIN",
+      "presetKey": "P1",
+      "access": {
+        "mode": "none"
+      }
+    }
+  ],
+  "hardware": {
+    "profile": "generic-radio",
+    "pttKeyCode": 0,
+    "pttScanCode": 0,
+    "p1KeyCode": 0,
+    "p2KeyCode": 0,
+    "p3KeyCode": 0
+  },
+  "update": {
+    "checkOnBoot": true,
+    "checkIntervalMinutes": 360,
+    "applyMode": "when-idle"
+  }
+}

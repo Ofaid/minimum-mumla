@@ -7,6 +7,13 @@ reduces the user-facing surface for small Android radio hardware.
 
 Project status and T99 hardware notes:
 
+- [Canonical project status](docs/PROJECT_STATUS.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Development runbook](docs/DEVELOPMENT_RUNBOOK.md)
+- [Configuration contract](docs/CONFIG_BACKEND.md)
+- [Acceptance test matrix](docs/TEST_MATRIX.md)
+- [Engineering decisions](docs/DECISIONS.md)
+- [Work log](docs/WORK_LOG.md)
 - [Implementation status](docs/IMPLEMENTATION_STATUS.md)
 - [T99 device profile](docs/T99_DEVICE_PROFILE.md)
 - [T88 device profile checklist](docs/T88_DEVICE_PROFILE.md)

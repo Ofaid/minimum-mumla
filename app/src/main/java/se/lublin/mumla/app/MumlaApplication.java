@@ -13,11 +13,18 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDelegate;
 import androidx.preference.PreferenceManager;
 
+import se.lublin.mumla.radio.DeviceIdentityManager;
+import se.lublin.mumla.radio.RadioConfigUpdater;
+
 public class MumlaApplication extends Application implements SharedPreferences.OnSharedPreferenceChangeListener {
     @Override
     public void onCreate() {
         super.onCreate();
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
+        // Create the radio identity before either the Activity or service needs it. This keeps
+        // the identity stable across normal app launches and makes it available to config code.
+        new DeviceIdentityManager(preferences).getOrCreateDeviceId();
+        RadioConfigUpdater.schedule(this);
         applyTheme(preferences);
         preferences.registerOnSharedPreferenceChangeListener(this);
     }
