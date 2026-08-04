@@ -47,19 +47,27 @@ Android may refuse the Activity launch on newer OEM builds. That is a platform l
 that the receiver is missing; add a foreground-service/notification fallback before claiming broad
 new-device support.
 
-## Zello removal on T99
+## T99 preparation and Zello removal
 
-The exact script is `scripts/remove-zello-t99.ps1`. It checks the serial, package name and system
-APK path before doing a user-0 uninstall.
+The canonical provisioning script is `scripts/prepare-t99.ps1`. The old
+`scripts/remove-zello-t99.ps1` name remains as a compatibility wrapper. Preparation reports the
+ADB serial, Android serial, USB gadget serial and Minimum app Device ID; it does not attempt a
+root-only USB serial rewrite.
 
 ```powershell
 Set-Location D:\mumla-dev
-.\scripts\remove-zello-t99.ps1 -WhatIf
-.\scripts\remove-zello-t99.ps1
+.\scripts\prepare-t99.ps1 -ReportOnly
+.\scripts\prepare-t99.ps1 -WhatIf
+.\scripts\prepare-t99.ps1
 ```
 
 This removes Zello for Android user 0. It does not erase the system APK from the read-only system
-partition; a factory reset or OEM restore can make it reappear.
+partition; a factory reset or OEM restore can make it reappear. If several identical T99 devices
+show the same ADB serial, use `adb devices -l` and select the unique `transport_id`:
+
+```powershell
+.\scripts\prepare-t99.ps1 -TransportId 1
+```
 
 ## T88 capture procedure
 

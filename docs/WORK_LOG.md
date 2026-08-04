@@ -6,6 +6,8 @@ This short log records meaningful project milestones. Detailed code truth remain
 ## 2026-08-04
 
 - Confirmed the working tree and GitHub draft PR #1 for `awatchar/minimum`.
+- Added automatic radio PTT defaults and a central multi-key manager for F1/F2 plus media/headset
+  keys. F1 was verified from the T99 `gpio-keys` raw event; F2 remains a live verification item.
 - Added application-start Device ID creation.
 - Added `RadioConfigRepository` with embedded default, HTTPS fetch, merge, validation, cache and
   rollback copy.

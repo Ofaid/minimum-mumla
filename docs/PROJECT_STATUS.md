@@ -31,7 +31,9 @@ document disagrees with this file, verify the code and update this file first.
   the physical key is released after a timeout.
 - Made first-run client certificate creation automatic with retry on failure.
 - Added boot auto-start, enabled by default, with an OEM/background-launch exception guard.
-- Removed Zello for user 0 on the connected T99 and added a guarded repeatable PowerShell script.
+- Removed Zello for user 0 on the connected T99 and evolved the guarded PowerShell workflow into
+  `scripts/prepare-t99.ps1`: serial report/collision handling, Zello removal and Minimum Device ID
+  verification. The old Zello script name remains a compatibility wrapper.
 - Added a public static GitHub Pages backend under `backend/`, with schema, defaults, model files and
   a Pages workflow. No user token is committed.
 - Added Android-side `RadioConfigRepository`: embedded safe default, HTTPS-only remote fetch,
@@ -73,6 +75,8 @@ document disagrees with this file, verify the code and update this file first.
 ## Important safety rules
 
 - Never commit the Mumble access token, GitHub credentials, private keys or device-specific secrets.
+- Do not attempt to rewrite the T99 USB/ADB serial from an unprivileged script; use ADB
+  `transport_id` to disambiguate identical units and use Minimum Device ID for app identity.
 - Do not claim screen-off PTT support for an OEM key until an actual screen-off trace proves it.
 - Keep the normal Mumla build working while the radio interface is developed.
 - Do not merge PR #1 without explicit user approval.
