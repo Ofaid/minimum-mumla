@@ -34,6 +34,18 @@ This short log records meaningful project milestones. Detailed code truth remain
 - Added and reviewed the bounded Luna worker configuration outside the repository. Its first task
   produced `AccessTokenResolver`; Sol review corrected its test fixtures, added a test-only JSON
   runtime, and the full FOSS unit-test/APK build passed.
+- Completed the config-driven radio path: typed validation, downgrade rejection, public-token
+  authentication, automatic certificate/connect/reconnect, exact full-path room join, room preset
+  navigation and the compact dark ready/RX/TX/access status UI.
+- Added optional exact SHA-256 pinning for managed/self-signed Mumble servers. The first unpinned
+  T99 connection correctly failed closed; the locally provisioned exact pin allowed the existing
+  app-private BKS trust path to connect without disabling TLS verification.
+- Extended `prepare-t99.ps1` to install a local config into app-private storage without showing its
+  token, apply restrictive permissions and launch the managed radio client.
+- Passed end-to-end physical T99 acceptance against the supplied active server: authentication,
+  nested full-path room join, green ready state, connection persistence with the display off, and a
+  real reboot returning directly to the ready room without a HOME chooser or touch input. No PTT
+  transmission was made while the operator was away; F2 and screen-off hardware PTT remain open.
 
 ## Prior milestones
 

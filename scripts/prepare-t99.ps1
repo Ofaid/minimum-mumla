@@ -22,15 +22,17 @@ param(
     [switch]$Force,
     [switch]$SkipZello,
     [switch]$SkipMinimumHome,
-    [switch]$ReportOnly
+    [switch]$ReportOnly,
+    [string]$RadioConfigPath = ""
 )
 
 $ErrorActionPreference = "Stop"
 $PackageName = "com.loudtalks"
 $MinimumPackage = "se.lublin.mumla"
-$MinimumActivity = "se.lublin.mumla/.app.MumlaActivity"
+$MinimumActivity = "se.lublin.mumla/.radio.RadioShellActivity"
 $MinimumHomeActivity = "se.lublin.mumla/.radio.MinimumHomeActivity"
 $MinimumHomeComponent = "se.lublin.mumla/se.lublin.mumla.radio.MinimumHomeActivity"
+$MinimumRadioComponent = "se.lublin.mumla/se.lublin.mumla.radio.RadioShellActivity"
 $ShortcutProvisionReceiver = "se.lublin.mumla/.radio.RadioProvisionReceiver"
 $ShortcutProvisionAction = "se.lublin.mumla.action.PROVISION_LAUNCHER_SHORTCUT"
 
@@ -103,6 +105,11 @@ function Test-HomeChooserFocused {
     return ($windowState -join "`n").Contains("android/com.android.internal.app.ResolverActivity")
 }
 
+function Test-MinimumRadioFocused {
+    $windowState = Invoke-TargetAdb -Arguments @("shell", "dumpsys", "window", "windows")
+    return ($windowState -join "`n").Contains($MinimumRadioComponent)
+}
+
 Write-Host "Target: T99/T88 / $targetLabel"
 Write-Host "Manufacturer/model: $(Get-TargetProperty -Name ro.product.manufacturer) / $(Get-TargetProperty -Name ro.product.model)"
 $adbSerial = (& $adbPath @targetArgs get-serialno) -join ""
@@ -123,6 +130,27 @@ if (-not $SkipZello -and $packagePath) {
 $minimumInstalled = Invoke-TargetAdb -Arguments @("shell", "pm", "list", "packages", $MinimumPackage)
 if (-not $minimumInstalled) {
     throw "Minimum ($MinimumPackage) is not installed; install the APK before provisioning."
+}
+
+if (-not $ReportOnly -and -not $WhatIfPreference) {
+    # Managed radio provisioning should not leave a tiny-screen Android permission dialog for the
+    # operator. This only grants a permission already declared by Minimum.
+    $apiLevelOutput = @(Invoke-TargetAdb -Arguments @(
+        "shell", "getprop", "ro.build.version.sdk"
+    ))
+    $apiLevelMatch = [regex]::Match(($apiLevelOutput -join " "), '\b\d+\b')
+    if (-not $apiLevelMatch.Success) {
+        throw "Could not determine the Android API level for microphone provisioning."
+    }
+    $androidApiLevel = [int]$apiLevelMatch.Value
+    if ($androidApiLevel -ge 23) {
+        Invoke-TargetAdb -Arguments @(
+            "shell", "pm", "grant", $MinimumPackage, "android.permission.RECORD_AUDIO"
+        ) | Out-Null
+        Write-Host "Minimum microphone permission granted for managed PTT use."
+    } else {
+        Write-Host "Minimum microphone permission is install-time on Android API $androidApiLevel."
+    }
 }
 
 if (-not $ReportOnly -and -not $SkipZello -and $packagePath) {
@@ -164,6 +192,47 @@ if ($identityMatch.Success) {
     Write-Warning "Minimum Device ID is not initialized yet; launch the app once with the normal user."
 }
 
+if (-not $ReportOnly -and $RadioConfigPath -and -not $WhatIfPreference) {
+    $resolvedConfigPath = (Resolve-Path -LiteralPath $RadioConfigPath).Path
+    $configFile = Get-Item -LiteralPath $resolvedConfigPath
+    if ($configFile.Length -gt 262144) {
+        throw "Radio config exceeds the 262144-byte application limit."
+    }
+    $configObject = Get-Content -LiteralPath $resolvedConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($configObject.schemaVersion -ne 1 -or $configObject.configVersion -lt 1) {
+        throw "Radio config has an unsupported schema/config version."
+    }
+    if (-not $configObject.mumble.host -or -not $configObject.mumble.defaultRoom -or -not $configObject.rooms -or $configObject.rooms.Count -lt 1) {
+        throw "Radio config is missing Mumble host/defaultRoom/rooms."
+    }
+    if ($identityMatch.Success -and $configObject.deviceId -ne "*" -and $configObject.deviceId -ne $deviceId) {
+        throw "Radio config deviceId does not match Minimum Device ID $deviceId."
+    }
+
+    $remoteTemporary = "/data/local/tmp/minimum-radio-config-$PID.json"
+    Invoke-TargetAdb -Arguments @("push", $resolvedConfigPath, $remoteTemporary) | Out-Null
+    try {
+        Invoke-TargetAdb -Arguments @(
+            "shell", "run-as", $MinimumPackage, "mkdir", "-p", "files/radio-config"
+        ) | Out-Null
+        Invoke-TargetAdb -Arguments @(
+            "shell", "run-as", $MinimumPackage, "chmod", "700", "files/radio-config"
+        ) | Out-Null
+        Invoke-TargetAdb -Arguments @(
+            "shell", "run-as", $MinimumPackage, "cp", $remoteTemporary,
+            "files/radio-config/active-config.json"
+        ) | Out-Null
+        Invoke-TargetAdb -Arguments @(
+            "shell", "run-as", $MinimumPackage, "chmod", "600",
+            "files/radio-config/active-config.json"
+        ) | Out-Null
+    } finally {
+        Invoke-TargetAdb -Arguments @("shell", "rm", "-f", $remoteTemporary) | Out-Null
+    }
+    Invoke-TargetAdb -Arguments @("shell", "am", "force-stop", $MinimumPackage) | Out-Null
+    Write-Host "Private Last Known Good radio config installed; token values were not displayed."
+}
+
 if (-not $ReportOnly -and -not $SkipMinimumHome -and -not $WhatIfPreference) {
     Invoke-TargetAdb -Arguments @(
         "shell", "am", "broadcast",
@@ -172,7 +241,7 @@ if (-not $ReportOnly -and -not $SkipMinimumHome -and -not $WhatIfPreference) {
     ) | Out-Null
     Start-Sleep -Milliseconds 500
     Invoke-TargetAdb -Arguments @(
-        "shell", "am", "start", "-W",
+        "shell", "am", "start",
         "-a", "android.intent.action.MAIN",
         "-c", "android.intent.category.HOME"
     ) | Out-Null
@@ -182,12 +251,20 @@ if (-not $ReportOnly -and -not $SkipMinimumHome -and -not $WhatIfPreference) {
     }
     Write-Host "OEM HOME verified: no chooser is visible; Minimum shortcut was requested."
 
-    Invoke-TargetAdb -Arguments @("shell", "am", "start", "-n", $MinimumHomeActivity) | Out-Null
+    $finalActivity = if ($RadioConfigPath) { $MinimumActivity } else { $MinimumHomeActivity }
+    Invoke-TargetAdb -Arguments @("shell", "am", "start", "-n", $finalActivity) | Out-Null
     Start-Sleep -Milliseconds 500
-    if (-not (Test-MinimumHomeFocused)) {
-        throw "Minimum radio dashboard did not take focus."
+    if ($RadioConfigPath -and -not (Test-MinimumRadioFocused)) {
+        throw "Minimum radio client did not take focus after config provisioning."
     }
-    Write-Host "Minimum radio dashboard opened: swipe between Minimum and Settings."
+    if (-not $RadioConfigPath -and -not (Test-MinimumHomeFocused)) {
+        throw "Minimum recovery dashboard did not take focus."
+    }
+    if ($RadioConfigPath) {
+        Write-Host "Minimum radio client opened with the private Last Known Good config."
+    } else {
+        Write-Host "Minimum recovery dashboard opened: swipe between Minimum and Settings."
+    }
 } elseif ($SkipMinimumHome) {
     Write-Host "Minimum dashboard/shortcut step skipped by request."
 }

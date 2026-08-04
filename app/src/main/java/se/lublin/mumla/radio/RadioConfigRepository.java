@@ -109,8 +109,31 @@ public final class RadioConfigRepository {
         }
 
         validateConfig(merged, deviceId);
+        File active = new File(cacheDirectory(), ACTIVE_FILE);
+        if (active.isFile()) {
+            JSONObject current = null;
+            try {
+                current = readJson(active);
+                validateConfig(current, null);
+            } catch (IOException | JSONException ignored) {
+                // An unreadable active cache is not a valid downgrade baseline.
+            }
+            if (current != null) {
+                rejectDowngrade(merged, current);
+            }
+        }
         writeActive(merged);
         return merged;
+    }
+
+    /** Rejects a candidate that would replace a newer Last Known Good configuration. */
+    public static void rejectDowngrade(JSONObject candidate, JSONObject active)
+            throws JSONException {
+        int candidateVersion = candidate == null ? -1 : candidate.optInt("configVersion", -1);
+        int activeVersion = active == null ? -1 : active.optInt("configVersion", -1);
+        if (candidateVersion < activeVersion) {
+            throw new JSONException("config downgrade rejected");
+        }
     }
 
     /** Deep-merges JSON objects; arrays and scalar values from overlay replace the base value. */
@@ -184,6 +207,10 @@ public final class RadioConfigRepository {
             if (port < 1 || port > 65535) {
                 throw new JSONException("invalid Mumble port");
             }
+        }
+        if (mumble != null && mumble.has("serverCertificateSha256")) {
+            RadioConnectionConfig.normalizeFingerprint(
+                    mumble.optString("serverCertificateSha256", ""));
         }
         JSONObject ptt = config.optJSONObject("ptt");
         if (ptt != null) {

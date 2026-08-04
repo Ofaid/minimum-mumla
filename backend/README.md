@@ -18,6 +18,10 @@ host is configured. Replace the placeholder host in `default.json` only through 
 Public access tokens may be placed in config, but they are not secrets. Protected rooms must use a
 future secure-store reference and must never put the token value in this directory.
 
+`mumble.serverCertificateSha256` is optional and should be used only for a deliberately managed
+self-signed server. It pins one exact leaf certificate fingerprint; changing the server certificate
+requires a reviewed config update. Do not use a pin as a substitute for normal public-CA trust.
+
 ## GitHub Pages
 
 The workflow in `.github/workflows/deploy-pages.yml` publishes this directory. The repository Pages

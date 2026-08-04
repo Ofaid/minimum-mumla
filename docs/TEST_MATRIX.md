@@ -20,7 +20,7 @@
 | T99 dashboard physical navigation | IMPLEMENTED | DPAD up/down page change; Select/Enter/Call activate; verify live green key |
 | T99 system HOME chooser | PASS | Launcher3 opens directly; ResolverActivity absent |
 | T99 Launcher3 recovery shortcut | PASS | Minimum and Settings icons visible after provisioning |
-| T99 reboot radio dashboard | PASS | Reboot resumes `MinimumHomeActivity`; no chooser |
+| T99 reboot radio client | PASS | Real reboot resumes `RadioShellActivity`, auto-connects and rejoins the exact configured room; no chooser |
 | Newer OEM boot policy | OPEN | Add notification/foreground-service fallback |
 | Zello user-0 removal | PASS | `pm uninstall --user 0 com.loudtalks` verified |
 | Zello repeat script dry run | PASS | `remove-zello-t99.ps1 -WhatIf` |
@@ -29,10 +29,15 @@
 | Android config embedded fallback | PASS | Asset + validation in repository |
 | Android remote config fetch/cache | IMPLEMENTED | Background six-hour refresh; T99 correctly falls back on old CA failure |
 | Public access-token resolver | PASS | JVM tests cover trimming, case, ordering, duplicates and malformed/protected entries |
-| Remote room path selection | OPEN | Extend URL/server connection contract |
-| Connection-time token integration | OPEN | Feed resolved tokens into existing Mumla/Humla authentication; keep test token local-only |
+| Remote room path selection | PASS | Exact full-path resolver JVM tests plus live T99 join to the supplied nested room |
+| Connection-time token integration | PASS | Live T99 authentication through existing Humla extras; token remained local and was not logged |
+| Config-driven auto-connect/reconnect | PASS | Live T99 ready state and automatic return after a real reboot |
+| Managed self-signed TLS pin | PASS | Unpinned connection failed closed; exact SHA-256 pin created app-private trust and connected |
+| Active config downgrade rejection | PASS | Repository JVM tests reject a lower version and allow same/newer versions |
+| Screen-off connection persistence | PASS | T99 display OFF/dozing for 10 seconds with `MumlaService` still started and no disconnect |
+| Multi-room preset switching | IMPLEMENTED IN CODE | Direction/select/default keys exist; requires a live config with at least two rooms |
 | Dark mode default | PASS | Fresh/unset preference resolves to `forceDark`; update installed and visually checked on T99 |
-| Radio shell | FOUNDATION ONLY | Non-launcher activity; exercise on T99 |
+| Radio shell | PASS ON T99 | Dark ready/RX/TX/status UI, full room path, Device ID/profile and enabled touch PTT verified |
 | T88 profile | OPEN | Capture actual T88 runtime data |
 
 ## Release gate

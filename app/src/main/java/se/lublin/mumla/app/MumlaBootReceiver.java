@@ -15,8 +15,8 @@ import android.content.Intent;
 import android.util.Log;
 
 import se.lublin.mumla.Settings;
-import se.lublin.mumla.radio.MinimumHomeActivity;
 import se.lublin.mumla.radio.RadioDeviceProfile;
+import se.lublin.mumla.radio.RadioShellActivity;
 
 /** Opens the radio client after boot on hardware that permits boot-time activity launches. */
 public class MumlaBootReceiver extends BroadcastReceiver {
@@ -35,7 +35,7 @@ public class MumlaBootReceiver extends BroadcastReceiver {
         String profile = RadioDeviceProfile.detectCurrent();
         Class<?> launchClass = RadioDeviceProfile.T99.equals(profile)
                 || RadioDeviceProfile.T88.equals(profile)
-                ? MinimumHomeActivity.class
+                ? RadioShellActivity.class
                 : MumlaActivity.class;
         Intent launchIntent = new Intent(context, launchClass);
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK

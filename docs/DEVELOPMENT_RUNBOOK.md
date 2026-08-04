@@ -41,7 +41,9 @@ The receiver is enabled by default through `Settings.PREF_AUTO_START`. A valid s
 1. Launch the app once so Android has started the package normally.
 2. Kill the app process without stopping the package.
 3. Send `android.intent.action.BOOT_COMPLETED`.
-4. Check `dumpsys activity activities` for `se.lublin.mumla/.app.MumlaActivity`.
+4. On T99/T88, check `dumpsys activity activities` for
+   `se.lublin.mumla/.radio.RadioShellActivity`; generic Android retains
+   `se.lublin.mumla/.app.MumlaActivity`.
 
 Android may refuse the Activity launch on newer OEM builds. That is a platform limitation, not proof
 that the receiver is missing; add a foreground-service/notification fallback before claiming broad
@@ -60,7 +62,15 @@ Set-Location D:\mumla-dev
 .\scripts\prepare-t99.ps1 -WhatIf
 .\scripts\prepare-t99.ps1
 .\scripts\prepare-t99.ps1 -SkipMinimumHome
+.\scripts\prepare-t99.ps1 -Force -RadioConfigPath C:\private\minimum-radio.json
 ```
+
+If local PowerShell policy blocks scripts, run the same file with
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File`. Keep the supplied JSON outside the
+repository: it may contain a public room token or a private server-certificate pin. The script
+checks size, schema/config version, required Mumble/room fields and Device ID, then copies it to
+app-private `files/radio-config/active-config.json` with directory mode 700 and file mode 600. It
+does not display token values and removes the temporary ADB copy.
 
 This removes Zello for Android user 0. It does not erase the system APK from the read-only system
 partition; a factory reset or OEM restore can make it reappear. If several identical T99 devices
@@ -70,12 +80,15 @@ show the same ADB serial, use `adb devices -l` and select the unique `transport_
 .\scripts\prepare-t99.ps1 -TransportId 1
 ```
 
-Preparation opens `MinimumHomeActivity` after the Device ID check. It provides two swipe pages: the
-large Minimum icon and Android Settings. T99 firmware does not accept the data-installed Minimum
+Without `-RadioConfigPath`, preparation opens `MinimumHomeActivity` after the Device ID check. It
+provides two swipe pages: the large Minimum icon and Android Settings. With a config, it opens
+`RadioShellActivity` so connection and room join can be verified immediately. T99 firmware does
+not accept the data-installed Minimum
 activity as a usable default HOME choice, so the app deliberately does not register as HOME. The
 script requests a legacy Minimum shortcut in Launcher3, launches a real system HOME intent and
-fails if ResolverActivity appears. It then opens the radio dashboard explicitly. At boot, T99/T88
-profiles launch the dashboard; generic Android continues to launch MumlaActivity.
+fails if ResolverActivity appears. At boot, T99/T88 profiles launch the radio client directly;
+generic Android continues to launch MumlaActivity. Back from the radio client opens the recovery
+dashboard instead of exiting to an uncertain launcher state.
 
 `-SkipMinimumHome` skips shortcut/dashboard provisioning. Launcher3 is retained as an emergency
 fallback and should show both Minimum and Settings after preparation.

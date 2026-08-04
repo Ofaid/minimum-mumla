@@ -28,7 +28,6 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import se.lublin.mumla.R;
-import se.lublin.mumla.app.MumlaActivity;
 
 /**
  * A deliberately small radio-device dashboard. Each page has one large, recoverable action.
@@ -185,7 +184,8 @@ public final class MinimumHomeActivity extends Activity {
 
     private void launchPageAction() {
         if (page == PAGE_MINIMUM) {
-            startActivity(new Intent(this, MumlaActivity.class));
+            startActivity(new Intent(this, RadioShellActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
         } else if (page == PAGE_SETTINGS) {
             try {
                 startActivity(new Intent(Settings.ACTION_SETTINGS));

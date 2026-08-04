@@ -126,11 +126,11 @@
             android:excludeFromRecents="true"
             android:exported="true" />
 
-        <!-- Future radio shell entry point; the minimal home reuses the same service. -->
+        <!-- Config-driven radio entry point; boot uses it on supported small-radio profiles. -->
         <activity
             android:name=".radio.RadioShellActivity"
             android:label="@string/app_name"
-            android:exported="false" />
+            android:exported="true" />
 
         <receiver
             android:name=".app.MumlaBootReceiver"

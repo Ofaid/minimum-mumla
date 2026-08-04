@@ -24,6 +24,7 @@ import android.media.MediaRecorder;
 import android.os.AsyncTask;
 
 import java.util.ArrayList;
+import java.util.List;
 
 import se.lublin.humla.HumlaService;
 import se.lublin.humla.model.Server;
@@ -42,11 +43,24 @@ public class ServerConnectTask extends AsyncTask<Server, Void, Intent> {
     private Context mContext;
     private MumlaDatabase mDatabase;
     private Settings mSettings;
+    private final List<String> mAccessTokens;
+    private final Boolean mAutoReconnect;
 
     public ServerConnectTask(Context context, MumlaDatabase database) {
+        this(context, database, null, null);
+    }
+
+    /**
+     * Creates a connection task with optional radio-config overrides. Tokens are copied and never
+     * persisted to the Mumla database by this task.
+     */
+    public ServerConnectTask(Context context, MumlaDatabase database, List<String> accessTokens,
+                             Boolean autoReconnect) {
         mContext = context;
         mDatabase = database;
         mSettings = Settings.getInstance(context);
+        mAccessTokens = accessTokens == null ? null : new ArrayList<>(accessTokens);
+        mAutoReconnect = autoReconnect;
     }
 
     @Override
@@ -67,14 +81,18 @@ public class ServerConnectTask extends AsyncTask<Server, Void, Intent> {
         connectIntent.putExtra(HumlaService.EXTRAS_TRANSMIT_MODE, inputMethod);
         connectIntent.putExtra(HumlaService.EXTRAS_DETECTION_THRESHOLD, mSettings.getDetectionThreshold());
         connectIntent.putExtra(HumlaService.EXTRAS_AMPLITUDE_BOOST, mSettings.getAmplitudeBoostMultiplier());
-        connectIntent.putExtra(HumlaService.EXTRAS_AUTO_RECONNECT, mSettings.isAutoReconnectEnabled());
+        connectIntent.putExtra(HumlaService.EXTRAS_AUTO_RECONNECT,
+                mAutoReconnect == null ? mSettings.isAutoReconnectEnabled() : mAutoReconnect);
         connectIntent.putExtra(HumlaService.EXTRAS_AUTO_RECONNECT_DELAY, MumlaService.RECONNECT_DELAY);
         connectIntent.putExtra(HumlaService.EXTRAS_USE_OPUS, !mSettings.isOpusDisabled());
         connectIntent.putExtra(HumlaService.EXTRAS_INPUT_RATE, mSettings.getInputSampleRate());
         connectIntent.putExtra(HumlaService.EXTRAS_INPUT_QUALITY, mSettings.getInputQuality());
         connectIntent.putExtra(HumlaService.EXTRAS_FORCE_TCP, mSettings.isTcpForced());
         connectIntent.putExtra(HumlaService.EXTRAS_USE_TOR, mSettings.isTorEnabled());
-        connectIntent.putStringArrayListExtra(HumlaService.EXTRAS_ACCESS_TOKENS, (ArrayList<String>) mDatabase.getAccessTokens(server.getId()));
+        ArrayList<String> accessTokens = mAccessTokens == null
+                ? new ArrayList<>(mDatabase.getAccessTokens(server.getId()))
+                : new ArrayList<>(mAccessTokens);
+        connectIntent.putStringArrayListExtra(HumlaService.EXTRAS_ACCESS_TOKENS, accessTokens);
         connectIntent.putExtra(HumlaService.EXTRAS_AUDIO_SOURCE, audioSource);
         connectIntent.putExtra(HumlaService.EXTRAS_AUDIO_STREAM, audioStream);
         connectIntent.putExtra(HumlaService.EXTRAS_FRAMES_PER_PACKET, mSettings.getFramesPerPacket());
