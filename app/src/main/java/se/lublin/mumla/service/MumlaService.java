@@ -23,6 +23,7 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.media.AudioManager;
 import android.media.session.MediaSession;
+import android.media.ToneGenerator;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Build;
@@ -31,6 +32,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -45,6 +47,7 @@ import org.jsoup.nodes.Element;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 import se.lublin.humla.Constants;
 import se.lublin.humla.HumlaService;
@@ -61,6 +64,8 @@ import se.lublin.mumla.service.ipc.TalkBroadcastReceiver;
 import se.lublin.mumla.util.HtmlUtils;
 import se.lublin.mumla.radio.RadioPttKeyManager;
 import se.lublin.mumla.radio.RadioReceiveTracker;
+import se.lublin.mumla.radio.RadioDeviceProfile;
+import se.lublin.mumla.radio.RadioShellActivity;
 
 /**
  * An extension of the Humla service with some added Mumla-exclusive non-standard Mumble features.
@@ -71,12 +76,18 @@ public class MumlaService extends HumlaService implements
         MumlaConnectionNotification.OnActionListener,
         MumlaReconnectNotification.OnActionListener, IMumlaService {
     private static final String TAG = MumlaService.class.getName();
+    public static final String ACTION_RADIO_PTT_FAILURE =
+            "se.lublin.mumla.action.RADIO_PTT_FAILURE";
 
     /** Undocumented constant that permits a proximity-sensing wake lock. */
     public static final int PROXIMITY_SCREEN_OFF_WAKE_LOCK = 32;
     public static final int TTS_THRESHOLD = 250; // Maximum number of characters to read
     public static final int RECONNECT_DELAY = 10000;
     private static final int MAX_PTT_SECONDS = 120;
+    private static final long PTT_DELIVERY_CONFIRM_MS = 1500L;
+    private static final long RADIO_WAKE_COOLDOWN_MS = 1000L;
+    private static final long RADIO_WAKE_DURATION_MS = 5000L;
+    private static final Locale THAI_LOCALE = new Locale("th", "TH");
 
     private Settings mSettings;
     private MumlaConnectionNotification mNotification;
@@ -101,6 +112,22 @@ public class MumlaService extends HumlaService implements
     private boolean mPttInputDown;
     private boolean mPttWatchdogLockout;
     private final RadioReceiveTracker mRadioReceiveTracker = new RadioReceiveTracker();
+    private long mPttPressStartedElapsedRealtime;
+    private boolean mPttFailureAlerted;
+    private long mLastRadioWakeElapsedRealtime;
+    private ToneGenerator mRadioAlertTone;
+    private PowerManager.WakeLock mRadioScreenWakeLock;
+    private final Runnable mPttDeliveryFailureCheck = new Runnable() {
+        @Override
+        public void run() {
+            if (mPttInputDown && mPttPressStartedElapsedRealtime > 0L
+                    && getLastAudioPacketSentElapsedRealtime()
+                    < mPttPressStartedElapsedRealtime) {
+                mPttFailureAlerted = true;
+                playPttFailureAlert();
+            }
+        }
+    };
     private final Runnable mPttWatchdog = new Runnable() {
         @Override
         public void run() {
@@ -114,6 +141,7 @@ public class MumlaService extends HumlaService implements
             if (isTalking()) {
                 setTalkingState(false);
             }
+            playPttFailureAlert();
             Log.w(TAG, "PTT watchdog stopped transmission after " + MAX_PTT_SECONDS + " seconds");
         }
     };
@@ -131,8 +159,18 @@ public class MumlaService extends HumlaService implements
     private TextToSpeech.OnInitListener mTTSInitListener = new TextToSpeech.OnInitListener() {
         @Override
         public void onInit(int status) {
-            if(status == TextToSpeech.ERROR)
+            if(status == TextToSpeech.ERROR) {
                 logWarning(getString(R.string.tts_failed));
+                return;
+            }
+            if (mTTS != null) {
+                int thai = mTTS.isLanguageAvailable(THAI_LOCALE);
+                if (thai >= TextToSpeech.LANG_AVAILABLE) {
+                    mTTS.setLanguage(THAI_LOCALE);
+                } else {
+                    Log.w(TAG, "Thai TTS voice is not installed; retaining engine default");
+                }
+            }
         }
     };
 
@@ -183,6 +221,7 @@ public class MumlaService extends HumlaService implements
         @Override
         public void onDisconnected(HumlaException e) {
             mRadioReceiveTracker.clear();
+            wakeRadioDisplay();
             if (mNotification != null) {
                 mNotification.hide();
                 mNotification = null;
@@ -272,7 +311,10 @@ public class MumlaService extends HumlaService implements
                     formattedTtsMessage.length() <= TTS_THRESHOLD &&
                     getSessionUser() != null &&
                     !getSessionUser().isSelfDeafened()) {
-                mTTS.speak(formattedTtsMessage, TextToSpeech.QUEUE_ADD, null);
+                int result = mTTS.speak(formattedTtsMessage, TextToSpeech.QUEUE_ADD, null);
+                if (result == TextToSpeech.ERROR) {
+                    Log.w(TAG, "TTS engine rejected a queued message");
+                }
             }
 
             // TODO: create a customizable notification sieve
@@ -314,8 +356,14 @@ public class MumlaService extends HumlaService implements
                 Log.d(TAG, "exception in onUserTalkStateUpdated: " + e);
             }
 
-            mRadioReceiveTracker.update(user.getSession(), user.getSession() == selfSession,
-                    user.getTalkState());
+            boolean wasReceiving = mRadioReceiveTracker.isReceiving();
+            mRadioReceiveTracker.update(user.getSession(), user.getName(),
+                    user.getSession() == selfSession, user.getTalkState());
+            if ((!wasReceiving && mRadioReceiveTracker.isReceiving())
+                    || (user.getSession() == selfSession
+                    && user.getTalkState() != TalkState.PASSIVE)) {
+                wakeRadioDisplay();
+            }
 
             if (isConnectionEstablished() &&
                     user.getSession() == selfSession &&
@@ -353,6 +401,7 @@ public class MumlaService extends HumlaService implements
         mMessageNotification = new MumlaMessageNotification(MumlaService.this);
 
         initializePttMediaSession();
+        updatePttMediaSessionState();
 
         // Instantiate overlay view
         mChannelOverlay = new MumlaOverlay(this);
@@ -378,6 +427,13 @@ public class MumlaService extends HumlaService implements
         if (mPttMediaSession != null) {
             mPttMediaSession.release();
             mPttMediaSession = null;
+        }
+        if (mRadioAlertTone != null) {
+            mRadioAlertTone.release();
+            mRadioAlertTone = null;
+        }
+        if (mRadioScreenWakeLock != null && mRadioScreenWakeLock.isHeld()) {
+            mRadioScreenWakeLock.release();
         }
         if (mNotification != null) {
             mNotification.hide();
@@ -449,7 +505,7 @@ public class MumlaService extends HumlaService implements
         mRadioReceiveTracker.clear();
         releasePttForSafety(true);
         super.onConnectionDisconnected(e);
-        setPttMediaSessionActive(false);
+        updatePttMediaSessionState();
         try {
             unregisterReceiver(mTalkReceiver);
         } catch (IllegalArgumentException iae) {
@@ -670,6 +726,58 @@ public class MumlaService extends HumlaService implements
      * keys through MediaSession for an ordinary application; T99's GPIO/F-key path needs a
      * device-specific broadcast or privileged input integration discovered separately.
      */
+    private boolean isManagedRadioDevice() {
+        return RadioPttKeyManager.isRadioProfile(RadioDeviceProfile.detectCurrent());
+    }
+
+    @SuppressWarnings("deprecation")
+    private void wakeRadioDisplay() {
+        if (!isManagedRadioDevice()) {
+            return;
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (now - mLastRadioWakeElapsedRealtime < RADIO_WAKE_COOLDOWN_MS) {
+            return;
+        }
+        mLastRadioWakeElapsedRealtime = now;
+
+        PowerManager manager = (PowerManager) getSystemService(POWER_SERVICE);
+        if (manager != null) {
+            if (mRadioScreenWakeLock == null) {
+                mRadioScreenWakeLock = manager.newWakeLock(
+                        PowerManager.SCREEN_BRIGHT_WAKE_LOCK
+                                | PowerManager.ACQUIRE_CAUSES_WAKEUP
+                                | PowerManager.ON_AFTER_RELEASE,
+                        "Mumla:RadioDisplay");
+            }
+            if (!mRadioScreenWakeLock.isHeld()) {
+                mRadioScreenWakeLock.acquire(RADIO_WAKE_DURATION_MS);
+            }
+        }
+
+        Intent radio = new Intent(this, RadioShellActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        try {
+            startActivity(radio);
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Unable to bring radio status to foreground", error);
+        }
+    }
+
+    private void playPttFailureAlert() {
+        try {
+            if (mRadioAlertTone == null) {
+                mRadioAlertTone = new ToneGenerator(AudioManager.STREAM_MUSIC, 90);
+            }
+            mRadioAlertTone.startTone(ToneGenerator.TONE_SUP_ERROR, 700);
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Unable to play PTT failure tone", error);
+        }
+        sendBroadcast(new Intent(ACTION_RADIO_PTT_FAILURE).setPackage(getPackageName()));
+    }
+
     private void initializePttMediaSession() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
             return;
@@ -719,8 +827,9 @@ public class MumlaService extends HumlaService implements
     }
 
     private void updatePttMediaSessionState() {
-        boolean shouldBeActive = isConnectionEstablished()
-                && Settings.ARRAY_INPUT_METHOD_PTT.equals(mSettings.getInputMethod());
+        boolean pttMode = Settings.ARRAY_INPUT_METHOD_PTT.equals(mSettings.getInputMethod());
+        boolean shouldBeActive = pttMode
+                && (isConnectionEstablished() || isManagedRadioDevice());
         setPttMediaSessionActive(shouldBeActive);
     }
 
@@ -745,6 +854,11 @@ public class MumlaService extends HumlaService implements
         return mRadioReceiveTracker.isReceiving();
     }
 
+    @Override
+    public List<String> getRadioTalkers() {
+        return mRadioReceiveTracker.getActiveTalkers();
+    }
+
     /**
      * Called when a user presses a talk key down (i.e. when they want to talk).
      * Accounts for talk logic if toggle PTT is on.
@@ -754,13 +868,21 @@ public class MumlaService extends HumlaService implements
         if (mPttInputDown || mPttWatchdogLockout) {
             return;
         }
-        if(isConnectionEstablished()
-                && Settings.ARRAY_INPUT_METHOD_PTT.equals(mSettings.getInputMethod())) {
-            mPttInputDown = true;
-            if (!mSettings.isPushToTalkToggle() && !isTalking()) {
-                setTalkingState(true); // Start talking
-                mPttWatchdogHandler.postDelayed(mPttWatchdog, MAX_PTT_SECONDS * 1000L);
-            }
+        wakeRadioDisplay();
+        if (!isSynchronized()
+                || !Settings.ARRAY_INPUT_METHOD_PTT.equals(mSettings.getInputMethod())) {
+            playPttFailureAlert();
+            return;
+        }
+
+        mPttInputDown = true;
+        mPttFailureAlerted = false;
+        mPttPressStartedElapsedRealtime = SystemClock.elapsedRealtime();
+        if (!mSettings.isPushToTalkToggle() && !isTalking()) {
+            setTalkingState(true); // Start talking
+            mPttWatchdogHandler.postDelayed(mPttWatchdog, MAX_PTT_SECONDS * 1000L);
+            mPttWatchdogHandler.postDelayed(mPttDeliveryFailureCheck,
+                    PTT_DELIVERY_CONFIRM_MS);
         }
     }
 
@@ -770,9 +892,13 @@ public class MumlaService extends HumlaService implements
      */
     @Override
     public void onTalkKeyUp() {
+        boolean hadNoAudioPacket = mPttInputDown && mPttPressStartedElapsedRealtime > 0L
+                && getLastAudioPacketSentElapsedRealtime() < mPttPressStartedElapsedRealtime;
         mPttInputDown = false;
+        mPttPressStartedElapsedRealtime = 0L;
         mPttWatchdogLockout = false;
         mPttWatchdogHandler.removeCallbacks(mPttWatchdog);
+        mPttWatchdogHandler.removeCallbacks(mPttDeliveryFailureCheck);
         if(isConnectionEstablished()
                 && Settings.ARRAY_INPUT_METHOD_PTT.equals(mSettings.getInputMethod())) {
             if (mSettings.isPushToTalkToggle()) {
@@ -781,12 +907,19 @@ public class MumlaService extends HumlaService implements
                 setTalkingState(false); // Stop talking
             }
         }
+        if (hadNoAudioPacket && !mPttFailureAlerted) {
+            playPttFailureAlert();
+        }
+        mPttFailureAlerted = false;
     }
 
     /** Stops TX and clears pending watchdog work during lifecycle or connection failures. */
     private void releasePttForSafety(boolean requireRelease) {
         mPttWatchdogHandler.removeCallbacks(mPttWatchdog);
+        mPttWatchdogHandler.removeCallbacks(mPttDeliveryFailureCheck);
         mPttInputDown = false;
+        mPttPressStartedElapsedRealtime = 0L;
+        mPttFailureAlerted = false;
         mPttWatchdogLockout = requireRelease;
         if (isTalking()) {
             setTalkingState(false);

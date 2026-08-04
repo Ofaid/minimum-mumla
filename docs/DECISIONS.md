@@ -69,3 +69,19 @@ are idle. It becomes active only after Minimum connects and joins the configured
 permission, room or TLS failure discards the candidate and reconnects with the prior active config.
 Promotion retains the old active file as previous for explicit rollback. This separates transport
 and schema validity from operational validity and prevents a bad backend edit from bricking a radio.
+
+## D-012: Managed radios retry indefinitely, except across a trust-policy failure
+
+Transport, server reject, kick and other unexpected disconnects use capped exponential backoff and
+continue until Mumble synchronizes. Network return attempts immediately, with a timer fallback for
+OEM broadcast loss, and process death redelivers the connection intent. A certificate pin or trust-
+policy mismatch is not treated as availability failure: retry is held to avoid weakening fail-closed
+TLS behavior.
+
+## D-013: PTT delivery warning is local evidence, not a server receipt
+
+Minimum warns when PTT is pressed while unsynchronized or when no encoded audio packet is handed to
+the synchronized Mumble connection within the confirmation window. Mumble voice has no handset-
+visible per-packet acknowledgement, so end-to-end acceptance still requires a second client or
+server-side observer. Documentation and UI must not claim that local packet handoff proves a remote
+listener heard the audio.

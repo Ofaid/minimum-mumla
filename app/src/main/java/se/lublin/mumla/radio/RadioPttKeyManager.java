@@ -19,33 +19,25 @@ public final class RadioPttKeyManager {
     private RadioPttKeyManager() {
     }
 
-    /**
-     * Makes a supported radio usable on first launch without requiring a user to visit Settings.
-     * Existing explicit preferences are preserved so a user can still opt out.
-     */
+    /** Makes a managed radio usable without requiring an operator to visit Mumla settings. */
     public static void applyDefaults(SharedPreferences preferences) {
         String profile = RadioDeviceProfile.detectCurrent();
         if (!isRadioProfile(profile)) {
             return;
         }
 
-        SharedPreferences.Editor editor = preferences.edit();
-        boolean changed = false;
-        if (!preferences.contains(Settings.PREF_INPUT_METHOD)) {
-            editor.putString(Settings.PREF_INPUT_METHOD, Settings.ARRAY_INPUT_METHOD_PTT);
-            changed = true;
-        }
+        SharedPreferences.Editor editor = preferences.edit()
+                .putString(Settings.PREF_INPUT_METHOD, Settings.ARRAY_INPUT_METHOD_PTT)
+                .putBoolean(Settings.PREF_PTT_TOGGLE, false)
+                .putBoolean(Settings.PREF_AUTO_RECONNECT, true)
+                .putBoolean(Settings.PREF_PREPROCESSOR_ENABLED, true)
+                .putBoolean(Settings.PREF_HALF_DUPLEX, true)
+                .putBoolean(Settings.PREF_USE_TTS, true)
+                .putBoolean(Settings.PREF_PTT_SOUND, true);
         if (!preferences.contains(Settings.PREF_PUSH_KEY)) {
             editor.putInt(Settings.PREF_PUSH_KEY, KeyEvent.KEYCODE_F1);
-            changed = true;
         }
-        if (!preferences.contains(Settings.PREF_PTT_TOGGLE)) {
-            editor.putBoolean(Settings.PREF_PTT_TOGGLE, false);
-            changed = true;
-        }
-        if (changed) {
-            editor.apply();
-        }
+        editor.apply();
     }
 
     /** Returns true for the primary configured key and supported radio profile defaults. */

@@ -58,3 +58,7 @@ TOML and smoke-test `luna_worker`. Never rewrite agent configuration silently.
 - Do not claim T99/T88 screen-off hardware PTT support without a real device trace.
 - Keep the existing Mumla/Humla protocol and service-owned PTT safety path intact unless Sol has
   explicitly approved a bounded change.
+- After completing the user's requested batch, Sol must re-check the Technical Brief gap analysis,
+  select the highest-value unblocked bounded slice, and continue it when safe and within the user's
+  existing authority. Hardware actions, transmissions and destructive tests retain their normal
+  evidence and authorization boundaries.

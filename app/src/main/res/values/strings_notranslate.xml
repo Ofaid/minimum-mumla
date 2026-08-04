@@ -42,6 +42,15 @@
     <string name="radio_waiting_for_idle">รอช่องสัญญาณว่าง</string>
     <string name="radio_press_ok">กดปุ่มเขียวเพื่อยืนยัน</string>
     <string name="radio_room_missing">ไม่พบห้อง</string>
+    <string name="radio_connection_attempt">ครั้งที่ %1$d · จะลองต่อจนกว่าจะสำเร็จ</string>
+    <string name="radio_retry_forever">กำลังพยายามต่อกลับอัตโนมัติ</string>
+    <string name="radio_connection_blocked">หยุดเพื่อความปลอดภัยของ Certificate</string>
+    <string name="radio_joining_room">กำลังเข้าห้อง</string>
+    <string name="radio_receiving">RX · กำลังรับสัญญาณ</string>
+    <string name="radio_hardware_ptt_hint">กดปุ่ม PTT ที่ตัวเครื่องเพื่อส่ง</string>
+    <string name="radio_tx_timer_label">TX · ระยะเวลาที่ส่ง</string>
+    <string name="radio_tx_failed">ส่งเสียงไม่ได้</string>
+    <string name="radio_tx_failed_detail">ตรวจการเชื่อมต่อและไมโครโฟน</string>
     <string name="notification_message">%1$s: %2$s</string>
     <string name="certificate_export_format">mumla_%s.p12</string>
 </resources>

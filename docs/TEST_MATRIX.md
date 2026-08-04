@@ -33,6 +33,13 @@
 | Remote room path selection | PASS | Exact full-path resolver JVM tests plus live T99 join to the supplied nested room |
 | Connection-time token integration | PASS | Live T99 authentication through existing Humla extras; token remained local and was not logged |
 | Config-driven auto-connect/reconnect | PASS | Live T99 ready state and automatic return after a real reboot |
+| Indefinite reconnect policy | PASS IN JVM / T99 MATRIX OPEN | Retry-all policy plus capped 2–60 s backoff tests; network-return fallback and process-intent redelivery build successfully |
+| Reconnect full-screen UI | IMPLEMENTED / T99 VISUAL OPEN | Whole-screen connecting/reconnecting state, attempt count and no false Ready before room join |
+| PTT local-delivery warning | IMPLEMENTED / SUPERVISED TEST OPEN | Offline/no-encoded-packet tone and full-screen failure; server receipt still requires a second listener |
+| Radio audio defaults | PASS IN CODE / DEVICE AUDIO OPEN | Preprocessor, PTT confirmation, half-duplex and TTS forced for T99/T88 profiles; VAD setter and teardown unmute corrected |
+| Thai TTS selection | IMPLEMENTED / DEVICE VOICE OPEN | Requests `th-TH` only when installed engine reports support; radio continues if voice data is missing |
+| RX/TX display wake | IMPLEMENTED / T99 OPEN | Five-second wake on RX/TX/disconnect edge; OEM/API-22 behavior requires physical verification |
+| Hardware-first RadioShell UI | PASS IN BUILD / T99 VISUAL OPEN | Touch PTT removed, compact 132dp layout, service-owned speaker list and TX elapsed timer |
 | Managed self-signed TLS auto-trust | PASS | Cleared old app trust, provisioned no-pin config, app recreated private trust and returned to the exact ready room without a dialog |
 | Optional self-signed TLS pin | PASS | Exact SHA-256 pin created app-private trust and connected; mismatch remains fail-closed |
 | Active config downgrade rejection | PASS | Repository JVM tests reject a lower version and allow same/newer versions |

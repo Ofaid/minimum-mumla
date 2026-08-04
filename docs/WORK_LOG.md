@@ -64,6 +64,20 @@ This short log records meaningful project milestones. Detailed code truth remain
   left active v1001 untouched and v1002 safely pending when the workstation ADB host wedged; no
   candidate was falsely marked active. The final APK passed build but remains to be installed after
   USB/ADB is reconnected.
+- Hardened the managed-radio lifecycle: retry every unexpected disconnect indefinitely with capped
+  exponential backoff, immediate network-return retry plus timer fallback, and service intent
+  redelivery after process death. Certificate-policy mismatch remains a fail-closed hold.
+- Rebuilt RadioShell as a compact full-screen state surface for the real 132x132 T99 constraint:
+  no touch PTT, no false Ready before room join, service-owned speaker names, prominent RX/TX/error
+  screens, connection attempt count and elapsed TX timer.
+- Enabled radio preprocessing, half-duplex, TTS, PTT confirmation and auto-reconnect automatically;
+  corrected the Speex probability setter, half-duplex runtime mode lookup and teardown unmute.
+  Thai TTS is selected conditionally on installed engine support.
+- Added bounded wake-on-RX/TX/disconnect and a local PTT failure tone/state when offline or no encoded
+  packet reaches the synchronized connection. Documented that this is not a server delivery ACK.
+- Added `scripts/test-radio-reconnect.ps1` and `docs/RECONNECT_TEST_PLAN.md` for repeatable network,
+  server, process, certificate and supervised PTT-failure acceptance. Physical execution remains
+  blocked by the workstation ADB host wedge.
 
 ## Prior milestones
 

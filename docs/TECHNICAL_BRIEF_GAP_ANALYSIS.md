@@ -41,8 +41,8 @@ raw GPIO F1/F2.
 | 2 — Device Identity | Mostly complete | Six-character `SecureRandom` identity, persistence, validation and tests | Add protected admin UI/gesture for regeneration and acceptance tests across update/reboot/clear-data |
 | 3 — Remote Configuration | Mostly complete | Embedded fallback, HTTPS fetch, default/model/device merge, limits, validation, active/previous/pending cache, downgrade rejection, six-hour plus network-return refresh, service-owned RX/TX idle candidate trial, commit after room join, explicit rollback and JVM tests | Config signature verification and physical success/failure candidate acceptance |
 | 4 — Rooms and Tokens | Mostly complete | Resolved public tokens feed existing Humla authentication without DB/log persistence; typed presets, exact full-path lookup, default join and direction/select/default navigation; live nested-room T99 test passed | Multi-room live test, idle reconnect on token change and permission-denied/default-room fallback evidence |
-| 5 — Hardware PTT | Partial | T99/T88/generic profiles, multi-key defaults, Activity bridge, MediaSession path, key-up/disconnect/service-destroy release, 120 s watchdog | Hardware diagnostics, scancode/source capture UI, key bounce tests, F2 live test, foreground/background/screen-off matrix, OEM/vendor path if T99 F-keys do not reach the service |
-| 6 — Hardening | Partial | Automatic client certificate, auto-start, T99 provisioning/launcher recovery, config downgrade rejection, config-authorized automatic self-signed trust and optional exact pin | Network-change recovery/backoff evidence, battery-optimization handling, voice prompts, protected-token store, config signatures, sanitized diagnostics/security review |
+| 5 — Hardware PTT | Partial | T99/T88/generic profiles, multi-key defaults, Activity/MediaSession paths, local packet-handoff warning, screen wake, TX timer, key-up/disconnect/service-destroy release and 120 s watchdog | Hardware diagnostics, scancode/source capture UI, key bounce tests, F2 live test, foreground/background/screen-off matrix and OEM/vendor path if required |
+| 6 — Hardening | Mostly implemented, acceptance incomplete | Automatic certificate/boot, indefinite capped reconnect, network-return plus timer fallback, process redelivery, automatic preprocessor/half-duplex/TTS, teardown unmute, config rollback/downgrade and managed self-signed trust with optional pin | Physical network/process/audio/wake evidence, battery optimization, bundled voice prompts, protected-token store, config signatures and sanitized diagnostics/security review |
 | 7 — Release | Early | Public GitHub repo, draft PR, GPLv3 source base, architecture/runbook/hardware docs, Pages deployment workflow | Android CI, signed APK, release notes, known-limitations report, instrumentation tests, device video and LTE/Wi-Fi/screen-off/reconnect report |
 
 ## Acceptance-test coverage
@@ -61,14 +61,13 @@ raw GPIO F1/F2.
 
 ## Implementation order from here
 
-1. Capture the already-successful T99 screen-off control's keyCode, scanCode and input device; only
+1. Restore USB/ADB, install the latest APK and execute `RECONNECT_TEST_PLAN.md`, including network,
+   process-death, wake, half-duplex and supervised PTT-failure evidence.
+2. Capture the already-successful T99 screen-off control's keyCode, scanCode and input device; only
    add an OEM/privileged bridge if the proven path is raw GPIO and public delivery is unreliable.
-2. Capture the incoming T88 hardware profile and repeat provisioning, boot, room and PTT tests.
-3. Exercise multiple room presets, denied-room fallback, network loss/recovery and watchdog release
-   with an operator present.
-4. Complete the pending-config physical success/failure acceptance run, then add signed config
-   support. The repository, idle gate and network-return implementation are already present.
-5. Add hidden key/config/audio diagnostics before claiming support for additional cheap-radio models.
+3. Capture the incoming T88 hardware profile and repeat provisioning, boot, room and PTT tests.
+4. Exercise multiple room presets, denied-room fallback and watchdog release with an operator present.
+5. Complete pending-config physical acceptance, then add signed config and hidden diagnostics.
 6. Complete the hardware/lifecycle/security acceptance matrix, then introduce the dedicated application
    ID/flavor and release pipeline in an isolated commit. The application ID must be chosen before
    production provisioning because changing it later creates a separate Android app/data identity.

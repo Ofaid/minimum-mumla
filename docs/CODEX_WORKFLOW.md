@@ -36,3 +36,8 @@ Prefer independent read-heavy delegation and non-overlapping write ownership. So
 cross-cutting architecture, security/trust policy, hardware capability claims and final acceptance.
 After Luna returns, Sol reviews the exact diff, checks for scope drift and secrets, and reruns the
 relevant tests rather than relying only on the worker's report.
+
+At the end of each requested implementation batch, Sol re-reads the maintained Technical Brief gap
+analysis and continues with the highest-value unblocked bounded slice when it is safe and already
+authorized. This persistence rule does not authorize unsupervised PTT transmissions, destructive
+device tests, secret publication or unsupported hardware claims.

@@ -18,13 +18,18 @@ import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
+import android.os.SystemClock;
+import android.view.Gravity;
 import android.view.KeyEvent;
-import android.view.MotionEvent;
 import android.view.View;
-import android.widget.Button;
+import android.view.WindowManager;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -39,8 +44,7 @@ import java.io.IOException;
 import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.security.cert.X509Certificate;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.List;
 
 import se.lublin.humla.HumlaService;
 import se.lublin.humla.IHumlaSession;
@@ -62,13 +66,12 @@ import se.lublin.mumla.util.MumlaTrustStore;
 /** Single-screen radio client driven by the Last Known Good Minimum config. */
 public final class RadioShellActivity extends AppCompatActivity {
     private static final int MICROPHONE_PERMISSION_REQUEST = 73;
-    private static final int COLOR_READY = Color.rgb(0, 108, 78);
-    private static final int COLOR_BUSY = Color.rgb(173, 104, 0);
-    private static final int COLOR_TX = Color.rgb(176, 24, 38);
-    private static final int COLOR_OFFLINE = Color.rgb(70, 75, 82);
-    private static final int COLOR_ERROR = Color.rgb(145, 25, 35);
-
-    private final Map<Integer, String> activeTalkers = new LinkedHashMap<>();
+    private static final int COLOR_READY = Color.rgb(5, 48, 38);
+    private static final int COLOR_RX = Color.rgb(0, 60, 68);
+    private static final int COLOR_BUSY = Color.rgb(82, 50, 0);
+    private static final int COLOR_TX = Color.rgb(92, 7, 20);
+    private static final int COLOR_OFFLINE = Color.rgb(25, 28, 33);
+    private static final int COLOR_ERROR = Color.rgb(82, 8, 18);
 
     private IMumlaService service;
     private MumlaDatabase database;
@@ -83,18 +86,47 @@ public final class RadioShellActivity extends AppCompatActivity {
     private boolean configReceiverRegistered;
     private boolean pendingConfigTrial;
     private boolean pendingConfigIoInFlight;
+    private boolean connectionRetrySuspended;
+    private boolean joinedConfiguredRoom;
+    private int connectionAttempt;
+    private long txStartedElapsedRealtime;
 
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private final Runnable txTimerTick = new Runnable() {
+        @Override
+        public void run() {
+            if (txStartedElapsedRealtime <= 0L || destroyed) {
+                return;
+            }
+            long elapsed = SystemClock.elapsedRealtime() - txStartedElapsedRealtime;
+            long minutes = elapsed / 60000L;
+            long seconds = (elapsed / 1000L) % 60L;
+            long tenths = (elapsed / 100L) % 10L;
+            txTimerView.setText(String.format(java.util.Locale.ROOT,
+                    "%02d:%02d.%d", minutes, seconds, tenths));
+            uiHandler.postDelayed(this, 100L);
+        }
+    };
+
+    private LinearLayout rootView;
     private TextView serviceNameView;
     private TextView statusView;
+    private TextView detailView;
+    private TextView txTimerView;
     private TextView roomView;
     private TextView identityView;
-    private Button pttButton;
+    private ProgressBar connectionProgress;
 
     private final BroadcastReceiver configReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (RadioConfigUpdater.ACTION_CONFIG_PENDING.equals(intent.getAction())) {
                 maybeApplyPendingConfiguration();
+            } else if (MumlaService.ACTION_RADIO_PTT_FAILURE.equals(intent.getAction())) {
+                stopTxTimer();
+                setStatus(COLOR_ERROR, getString(R.string.radio_tx_failed));
+                detailView.setText(R.string.radio_tx_failed_detail);
+                statusView.postDelayed(RadioShellActivity.this::updateFromService, 2500L);
             }
         }
     };
@@ -102,13 +134,18 @@ public final class RadioShellActivity extends AppCompatActivity {
     private final HumlaObserver observer = new HumlaObserver() {
         @Override
         public void onConnecting() {
+            joinedConfiguredRoom = false;
+            connectionAttempt++;
             setStatus(COLOR_BUSY, getString(R.string.radio_connecting));
+            detailView.setText(getString(R.string.radio_connection_attempt, connectionAttempt));
         }
 
         @Override
         public void onConnected() {
             connectRequested = false;
-            activeTalkers.clear();
+            connectionAttempt = 0;
+            connectionRetrySuspended = false;
+            joinedConfiguredRoom = false;
             joinSelectedRoom();
             updateFromService();
             if (!pendingConfigTrial) {
@@ -119,8 +156,8 @@ public final class RadioShellActivity extends AppCompatActivity {
         @Override
         public void onDisconnected(HumlaException error) {
             connectRequested = false;
-            activeTalkers.clear();
-            pttButton.setEnabled(false);
+            joinedConfiguredRoom = false;
+            stopTxTimer();
             if (retryAfterConfiguredCertificateTrust) {
                 retryAfterConfiguredCertificateTrust = false;
                 setStatus(COLOR_BUSY, getString(R.string.radio_certificate_trusted));
@@ -136,8 +173,16 @@ public final class RadioShellActivity extends AppCompatActivity {
                 maybeConnect();
                 return;
             }
+            if (connectionRetrySuspended) {
+                if (service != null) {
+                    service.cancelReconnect();
+                }
+                setStatus(COLOR_ERROR, getString(R.string.radio_connection_blocked));
+                return;
+            }
             if (service != null && service.isReconnecting()) {
                 setStatus(COLOR_BUSY, getString(R.string.radio_reconnecting));
+                detailView.setText(getString(R.string.radio_retry_forever));
             } else {
                 setStatus(COLOR_OFFLINE, getString(R.string.radio_offline));
             }
@@ -153,6 +198,7 @@ public final class RadioShellActivity extends AppCompatActivity {
         public void onUserJoinedChannel(IUser user, IChannel newChannel, IChannel oldChannel) {
             if (isSelf(user)) {
                 roomView.setText(RoomPathResolver.fullPath(newChannel));
+                joinedConfiguredRoom = isSelectedRoom(newChannel);
                 showReadyState();
                 if (pendingConfigTrial && isSelectedRoom(newChannel)) {
                     commitPendingConfiguration();
@@ -167,21 +213,21 @@ public final class RadioShellActivity extends AppCompatActivity {
             }
             if (isSelf(user)) {
                 if (isAudibleTalkState(user.getTalkState())) {
-                    setStatus(COLOR_TX, getString(R.string.radio_transmitting));
+                    startTxTimer();
                 } else {
+                    stopTxTimer();
                     showTrafficOrReady();
                     maybeApplyPendingConfiguration();
                 }
                 return;
             }
 
-            IChannel sessionChannel = getSessionChannelSafely();
-            if (sessionChannel != null && sessionChannel.equals(user.getChannel())
-                    && isAudibleTalkState(user.getTalkState())) {
-                activeTalkers.put(user.getSession(), user.getName());
-            } else {
-                activeTalkers.remove(user.getSession());
-            }
+            showTrafficOrReady();
+            maybeApplyPendingConfiguration();
+        }
+
+        @Override
+        public void onUserRemoved(IUser user, String reason) {
             showTrafficOrReady();
             maybeApplyPendingConfiguration();
         }
@@ -209,7 +255,7 @@ public final class RadioShellActivity extends AppCompatActivity {
         public void onServiceDisconnected(ComponentName name) {
             service = null;
             bound = false;
-            pttButton.setEnabled(false);
+            stopTxTimer();
             setStatus(COLOR_OFFLINE, getString(R.string.radio_service_stopped));
         }
     };
@@ -228,8 +274,10 @@ public final class RadioShellActivity extends AppCompatActivity {
     protected void onStart() {
         super.onStart();
         if (!configReceiverRegistered) {
+            IntentFilter appEvents = new IntentFilter(RadioConfigUpdater.ACTION_CONFIG_PENDING);
+            appEvents.addAction(MumlaService.ACTION_RADIO_PTT_FAILURE);
             ContextCompat.registerReceiver(this, configReceiver,
-                    new IntentFilter(RadioConfigUpdater.ACTION_CONFIG_PENDING),
+                    appEvents,
                     ContextCompat.RECEIVER_NOT_EXPORTED);
             configReceiverRegistered = true;
         }
@@ -260,6 +308,7 @@ public final class RadioShellActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         destroyed = true;
+        stopTxTimer();
         database.close();
         super.onDestroy();
     }
@@ -335,52 +384,62 @@ public final class RadioShellActivity extends AppCompatActivity {
         }
     }
 
+    @SuppressWarnings("deprecation")
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(5), dp(3), dp(5), dp(3));
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN
+                | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
 
-        serviceNameView = textView(11, Color.LTGRAY);
-        root.addView(serviceNameView, new LinearLayout.LayoutParams(-1, -2));
+        boolean compact = getResources().getConfiguration().screenHeightDp <= 160
+                || getResources().getConfiguration().screenWidthDp <= 160;
+        rootView = new LinearLayout(this);
+        rootView.setOrientation(LinearLayout.VERTICAL);
+        rootView.setGravity(Gravity.CENTER);
+        rootView.setPadding(dp(5), dp(3), dp(5), dp(3));
 
-        statusView = textView(18, Color.WHITE);
-        statusView.setGravity(android.view.Gravity.CENTER);
-        statusView.setPadding(dp(2), dp(2), dp(2), dp(2));
-        root.addView(statusView, new LinearLayout.LayoutParams(-1, dp(29)));
+        serviceNameView = textView(compact ? 8 : 11, Color.LTGRAY);
+        serviceNameView.setGravity(Gravity.CENTER);
+        serviceNameView.setVisibility(compact ? View.GONE : View.VISIBLE);
+        rootView.addView(serviceNameView, new LinearLayout.LayoutParams(-1, -2));
 
-        roomView = textView(12, Color.WHITE);
-        roomView.setGravity(android.view.Gravity.CENTER);
-        root.addView(roomView, new LinearLayout.LayoutParams(-1, dp(20)));
+        connectionProgress = new ProgressBar(this);
+        connectionProgress.setIndeterminate(true);
+        rootView.addView(connectionProgress,
+                new LinearLayout.LayoutParams(compact ? dp(18) : dp(28),
+                        compact ? dp(18) : dp(28)));
 
-        identityView = textView(9, Color.GRAY);
-        identityView.setGravity(android.view.Gravity.CENTER);
+        statusView = textView(compact ? 25 : 34, Color.WHITE);
+        statusView.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        statusView.setGravity(Gravity.CENTER);
+        statusView.setSingleLine(false);
+        statusView.setMaxLines(2);
+        rootView.addView(statusView, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        txTimerView = textView(compact ? 21 : 30, Color.WHITE);
+        txTimerView.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        txTimerView.setGravity(Gravity.CENTER);
+        txTimerView.setVisibility(View.GONE);
+        rootView.addView(txTimerView, new LinearLayout.LayoutParams(-1, -2));
+
+        detailView = textView(compact ? 8 : 12, Color.LTGRAY);
+        detailView.setGravity(Gravity.CENTER);
+        detailView.setSingleLine(false);
+        detailView.setMaxLines(2);
+        rootView.addView(detailView, new LinearLayout.LayoutParams(-1, -2));
+
+        roomView = textView(compact ? 9 : 13, Color.WHITE);
+        roomView.setGravity(Gravity.CENTER);
+        rootView.addView(roomView, new LinearLayout.LayoutParams(-1, -2));
+
+        identityView = textView(8, Color.GRAY);
+        identityView.setGravity(Gravity.CENTER);
         String deviceId = new DeviceIdentityManager(
                 PreferenceManager.getDefaultSharedPreferences(this)).getOrCreateDeviceId();
         identityView.setText(deviceId + " · " + RadioDeviceProfile.detectCurrent());
-        root.addView(identityView, new LinearLayout.LayoutParams(-1, dp(15)));
+        identityView.setVisibility(compact ? View.GONE : View.VISIBLE);
+        rootView.addView(identityView, new LinearLayout.LayoutParams(-1, -2));
 
-        pttButton = new Button(this);
-        pttButton.setText(R.string.radio_ptt);
-        pttButton.setTextSize(20);
-        pttButton.setEnabled(false);
-        pttButton.setOnTouchListener((view, event) -> {
-            if (service == null || !pttButton.isEnabled()) {
-                return false;
-            }
-            if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                service.onTalkKeyDown();
-                return true;
-            }
-            if (event.getAction() == MotionEvent.ACTION_UP
-                    || event.getAction() == MotionEvent.ACTION_CANCEL) {
-                service.onTalkKeyUp();
-                return true;
-            }
-            return true;
-        });
-        root.addView(pttButton, new LinearLayout.LayoutParams(-1, 0, 1));
-
-        setContentView(root);
+        setContentView(rootView);
         setStatus(COLOR_OFFLINE, getString(R.string.radio_loading_config));
     }
 
@@ -414,6 +473,8 @@ public final class RadioShellActivity extends AppCompatActivity {
 
     private void applyConfigurationToUi(RadioConnectionConfig loaded) {
         config = loaded;
+        connectionRetrySuspended = false;
+        joinedConfiguredRoom = false;
         selectedRoomIndex = loaded.getDefaultRoomIndex();
         serviceNameView.setText(loaded.getServiceName());
         roomView.setText(loaded.getDefaultRoom().getLabel());
@@ -654,22 +715,18 @@ public final class RadioShellActivity extends AppCompatActivity {
                 if (channel != null) {
                     roomView.setText(RoomPathResolver.fullPath(channel));
                 }
-                pttButton.setEnabled(true);
                 showTrafficOrReady();
                 break;
             case CONNECTING:
-                pttButton.setEnabled(false);
                 setStatus(COLOR_BUSY, getString(R.string.radio_connecting));
                 break;
             case CONNECTION_LOST:
-                pttButton.setEnabled(false);
                 setStatus(service.isReconnecting() ? COLOR_BUSY : COLOR_ERROR,
                         getString(service.isReconnecting()
                                 ? R.string.radio_reconnecting : R.string.radio_offline));
                 break;
             case DISCONNECTED:
             default:
-                pttButton.setEnabled(false);
                 if (config == null || config.isAutoConnect()) {
                     setStatus(COLOR_OFFLINE, getString(R.string.radio_offline));
                 }
@@ -679,6 +736,7 @@ public final class RadioShellActivity extends AppCompatActivity {
 
     private void trustConfiguredCertificate(X509Certificate[] chain) {
         if (config == null || chain == null || chain.length == 0) {
+            connectionRetrySuspended = true;
             setStatus(COLOR_ERROR, getString(R.string.radio_certificate_untrusted));
             if (pendingConfigTrial) {
                 failPendingConfiguration();
@@ -690,12 +748,14 @@ public final class RadioShellActivity extends AppCompatActivity {
                     .digest(chain[0].getEncoded()));
             if (!config.acceptsServerCertificate(actual)) {
                 if (config.getServerCertificateSha256() == null) {
+                    connectionRetrySuspended = true;
                     setStatus(COLOR_ERROR, getString(R.string.radio_certificate_untrusted));
                     if (pendingConfigTrial) {
                         failPendingConfiguration();
                     }
                     return;
                 }
+                connectionRetrySuspended = true;
                 setStatus(COLOR_ERROR, getString(R.string.radio_certificate_changed));
                 if (pendingConfigTrial) {
                     failPendingConfiguration();
@@ -706,9 +766,11 @@ public final class RadioShellActivity extends AppCompatActivity {
             String alias = "minimum-" + config.getHost() + ":" + config.getPort();
             trustStore.setCertificateEntry(alias, chain[0]);
             MumlaTrustStore.saveTrustStore(this, trustStore);
+            connectionRetrySuspended = false;
             retryAfterConfiguredCertificateTrust = true;
             setStatus(COLOR_BUSY, getString(R.string.radio_certificate_trusted));
         } catch (Exception error) {
+            connectionRetrySuspended = true;
             setStatus(COLOR_ERROR, getString(R.string.radio_certificate_failed));
             if (pendingConfigTrial) {
                 failPendingConfiguration();
@@ -755,8 +817,11 @@ public final class RadioShellActivity extends AppCompatActivity {
         }
         roomView.setText(room.getLabel());
         if (!target.equals(session.getSessionChannel())) {
+            joinedConfiguredRoom = false;
+            setStatus(COLOR_BUSY, getString(R.string.radio_joining_room));
             session.joinChannel(target.getId());
         } else {
+            joinedConfiguredRoom = true;
             showReadyState();
             if (pendingConfigTrial) {
                 commitPendingConfiguration();
@@ -773,18 +838,27 @@ public final class RadioShellActivity extends AppCompatActivity {
     }
 
     private void showTrafficOrReady() {
+        List<String> activeTalkers = service == null
+                ? java.util.Collections.emptyList() : service.getRadioTalkers();
         if (activeTalkers.isEmpty()) {
             showReadyState();
         } else if (activeTalkers.size() == 1) {
-            setStatus(COLOR_READY, activeTalkers.values().iterator().next());
+            String talker = activeTalkers.get(0);
+            setStatus(COLOR_RX, talker.isEmpty() ? getString(R.string.radio_receiving) : talker);
+            detailView.setText(R.string.radio_receiving);
         } else {
-            setStatus(COLOR_READY, getString(R.string.radio_multiple_talkers));
+            setStatus(COLOR_RX, getString(R.string.radio_multiple_talkers));
+            detailView.setText(R.string.radio_receiving);
         }
     }
 
     private void showReadyState() {
-        pttButton.setEnabled(service != null && service.isConnected());
+        if (!joinedConfiguredRoom) {
+            setStatus(COLOR_BUSY, getString(R.string.radio_joining_room));
+            return;
+        }
         setStatus(COLOR_READY, getString(R.string.radio_ready));
+        detailView.setText(R.string.radio_hardware_ptt_hint);
     }
 
     private boolean isSelf(IUser user) {
@@ -809,6 +883,26 @@ public final class RadioShellActivity extends AppCompatActivity {
         }
     }
 
+    private void startTxTimer() {
+        if (txStartedElapsedRealtime <= 0L) {
+            txStartedElapsedRealtime = SystemClock.elapsedRealtime();
+            txTimerView.setText("00:00.0");
+            txTimerView.setVisibility(View.VISIBLE);
+            uiHandler.removeCallbacks(txTimerTick);
+            uiHandler.post(txTimerTick);
+        }
+        setStatus(COLOR_TX, getString(R.string.radio_transmitting));
+        detailView.setText(R.string.radio_tx_timer_label);
+    }
+
+    private void stopTxTimer() {
+        txStartedElapsedRealtime = 0L;
+        uiHandler.removeCallbacks(txTimerTick);
+        if (txTimerView != null) {
+            txTimerView.setVisibility(View.GONE);
+        }
+    }
+
     private void releasePtt() {
         if (service != null) {
             service.onTalkKeyUp();
@@ -816,8 +910,11 @@ public final class RadioShellActivity extends AppCompatActivity {
     }
 
     private void setStatus(int color, String text) {
-        statusView.setBackgroundColor(color);
+        rootView.setBackgroundColor(color);
+        statusView.setBackgroundColor(Color.TRANSPARENT);
         statusView.setText(text);
+        detailView.setText("");
+        connectionProgress.setVisibility(color == COLOR_BUSY ? View.VISIBLE : View.GONE);
     }
 
     private boolean isConfirmKey(int keyCode) {

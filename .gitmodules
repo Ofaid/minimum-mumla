@@ -1,3 +1,4 @@
 [submodule "libraries/humla"]
 	path = libraries/humla
-	url = https://gitlab.com/quite/humla.git
+	url = https://github.com/awatchar/minimum.git
+	branch = humla-minimum

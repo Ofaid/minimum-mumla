@@ -11,6 +11,8 @@ document disagrees with this file, verify the code and update this file first.
 - Build-safe junction: `D:\mumla-dev` (same working tree; use this path for Gradle/NDK)
 - GitHub remote: `https://github.com/awatchar/minimum.git`
 - GitLab upstream remote: `https://gitlab.com/quite/mumla.git`
+- Humla upstream history is retained in the submodule; Minimum's required Humla commit is published
+  as branch `humla-minimum` in the same GitHub repository and `.gitmodules` points there.
 - Working branch: `agent/minimum-foundation`
 - Draft PR: https://github.com/awatchar/minimum/pull/1
 - Android application ID: `se.lublin.mumla`
@@ -51,6 +53,20 @@ document disagrees with this file, verify the code and update this file first.
   active recovery are covered by JVM tests.
 - RX idleness is service-owned and tracks all remote talking, shouting and whispering sessions, so
   resuming an Activity mid-transmission cannot incorrectly activate a pending config.
+- Managed-radio reconnect now covers every unexpected Mumble disconnect with indefinite capped
+  backoff (2/4/8/16/32/60 seconds), immediate network-return retry, a 60-second OEM broadcast
+  fallback and Android service-intent redelivery after process death. A certificate pin/policy
+  failure remains an intentional fail-closed retry hold.
+- Replaced the touch PTT screen with a compact full-screen hardware-first UI: whole-screen
+  connecting/RX/TX/error states, speaker identity sourced from the long-lived service, room-join
+  gating before Ready, connection attempt count and a live TX elapsed timer.
+- Managed radios automatically enable PTT mode, input preprocessing, half-duplex playback muting,
+  auto-reconnect, PTT confirmation sound and TTS. The Speex VAD setter and half-duplex runtime/
+  teardown unmute paths were corrected; Thai TTS is selected when the installed engine provides a
+  `th-TH` voice.
+- RX, TX and disconnect edges wake the small-radio display for a bounded five seconds. Offline or
+  locally undeliverable PTT produces an error tone and full-screen failure state; encoded-packet
+  confirmation is explicitly not claimed as remote server receipt.
 - Added `MinimumHomeActivity` as the small-device recovery dashboard with one large icon per swipe
   page: Minimum and Settings. It is intentionally not an Android HOME handler because the T99 OEM
   resolver excludes it and displays an unusable chooser.
@@ -102,21 +118,24 @@ document disagrees with this file, verify the code and update this file first.
   start. The device's active v1001 config stayed unchanged and the v1002 candidate remained staged,
   which is the intended fail-safe state. The final APK containing the service-owned RX tracker was
   built but could not be installed during that wedged ADB session.
+- Reconnect, wake-screen, modern UI, half-duplex and PTT-failure behavior pass JVM/build checks but
+  still require the physical matrix in `RECONNECT_TEST_PLAN.md`; the ADB host remains wedged.
+- Thai TTS depends on the Android TTS engine and Thai voice data installed on each device. Missing
+  Thai data does not block radio operation.
 - Boot activity launch can be blocked by newer Android/OEM policy. T99 is API 22 and passed an
   actual reboot-to-ready-room test; a newer-device foreground-service/notification fallback remains
   future work.
 
 ## Immediate next work
 
-1. Capture the successful T99 screen-off PTT event's keyCode, scanCode and input device to determine
+1. Reconnect USB/ADB, install the latest APK and run `scripts/test-radio-reconnect.ps1`, then execute
+   the supervised server-restart, long-outage, process-death, wake-screen and PTT-failure matrix.
+2. Capture the successful T99 screen-off PTT event's keyCode, scanCode and input device to determine
    whether the physical control arrives as Button Jack `KEY_MEDIA` or raw GPIO F1/F2.
-2. Connect T88, capture its hardware profile and repeat provisioning, boot, room and PTT tests.
-3. Exercise two or more room presets, denied-room fallback and safe room switching during traffic.
-4. Re-run physical T99 success/failure acceptance for pending config after reconnecting USB/ADB,
-   then add config signature verification.
-5. Decide the dedicated radio flavor/application ID before production provisioning.
-6. Add an instrumentation/manual acceptance pass for screen-off PTT, network loss and a
-   120-second watchdog timeout.
+3. Connect T88, capture its hardware profile and repeat provisioning, boot, room and PTT tests.
+4. Exercise two or more room presets, denied-room fallback and safe room switching during traffic.
+5. Re-run physical T99 success/failure acceptance for pending config, then add config signatures.
+6. Add hidden key/config/audio diagnostics, then decide the dedicated radio flavor/application ID.
 
 The detailed Technical Brief comparison and implementation order are maintained in
 `docs/TECHNICAL_BRIEF_GAP_ANALYSIS.md`. The bounded Sol/Luna delegation contract is in

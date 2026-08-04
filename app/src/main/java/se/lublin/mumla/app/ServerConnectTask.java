@@ -83,7 +83,10 @@ public class ServerConnectTask extends AsyncTask<Server, Void, Intent> {
         connectIntent.putExtra(HumlaService.EXTRAS_AMPLITUDE_BOOST, mSettings.getAmplitudeBoostMultiplier());
         connectIntent.putExtra(HumlaService.EXTRAS_AUTO_RECONNECT,
                 mAutoReconnect == null ? mSettings.isAutoReconnectEnabled() : mAutoReconnect);
-        connectIntent.putExtra(HumlaService.EXTRAS_AUTO_RECONNECT_DELAY, MumlaService.RECONNECT_DELAY);
+        connectIntent.putExtra(HumlaService.EXTRAS_AUTO_RECONNECT_DELAY,
+                mAutoReconnect == null ? MumlaService.RECONNECT_DELAY : 2000);
+        connectIntent.putExtra(HumlaService.EXTRAS_RECONNECT_ON_ALL_ERRORS,
+                mAutoReconnect != null && mAutoReconnect);
         connectIntent.putExtra(HumlaService.EXTRAS_USE_OPUS, !mSettings.isOpusDisabled());
         connectIntent.putExtra(HumlaService.EXTRAS_INPUT_RATE, mSettings.getInputSampleRate());
         connectIntent.putExtra(HumlaService.EXTRAS_INPUT_QUALITY, mSettings.getInputQuality());

@@ -17,6 +17,8 @@ MumlaService (long-lived voice path)
   ├─ MediaSession PTT bridge
   ├─ configured Activity key bridge
   ├─ service-owned remote RX session tracker
+  ├─ indefinite managed-radio reconnect/backoff and process recovery
+  ├─ bounded display wake plus local PTT-delivery warning
   └─ PTT watchdog and safety release
 
 RadioConfigRepository
@@ -117,6 +119,26 @@ disconnect / service destroy / network loss
 
 The service owns the safety behavior. UI surfaces must call the service and must not implement a
 second independent PTT timer.
+
+Managed radios also enable Speex input preprocessing and half-duplex automatically. Half-duplex
+mutes playback only while TX is active and explicitly unmutes during audio teardown, including a
+disconnect during TX. The UI timer is display-only; the 120-second safety watchdog remains owned by
+the service.
+
+## Managed-radio reconnect lifecycle
+
+```text
+unexpected disconnect
+  -> release TX and unmute playback
+  -> wake full-screen reconnect status
+  -> retry after 2/4/8/16/32/60 seconds (cap at 60 seconds)
+  -> no network: wait for connectivity event plus 60-second fallback poll
+  -> synchronized: reset backoff and join configured room
+```
+
+The Android service returns `START_REDELIVER_INTENT` only for the managed-radio connection mode so
+process recovery receives the same validated connection intent. Certificate policy/pin mismatch is
+the deliberate exception: it cancels retry and remains visibly fail-closed.
 
 ## Hardware strategy
 

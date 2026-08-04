@@ -24,6 +24,8 @@ public interface IMumlaService extends IHumlaService {
 
     boolean isRadioReceiving();
 
+    List<String> getRadioTalkers();
+
     List<IChatMessage> getMessageLog();
 
     void clearMessageLog();

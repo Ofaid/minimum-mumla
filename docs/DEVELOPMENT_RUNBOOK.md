@@ -5,6 +5,13 @@
 Run Gradle from `D:\mumla-dev`, not from the path containing a space, because the current NDK
 toolchain has already shown path-sensitive behavior.
 
+Clone with submodules. The parent uses GitLab Mumla history while the customized Humla commit is
+published on the `humla-minimum` branch of `awatchar/minimum`:
+
+```powershell
+git clone --recurse-submodules https://github.com/awatchar/minimum.git
+```
+
 ```powershell
 Set-Location D:\mumla-dev
 .\gradlew.bat :app:testFossDebugUnitTest :app:assembleFossDebug --no-daemon
@@ -33,6 +40,17 @@ $adb = "adb -P 5041 -s 12344321"
 
 Avoid `pm clear` on the working T99 unless a fresh first-run test is explicitly needed; it removes
 the device's current certificates, favourites and test state.
+
+For the reversible network-loss/recovery acceptance test, use the guarded script below. It restores
+the exact prior Wi-Fi/mobile-data state in a `finally` block and never presses PTT:
+
+```powershell
+.\scripts\test-radio-reconnect.ps1 -WhatIf
+.\scripts\test-radio-reconnect.ps1 -Force -OutageSeconds 30
+```
+
+The full fault matrix and the distinction between local audio handoff and server receipt are in
+`docs/RECONNECT_TEST_PLAN.md`.
 
 The radio config directory has three durable states: `active-config.json` is the Last Known Good,
 `pending-config.json` is waiting for an idle trial, and `previous-config.json` is the rollback copy.

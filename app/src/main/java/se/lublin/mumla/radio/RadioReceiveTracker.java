@@ -9,20 +9,22 @@
 
 package se.lublin.mumla.radio;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import se.lublin.humla.model.TalkState;
 
 /** Service-owned remote RX state used by config activation safety checks. */
 public final class RadioReceiveTracker {
-    private final Set<Integer> activeSessions = new HashSet<>();
+    private final Map<Integer, String> activeSessions = new LinkedHashMap<>();
 
-    public synchronized void update(int session, boolean self, TalkState state) {
+    public synchronized void update(int session, String name, boolean self, TalkState state) {
         if (self || state == null || state == TalkState.PASSIVE) {
             activeSessions.remove(session);
         } else {
-            activeSessions.add(session);
+            activeSessions.put(session, name == null ? "" : name);
         }
     }
 
@@ -36,5 +38,9 @@ public final class RadioReceiveTracker {
 
     public synchronized boolean isReceiving() {
         return !activeSessions.isEmpty();
+    }
+
+    public synchronized List<String> getActiveTalkers() {
+        return new ArrayList<>(activeSessions.values());
     }
 }
