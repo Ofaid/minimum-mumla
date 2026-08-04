@@ -8,8 +8,10 @@
 | T99 Device ID format/persistence | PASS | `DeviceIdentityManagerTest`; startup integration added |
 | Automatic certificate generation | IMPLEMENTED | Must rerun only on a disposable fresh app-data test |
 | Media-style PTT foreground | IMPLEMENTED | Service MediaSession path |
-| T99 F1/F2 screen-off PTT | NOT PROVEN | Capture real event; no guessed mapping |
+| T99 F1/F2 foreground PTT | IMPLEMENTED | Automatic profile mapping; F1 observed, F2 still needs live press |
+| T99 F1/F2 screen-off PTT | NOT PROVEN | Raw gpio-keys path may require OEM/privileged integration |
 | T99 raw GPIO screen-off PTT | NOT PROVEN | OEM/input integration may be required |
+| Media/headset screen-off PTT | IMPLEMENTED IN CODE | MediaSession path; verify with T99 Button Jack event |
 | PTT watchdog | IMPLEMENTED | 120-second service safety path; add long manual test |
 | Disconnect releases TX | IMPLEMENTED | Service lifecycle path; add manual screen-off test |
 | Boot receiver registration | PASS | Manifest and receiver present |

@@ -21,7 +21,9 @@ document disagrees with this file, verify the code and update this file first.
 - Imported the Mumla/Humla source and preserved the existing Mumble, TLS, Opus, audio and
   foreground-service core.
 - Captured and documented T99 identity, USB, display, audio and input data.
-- Added T99/T88/generic device profile detection without guessing unverified key mappings.
+- Added T99/T88/generic device profile detection and a central multi-key PTT manager. T99/T88 radio
+  defaults enable PTT automatically and recognize F1/F2 plus media/headset keys; F1 has been live
+  observed on T99 and F2 remains a required live verification.
 - Added the six-character persistent public Device ID and unit tests. It is now created at app
   process startup by `MumlaApplication`.
 - Added MediaSession handling for Android public media-style PTT keys.
@@ -42,9 +44,10 @@ document disagrees with this file, verify the code and update this file first.
 
 ## Known limitations / not falsely marked complete
 
-- T99 F1/F2 and raw GPIO PTT are not yet connected. Android public APIs do not prove that these OEM
-  events can be captured while the screen is off; a live event trace and possibly an OEM integration
-  are required.
+- T99 F1/F2 foreground PTT is now mapped automatically. Screen-off F1/F2 and raw GPIO PTT are not
+  proven: Android public APIs do not prove that these OEM events can reach the service while the
+  screen is off. Media/headset keys use the MediaSession path for screen-off operation; F1/F2 may
+  require OEM or privileged input integration.
 - T88 has no runtime capture yet. Do not add T88 keycodes or USB values until the real device is
   connected and inspected.
 - The config repository refreshes in the background, but the resulting radio config is not yet wired
@@ -61,7 +64,8 @@ document disagrees with this file, verify the code and update this file first.
 1. Connect the repository to a worker and add cache refresh/rollback diagnostics.
 2. Add a local-only test configuration for the supplied Mumble endpoint and resolve the target room
    through the existing server database without committing the access token.
-3. Capture T88 and T99 screen-off input events, then add only observed mappings.
+3. Capture T88 and T99 screen-off input events; verify F2 and determine whether an OEM input path is
+   required for F1/F2 while the display is off.
 4. Decide the dedicated radio flavor/application ID after the minimal shell is exercised on T99.
 5. Add an instrumentation/manual acceptance pass for screen-off PTT, boot, network loss and a
    120-second watchdog timeout.

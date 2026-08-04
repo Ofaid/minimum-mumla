@@ -6,6 +6,7 @@
     "profile": "generic-radio",
     "pttKeyCode": 0,
     "pttScanCode": 0,
+    "pttKeyCodes": [],
     "p1KeyCode": 0,
     "p2KeyCode": 0,
     "p3KeyCode": 0

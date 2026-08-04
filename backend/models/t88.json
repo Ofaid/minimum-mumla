@@ -9,6 +9,7 @@
     "profile": "t88-pending",
     "pttKeyCode": 0,
     "pttScanCode": 0,
+    "pttKeyCodes": [131, 132, 85, 79],
     "p1KeyCode": 0,
     "p2KeyCode": 0,
     "p3KeyCode": 0

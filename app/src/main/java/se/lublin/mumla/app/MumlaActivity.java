@@ -103,6 +103,7 @@ import se.lublin.mumla.servers.PublicServerListFragment;
 import se.lublin.mumla.servers.ServerEditFragment;
 import se.lublin.mumla.service.IMumlaService;
 import se.lublin.mumla.service.MumlaService;
+import se.lublin.mumla.radio.RadioPttKeyManager;
 import se.lublin.mumla.util.HumlaServiceFragment;
 import se.lublin.mumla.util.HumlaServiceProvider;
 import se.lublin.mumla.util.MumlaTrustStore;
@@ -463,7 +464,7 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
         // Media-style keys are handled by MumlaService's MediaSession so they continue to work
         // when the Activity loses focus or the screen turns off. Keeping them out of this path
         // also prevents toggle-PTT from receiving the same key twice while the screen is on.
-        if (mService != null && keyCode == mSettings.getPushToTalkKey()
+        if (mService != null && RadioPttKeyManager.isConfiguredPttKey(keyCode, mSettings)
                 && !isMediaPttKey(keyCode)) {
             mService.onTalkKeyDown();
             return true;
@@ -473,7 +474,7 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (mService != null && keyCode == mSettings.getPushToTalkKey()
+        if (mService != null && RadioPttKeyManager.isConfiguredPttKey(keyCode, mSettings)
                 && !isMediaPttKey(keyCode)) {
             mService.onTalkKeyUp();
             return true;

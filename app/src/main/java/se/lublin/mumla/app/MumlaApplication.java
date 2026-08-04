@@ -15,6 +15,7 @@ import androidx.preference.PreferenceManager;
 
 import se.lublin.mumla.radio.DeviceIdentityManager;
 import se.lublin.mumla.radio.RadioConfigUpdater;
+import se.lublin.mumla.radio.RadioPttKeyManager;
 
 public class MumlaApplication extends Application implements SharedPreferences.OnSharedPreferenceChangeListener {
     @Override
@@ -24,6 +25,7 @@ public class MumlaApplication extends Application implements SharedPreferences.O
         // Create the radio identity before either the Activity or service needs it. This keeps
         // the identity stable across normal app launches and makes it available to config code.
         new DeviceIdentityManager(preferences).getOrCreateDeviceId();
+        RadioPttKeyManager.applyDefaults(preferences);
         RadioConfigUpdater.schedule(this);
         applyTheme(preferences);
         preferences.registerOnSharedPreferenceChangeListener(this);

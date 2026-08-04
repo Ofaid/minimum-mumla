@@ -70,6 +70,11 @@ exposes the same physical button through different Linux input devices.
 Known T99 input sources and pending mappings are in `docs/T99_DEVICE_PROFILE.md`. T88 starts from
 `docs/T88_DEVICE_PROFILE.md` and must be filled from the real device.
 
+`RadioPttKeyManager` applies radio defaults at process startup. It maps alternative keys to the same
+service-owned PTT path. F1/F2 are foreground `gpio-keys` candidates; media/headset keys are the
+screen-off-capable public Android path. The app must not claim screen-off F1/F2 support until a real
+device trace proves that the OEM routes those events to the service.
+
 ## Standard build versus radio build
 
 The current branch keeps one standard Mumla application and adds radio code under the normal source

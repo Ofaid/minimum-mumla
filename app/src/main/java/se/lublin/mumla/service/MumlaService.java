@@ -59,6 +59,7 @@ import se.lublin.mumla.R;
 import se.lublin.mumla.Settings;
 import se.lublin.mumla.service.ipc.TalkBroadcastReceiver;
 import se.lublin.mumla.util.HtmlUtils;
+import se.lublin.mumla.radio.RadioPttKeyManager;
 
 /**
  * An extension of the Humla service with some added Mumla-exclusive non-standard Mumble features.
@@ -697,17 +698,11 @@ public class MumlaService extends HumlaService implements
      * the event is treated as PTT, so ordinary media buttons are not hijacked by default.
      */
     private boolean isConfiguredMediaPttKey(int keyCode) {
-        if (mSettings == null || keyCode != mSettings.getPushToTalkKey()) {
+        if (mSettings == null || !RadioPttKeyManager.isConfiguredPttKey(keyCode, mSettings)) {
             return false;
         }
 
-        return keyCode == KeyEvent.KEYCODE_MEDIA_PLAY
-                || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE
-                || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
-                || keyCode == KeyEvent.KEYCODE_MEDIA_STOP
-                || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT
-                || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS
-                || keyCode == KeyEvent.KEYCODE_HEADSETHOOK;
+        return RadioPttKeyManager.isMediaStyleKey(keyCode);
     }
 
     private void updatePttMediaSessionState() {
