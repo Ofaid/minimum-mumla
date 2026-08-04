@@ -34,8 +34,11 @@ modern Android device before choosing whether a reviewed CA-store update is need
 - Mumble port must be 1..65535.
 - Host names contain only DNS-safe letters, digits, dots and hyphens.
 - Room paths are absolute, normalized, no longer than 512 characters and limited to 16 presets.
+- `autoTrustServerCertificate` is boolean and defaults to true. After normal Android TLS trust
+  fails, the configured endpoint's presented leaf certificate is stored app-privately and the
+  connection is retried without an operator dialog.
 - Optional `serverCertificateSha256` is exactly 64 hexadecimal digits (separators are accepted by
-  the Android client). It pins one managed/self-signed Mumble server certificate; a mismatch fails
+  the Android client). It is a stricter policy than auto-trust: when present, a mismatch fails
   closed.
 - PTT maximum is 1..120 seconds.
 - `releaseOnNetworkLoss` must be true.
@@ -60,6 +63,10 @@ Keep it in the local Mumla database or another device-local secret store. The ex
 parser currently handles host/port but not room-path selection; room and token resolver work is
 now handled by the managed radio shell. The successful T99 test config remains outside the
 repository and is installed into app-private storage with `prepare-t99.ps1 -RadioConfigPath`.
+
+Automatic certificate trust intentionally makes the validated external configuration the trust
+boundary for the Mumble endpoint. The current config transport is HTTPS but config signatures are
+not implemented yet; compromising the config source could redirect a device to another server.
 
 ## Backend change checklist
 

@@ -18,9 +18,11 @@ host is configured. Replace the placeholder host in `default.json` only through 
 Public access tokens may be placed in config, but they are not secrets. Protected rooms must use a
 future secure-store reference and must never put the token value in this directory.
 
-`mumble.serverCertificateSha256` is optional and should be used only for a deliberately managed
-self-signed server. It pins one exact leaf certificate fingerprint; changing the server certificate
-requires a reviewed config update. Do not use a pin as a substitute for normal public-CA trust.
+`mumble.autoTrustServerCertificate` defaults to `true`. If normal Android TLS validation rejects a
+configured Mumble endpoint, Minimum automatically stores the presented leaf certificate in its
+app-private trust store and reconnects. The validated external config is therefore the trust root
+for selecting the server host. `mumble.serverCertificateSha256` remains an optional stricter pin;
+when present, a mismatch fails closed instead of using automatic trust.
 
 ## GitHub Pages
 

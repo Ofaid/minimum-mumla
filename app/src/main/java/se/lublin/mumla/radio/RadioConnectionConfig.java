@@ -28,6 +28,7 @@ public final class RadioConnectionConfig {
     private final String host;
     private final int port;
     private final String serverCertificateSha256;
+    private final boolean autoTrustServerCertificate;
     private final boolean autoConnect;
     private final boolean autoReconnect;
     private final List<String> accessTokens;
@@ -36,7 +37,8 @@ public final class RadioConnectionConfig {
 
     private RadioConnectionConfig(int configVersion, String serviceName, String serverId,
                                   String host, int port, boolean autoConnect,
-                                  String serverCertificateSha256, boolean autoReconnect,
+                                  String serverCertificateSha256,
+                                  boolean autoTrustServerCertificate, boolean autoReconnect,
                                   List<String> accessTokens,
                                   List<Room> rooms, int defaultRoomIndex) {
         this.configVersion = configVersion;
@@ -45,6 +47,7 @@ public final class RadioConnectionConfig {
         this.host = host;
         this.port = port;
         this.serverCertificateSha256 = serverCertificateSha256;
+        this.autoTrustServerCertificate = autoTrustServerCertificate;
         this.autoConnect = autoConnect;
         this.autoReconnect = autoReconnect;
         this.accessTokens = Collections.unmodifiableList(new ArrayList<>(accessTokens));
@@ -107,6 +110,7 @@ public final class RadioConnectionConfig {
                 mumble.getInt("port"),
                 mumble.optBoolean("autoConnect", false),
                 serverCertificateSha256,
+                mumble.optBoolean("autoTrustServerCertificate", true),
                 mumble.optBoolean("autoReconnect", true),
                 AccessTokenResolver.resolve(config),
                 rooms,
@@ -166,6 +170,17 @@ public final class RadioConnectionConfig {
 
     public String getServerCertificateSha256() {
         return serverCertificateSha256;
+    }
+
+    public boolean isAutoTrustServerCertificate() {
+        return autoTrustServerCertificate;
+    }
+
+    /** A configured pin is stricter than automatic trust and must always match when present. */
+    boolean acceptsServerCertificate(String actualSha256) {
+        return serverCertificateSha256 == null
+                ? autoTrustServerCertificate
+                : serverCertificateSha256.equals(actualSha256);
     }
 
     public boolean isAutoConnect() {

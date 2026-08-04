@@ -10,6 +10,7 @@
     "host": "voice.example.invalid",
     "port": 64738,
     "defaultRoom": "main",
+    "autoTrustServerCertificate": true,
     "autoConnect": false,
     "autoReconnect": true
   },

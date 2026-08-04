@@ -75,7 +75,7 @@ public final class RadioShellActivity extends AppCompatActivity {
     private boolean destroyed;
     private boolean connectRequested;
     private boolean reconnectAfterDisconnect;
-    private boolean retryAfterPinnedCertificate;
+    private boolean retryAfterConfiguredCertificateTrust;
 
     private TextView serviceNameView;
     private TextView statusView;
@@ -102,8 +102,8 @@ public final class RadioShellActivity extends AppCompatActivity {
             connectRequested = false;
             activeTalkers.clear();
             pttButton.setEnabled(false);
-            if (retryAfterPinnedCertificate) {
-                retryAfterPinnedCertificate = false;
+            if (retryAfterConfiguredCertificateTrust) {
+                retryAfterConfiguredCertificateTrust = false;
                 setStatus(COLOR_BUSY, getString(R.string.radio_certificate_trusted));
                 statusView.postDelayed(RadioShellActivity.this::maybeConnect, 400);
                 return;
@@ -122,7 +122,7 @@ public final class RadioShellActivity extends AppCompatActivity {
 
         @Override
         public void onTLSHandshakeFailed(X509Certificate[] chain) {
-            trustPinnedCertificate(chain);
+            trustConfiguredCertificate(chain);
         }
 
         @Override
@@ -461,27 +461,27 @@ public final class RadioShellActivity extends AppCompatActivity {
         }
     }
 
-    private void trustPinnedCertificate(X509Certificate[] chain) {
+    private void trustConfiguredCertificate(X509Certificate[] chain) {
         if (config == null || chain == null || chain.length == 0) {
-            setStatus(COLOR_ERROR, getString(R.string.radio_certificate_untrusted));
-            return;
-        }
-        String expected = config.getServerCertificateSha256();
-        if (expected == null) {
             setStatus(COLOR_ERROR, getString(R.string.radio_certificate_untrusted));
             return;
         }
         try {
             String actual = toHex(MessageDigest.getInstance("SHA-256")
                     .digest(chain[0].getEncoded()));
-            if (!expected.equals(actual)) {
+            if (!config.acceptsServerCertificate(actual)) {
+                if (config.getServerCertificateSha256() == null) {
+                    setStatus(COLOR_ERROR, getString(R.string.radio_certificate_untrusted));
+                    return;
+                }
                 setStatus(COLOR_ERROR, getString(R.string.radio_certificate_changed));
                 return;
             }
             KeyStore trustStore = MumlaTrustStore.getTrustStore(this);
-            trustStore.setCertificateEntry(config.getHost(), chain[0]);
+            String alias = "minimum-" + config.getHost() + ":" + config.getPort();
+            trustStore.setCertificateEntry(alias, chain[0]);
             MumlaTrustStore.saveTrustStore(this, trustStore);
-            retryAfterPinnedCertificate = true;
+            retryAfterConfiguredCertificateTrust = true;
             setStatus(COLOR_BUSY, getString(R.string.radio_certificate_trusted));
         } catch (Exception error) {
             setStatus(COLOR_ERROR, getString(R.string.radio_certificate_failed));

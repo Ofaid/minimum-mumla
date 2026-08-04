@@ -73,14 +73,16 @@ validated Last Known Good config
   -> ensure the existing Mumla client certificate
   -> resolve public access tokens without logging or database persistence
   -> connect through ServerConnectTask and MumlaService
-  -> if normal TLS rejects a self-signed certificate, require an exact configured SHA-256 pin
+  -> if normal TLS rejects the certificate, follow the validated config trust policy
+  -> auto-trust and persist the presented leaf, or require the optional exact SHA-256 pin
   -> after ServerSync, resolve and join the exact full room path
 ```
 
-The server pin is optional because publicly trusted servers use normal Android trust. A failed
-normal TLS handshake is never converted into broad trust: the peer certificate is accepted only
-when its SHA-256 fingerprint exactly matches the config. The retry then uses the existing
-app-private BKS trust store.
+Publicly trusted servers continue to use normal Android trust. For a configured self-signed server,
+`autoTrustServerCertificate` defaults to true and stores the presented leaf in the existing
+app-private BKS trust store before retrying. An optional SHA-256 pin overrides this permissive mode
+and must match exactly. Trust is scoped to the app store and configured endpoint workflow; no
+system CA store or global hostname verifier is changed.
 
 ## PTT lifecycle
 

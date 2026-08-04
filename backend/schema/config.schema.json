@@ -19,6 +19,7 @@
           "type": "string",
           "pattern": "^([0-9A-Fa-f]{64}|([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2})$"
         },
+        "autoTrustServerCertificate": { "type": "boolean", "default": true },
         "defaultRoom": { "type": "string", "minLength": 1, "maxLength": 128 },
         "autoConnect": { "type": "boolean" },
         "autoReconnect": { "type": "boolean" }

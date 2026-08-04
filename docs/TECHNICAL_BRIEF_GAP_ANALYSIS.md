@@ -25,11 +25,12 @@ active radio config
 ```
 
 The remaining MVP risk is hardware and lifecycle acceptance rather than basic connection wiring:
-screen-off OEM PTT, T88 evidence, multi-room traffic tests, network-loss/recovery evidence and
+exact screen-off OEM key-path classification, T88 evidence, multi-room traffic tests, network-loss/recovery evidence and
 release hardening.
 
-Screen-off PTT for T99's OEM F1/F2 path is also unproven and must remain labelled unsupported until
-a real screen-off input trace succeeds.
+T99 physical screen-off PTT has passed an operator test through Minimum's active service/MediaSession
+design. The exact event identity remains unclassified until a trace distinguishes KEY_MEDIA from
+raw GPIO F1/F2.
 
 ## Phase-by-phase status
 
@@ -41,7 +42,7 @@ a real screen-off input trace succeeds.
 | 3 — Remote Configuration | Partial | Embedded fallback, HTTPS fetch, default/model/device merge, limits, validation, active/previous/temp files, downgrade rejection/tests, six-hour best-effort refresh, JSON Schema | Explicit rollback API; signature verification; network-return trigger; apply only while RX/TX idle |
 | 4 — Rooms and Tokens | Mostly complete | Resolved public tokens feed existing Humla authentication without DB/log persistence; typed presets, exact full-path lookup, default join and direction/select/default navigation; live nested-room T99 test passed | Multi-room live test, idle reconnect on token change and permission-denied/default-room fallback evidence |
 | 5 — Hardware PTT | Partial | T99/T88/generic profiles, multi-key defaults, Activity bridge, MediaSession path, key-up/disconnect/service-destroy release, 120 s watchdog | Hardware diagnostics, scancode/source capture UI, key bounce tests, F2 live test, foreground/background/screen-off matrix, OEM/vendor path if T99 F-keys do not reach the service |
-| 6 — Hardening | Partial | Automatic client certificate, auto-start, T99 provisioning/launcher recovery, config downgrade rejection and exact self-signed server-certificate pinning | Network-change recovery/backoff evidence, battery-optimization handling, voice prompts, protected-token store, config signatures, sanitized diagnostics/security review |
+| 6 — Hardening | Partial | Automatic client certificate, auto-start, T99 provisioning/launcher recovery, config downgrade rejection, config-authorized automatic self-signed trust and optional exact pin | Network-change recovery/backoff evidence, battery-optimization handling, voice prompts, protected-token store, config signatures, sanitized diagnostics/security review |
 | 7 — Release | Early | Public GitHub repo, draft PR, GPLv3 source base, architecture/runbook/hardware docs, Pages deployment workflow | Android CI, signed APK, release notes, known-limitations report, instrumentation tests, device video and LTE/Wi-Fi/screen-off/reconnect report |
 
 ## Acceptance-test coverage
@@ -51,16 +52,17 @@ a real screen-off input trace succeeds.
   failure-mode tests are incomplete.
 - Rooms/tokens: integrated end to end and passed with one nested live room; multiple presets and
   denied-room behavior remain unproven.
-- PTT: core service safety exists; T99 screen-on F1 was observed. F2 and screen-off OEM paths remain
-  open. Media/headset keys have an Android MediaSession path but still require device evidence.
+- PTT: core service safety exists; T99 physical screen-off PTT passed an operator test and the live
+  Minimum MediaSession is active. The successful event still needs keyCode/scanCode capture before
+  classifying it as KEY_MEDIA versus raw GPIO F1/F2.
 - Audio: no maintained LTE/Wi-Fi/Bluetooth/manual test report yet.
 - Lifecycle: actual T99 reboot-to-ready-room and short display-off connection persistence are
   verified; process death, long network outage and newer Android boot restrictions remain open.
 
 ## Implementation order from here
 
-1. Capture T99 F1/F2 while the display is off and decide whether an OEM/privileged bridge is needed;
-   no public-API claim should precede evidence.
+1. Capture the already-successful T99 screen-off control's keyCode, scanCode and input device; only
+   add an OEM/privileged bridge if the proven path is raw GPIO and public delivery is unreliable.
 2. Capture the incoming T88 hardware profile and repeat provisioning, boot, room and PTT tests.
 3. Exercise multiple room presets, denied-room fallback, network loss/recovery and watchdog release
    with an operator present.

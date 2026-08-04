@@ -9,9 +9,10 @@
 | Automatic certificate generation | IMPLEMENTED | Must rerun only on a disposable fresh app-data test |
 | Media-style PTT foreground | IMPLEMENTED | Service MediaSession path |
 | T99 F1/F2 foreground PTT | IMPLEMENTED | Automatic profile mapping; F1 observed, F2 still needs live press |
-| T99 F1/F2 screen-off PTT | NOT PROVEN | Raw gpio-keys path may require OEM/privileged integration |
+| T99 physical screen-off PTT | PASS (operator observed) | Minimum PttMediaSession is active; exact keyCode/source was not captured |
+| T99 F1/F2 screen-off event identity | NOT CLASSIFIED | Capture whether the successful physical control arrives as KEY_MEDIA or raw gpio-keys F1/F2 |
 | T99 raw GPIO screen-off PTT | NOT PROVEN | OEM/input integration may be required |
-| Media/headset screen-off PTT | IMPLEMENTED IN CODE | MediaSession path; verify with T99 Button Jack event |
+| Media/headset screen-off PTT | PASS/LIKELY PATH | Implemented MediaSession path plus successful physical test; capture exact event identity |
 | PTT watchdog | IMPLEMENTED | 120-second service safety path; add long manual test |
 | Disconnect releases TX | IMPLEMENTED | Service lifecycle path; add manual screen-off test |
 | Boot receiver registration | PASS | Manifest and receiver present |
@@ -32,7 +33,8 @@
 | Remote room path selection | PASS | Exact full-path resolver JVM tests plus live T99 join to the supplied nested room |
 | Connection-time token integration | PASS | Live T99 authentication through existing Humla extras; token remained local and was not logged |
 | Config-driven auto-connect/reconnect | PASS | Live T99 ready state and automatic return after a real reboot |
-| Managed self-signed TLS pin | PASS | Unpinned connection failed closed; exact SHA-256 pin created app-private trust and connected |
+| Managed self-signed TLS auto-trust | PASS | Cleared old app trust, provisioned no-pin config, app recreated private trust and returned to the exact ready room without a dialog |
+| Optional self-signed TLS pin | PASS | Exact SHA-256 pin created app-private trust and connected; mismatch remains fail-closed |
 | Active config downgrade rejection | PASS | Repository JVM tests reject a lower version and allow same/newer versions |
 | Screen-off connection persistence | PASS | T99 display OFF/dozing for 10 seconds with `MumlaService` still started and no disconnect |
 | Multi-room preset switching | IMPLEMENTED IN CODE | Direction/select/default keys exist; requires a live config with at least two rooms |

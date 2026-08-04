@@ -33,10 +33,10 @@
     <string name="radio_access_denied">ไม่มีสิทธิ์เข้าถึง</string>
     <string name="radio_microphone_required">ต้องอนุญาตไมโครโฟน</string>
     <string name="radio_preparing_identity">เตรียม Certificate</string>
-    <string name="radio_certificate_failed">สร้าง Certificate ไม่สำเร็จ</string>
+    <string name="radio_certificate_failed">บันทึก Certificate ไม่สำเร็จ</string>
     <string name="radio_certificate_untrusted">Certificate ไม่ได้รับความเชื่อถือ</string>
     <string name="radio_certificate_changed">Certificate ไม่ตรงกับ Config</string>
-    <string name="radio_certificate_trusted">ตรวจสอบ Certificate แล้ว</string>
+    <string name="radio_certificate_trusted">เชื่อถือ Certificate อัตโนมัติแล้ว</string>
     <string name="radio_waiting_for_idle">รอช่องสัญญาณว่าง</string>
     <string name="radio_press_ok">กดปุ่มเขียวเพื่อยืนยัน</string>
     <string name="radio_room_missing">ไม่พบห้อง</string>

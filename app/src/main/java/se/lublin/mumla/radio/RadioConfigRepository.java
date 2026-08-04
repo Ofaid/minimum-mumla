@@ -212,6 +212,10 @@ public final class RadioConfigRepository {
             RadioConnectionConfig.normalizeFingerprint(
                     mumble.optString("serverCertificateSha256", ""));
         }
+        if (mumble != null && mumble.has("autoTrustServerCertificate")
+                && !(mumble.opt("autoTrustServerCertificate") instanceof Boolean)) {
+            throw new JSONException("invalid automatic certificate trust policy");
+        }
         JSONObject ptt = config.optJSONObject("ptt");
         if (ptt != null) {
             int maximum = ptt.optInt("maximumTxSeconds", MAX_PTT_SECONDS);

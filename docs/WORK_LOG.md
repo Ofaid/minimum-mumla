@@ -46,6 +46,16 @@ This short log records meaningful project milestones. Detailed code truth remain
   nested full-path room join, green ready state, connection persistence with the display off, and a
   real reboot returning directly to the ready room without a HOME chooser or touch input. No PTT
   transmission was made while the operator was away; F2 and screen-off hardware PTT remain open.
+- The operator subsequently proved physical PTT while the T99 display was off. Code/device review
+  found Minimum's active MediaSession/service path and no provisioning setting that enables it, so
+  no PTT system-setting command was added to `prepare-t99.ps1`. Exact key event identity remains to
+  be captured before labelling the path as KEY_MEDIA versus raw F1/F2.
+- Replaced pin-required self-signed TLS policy with config-authorized automatic trust by default.
+  Normal Android trust still runs first, app-private trust is used for the retry, and an optional
+  configured SHA-256 pin remains a stricter fail-closed override.
+- Live-tested the new no-pin path by deleting only Minimum's app-private Mumble trust store and
+  provisioning a config with automatic trust enabled. T99 recreated the store, reconnected and
+  returned to the exact ready room without an operator dialog.
 
 ## Prior milestones
 

@@ -52,11 +52,12 @@ F1/F2 use the normal key path when the Activity is focused, while media/headset 
 for the public screen-off path. F1/F2 are not advertised as screen-off capable until a real device
 trace or an OEM/privileged bridge proves that the events reach the service.
 
-## D-010: Self-signed server trust requires an exact config pin
+## D-010: Validated external config authorizes automatic server-certificate trust
 
-Minimum first uses Android's normal TLS trust. If that rejects a managed/self-signed Mumble server,
-the client may retry only when the validated config contains the exact SHA-256 fingerprint of the
-presented leaf certificate. A missing or mismatched fingerprint fails closed. The matched
-certificate is placed in the existing app-private BKS trust store; hostname or certificate checks
-are never globally disabled. Pins and access tokens stay outside the public repository unless they
-are intentionally reviewed as public deployment policy.
+Minimum first uses Android's normal TLS trust. If it rejects a configured Mumble server and
+`autoTrustServerCertificate` is true (the default), the presented leaf certificate is placed in the
+existing app-private BKS trust store and the connection is retried without an operator dialog. The
+external config is the intended trust boundary for choosing the server. An optional configured
+SHA-256 fingerprint is stricter: when present, it must match and automatic trust cannot bypass it.
+No system CA store or global TLS verifier is disabled. This policy means config-source compromise
+can redirect devices; signed config remains future hardening.

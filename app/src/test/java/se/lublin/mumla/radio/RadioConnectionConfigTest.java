@@ -22,6 +22,11 @@ public class RadioConnectionConfigTest {
         assertEquals(64738, config.getPort());
         assertEquals("AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00112233445566778899",
                 config.getServerCertificateSha256());
+        assertTrue(config.isAutoTrustServerCertificate());
+        assertTrue(config.acceptsServerCertificate(
+                "AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00112233445566778899"));
+        assertFalse(config.acceptsServerCertificate(
+                "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"));
         assertTrue(config.isAutoConnect());
         assertFalse(config.isAutoReconnect());
         assertEquals(Arrays.asList("PUBLIC-A", "PUBLIC-B"), config.getAccessTokens());
@@ -52,6 +57,25 @@ public class RadioConnectionConfigTest {
                                 + "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"));
         assertThrows(JSONException.class,
                 () -> RadioConnectionConfig.normalizeFingerprint("not-a-fingerprint"));
+    }
+
+    @Test
+    public void automaticCertificateTrustDefaultsOnAndCanBeDisabled() throws JSONException {
+        JSONObject automatic = new JSONObject(validConfig());
+        automatic.getJSONObject("mumble").remove("serverCertificateSha256");
+        RadioConnectionConfig automaticConfig = RadioConnectionConfig.fromJson(automatic);
+        assertTrue(automaticConfig.isAutoTrustServerCertificate());
+        assertTrue(automaticConfig.acceptsServerCertificate(
+                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"));
+
+        automatic.getJSONObject("mumble").put("autoTrustServerCertificate", false);
+        RadioConnectionConfig disabledConfig = RadioConnectionConfig.fromJson(automatic);
+        assertFalse(disabledConfig.isAutoTrustServerCertificate());
+        assertFalse(disabledConfig.acceptsServerCertificate(
+                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"));
+
+        automatic.getJSONObject("mumble").put("autoTrustServerCertificate", "yes");
+        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(automatic));
     }
 
     private static String validConfig() {

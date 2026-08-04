@@ -52,9 +52,10 @@ document disagrees with this file, verify the code and update this file first.
   tokens, resolves the default room by its exact full path, joins it, and displays offline,
   connecting, ready, RX, TX and access-denied states. Direction keys select configured rooms;
   green/Enter confirms and red/End returns to the default room.
-- Added strict optional server-certificate SHA-256 pinning for managed/self-signed Mumble servers.
-  A TLS certificate is trusted only after an exact configured fingerprint match; an absent or
-  mismatched pin is refused.
+- Added config-authorized automatic trust for managed/self-signed Mumble servers. Normal Android
+  trust is attempted first; on failure, `autoTrustServerCertificate` defaults to true, stores the
+  presented leaf certificate app-privately and retries without a dialog. An optional SHA-256 pin is
+  stricter and a mismatch is still refused.
 - Added config-version downgrade rejection and JVM tests for config parsing, downgrade behavior,
   token handling and full-path room resolution.
 - Minimum now defaults to dark mode while preserving an explicit user choice of light or system
@@ -68,14 +69,18 @@ document disagrees with this file, verify the code and update this file first.
   self-signed server, token authentication, exact full-path room join, ready UI, service survival
   while the display was off, and a real reboot returning directly to the same ready room without a
   HOME chooser or operator input.
+- Verified automatic self-signed trust separately on T99: removed the old app-private trust store,
+  provisioned a config with no fingerprint, and observed Minimum recreate private trust, reconnect
+  and return to the exact ready room without a certificate dialog.
 - Verified the FOSS debug unit tests and APK build after the current changes.
 
 ## Known limitations / not falsely marked complete
 
-- T99 F1/F2 foreground PTT is now mapped automatically. Screen-off F1/F2 and raw GPIO PTT are not
-  proven: Android public APIs do not prove that these OEM events can reach the service while the
-  screen is off. Media/headset keys use the MediaSession path for screen-off operation; F1/F2 may
-  require OEM or privileged input integration.
+- Physical PTT while the T99 display is off has now passed an operator test. The live device also
+  shows Minimum's `PttMediaSession` active, so the supported explanation is the Minimum
+  MediaSession/service code path rather than a provisioning setting. The exact keyCode/source was
+  not captured during that successful press, so raw GPIO F1/F2 screen-off support remains
+  unclassified rather than claimed.
 - T88 has no runtime capture yet. Do not add T88 keycodes or USB values until the real device is
   connected and inspected.
 - Multiple configured room presets and physical room switching are implemented but have only been
@@ -91,9 +96,8 @@ document disagrees with this file, verify the code and update this file first.
 
 ## Immediate next work
 
-1. Capture T99 screen-off input events with a person pressing F1/F2; verify F2 and determine whether
-   an OEM input path is
-   required for F1/F2 while the display is off.
+1. Capture the successful T99 screen-off PTT event's keyCode, scanCode and input device to determine
+   whether the physical control arrives as Button Jack `KEY_MEDIA` or raw GPIO F1/F2.
 2. Connect T88, capture its hardware profile and repeat provisioning, boot, room and PTT tests.
 3. Exercise two or more room presets, denied-room fallback and safe room switching during traffic.
 4. Add explicit previous-config rollback, signature verification, idle-only config activation and
@@ -111,6 +115,7 @@ The detailed Technical Brief comparison and implementation order are maintained 
 - Never commit the Mumble access token, GitHub credentials, private keys or device-specific secrets.
 - Do not attempt to rewrite the T99 USB/ADB serial from an unprivileged script; use ADB
   `transport_id` to disambiguate identical units and use Minimum Device ID for app identity.
-- Do not claim screen-off PTT support for an OEM key until an actual screen-off trace proves it.
+- Keep the successful T99 screen-off PTT acceptance result, but do not label its OEM key path as
+  F1/F2 or KEY_MEDIA until an actual trace identifies it.
 - Keep the normal Mumla build working while the radio interface is developed.
 - Do not merge PR #1 without explicit user approval.

@@ -49,7 +49,11 @@ T99 มีทางเดิน input มากกว่าหนึ่งแบ
 2. F1/F2 และ raw GPIO อาจเข้าผ่าน Activity, vendor broadcast หรือ privileged/OEM path
 3. Foreground Service ไม่ได้รับ arbitrary `KeyEvent` ทุกชนิดโดยอัตโนมัติ
 
-Mumla มี MediaSession bridge สำหรับ media-style PTT แล้ว และมี TX watchdog 120 วินาทีใน `MumlaService` แล้ว แต่ยัง **ไม่ประกาศว่ารองรับ screen-off PTT ของ F1/F2** จนกว่าจะจับ event บนเครื่องจริงได้ครบทั้ง foreground, background และ screen-off
+Minimum มี MediaSession bridge สำหรับ media-style PTT และ TX watchdog 120 วินาทีใน
+`MumlaService` แล้ว ผู้ใช้ได้ยืนยันว่า physical PTT ทำงานขณะจอดับ และ live `dumpsys
+media_session` แสดง `MumlaService.PttMediaSession active=true` จึงถือว่า T99 ผ่าน screen-off PTT
+ในระดับการใช้งานแล้ว อย่างไรก็ตามยังไม่ได้จับ keyCode/scanCode ของ press ที่สำเร็จ จึงยังไม่ระบุ
+ว่า control นั้นเข้ามาเป็น Button Jack `KEY_MEDIA` หรือ raw GPIO F1/F2
 
 ## Software found on T99
 
