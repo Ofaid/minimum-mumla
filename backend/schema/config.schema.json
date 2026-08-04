@@ -5,16 +5,22 @@
   "type": "object",
   "required": ["schemaVersion", "configVersion", "mumble", "ui", "ptt", "rooms", "hardware"],
   "properties": {
-    "schemaVersion": { "type": "integer", "const": 1 },
+    "schemaVersion": { "type": "integer", "const": 2 },
     "configVersion": { "type": "integer", "minimum": 1 },
     "deviceId": { "type": "string", "pattern": "^(\\*|[A-Z0-9]{6})$" },
     "mumble": {
       "type": "object",
-      "required": ["serverId", "host", "port", "defaultRoom"],
+      "required": ["serverId", "host", "port", "username", "defaultRoom"],
       "properties": {
         "serverId": { "type": "string", "minLength": 1, "maxLength": 128 },
         "host": { "type": "string", "maxLength": 253 },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "username": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
         "serverCertificateSha256": {
           "type": "string",
           "pattern": "^([0-9A-Fa-f]{64}|([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2})$"

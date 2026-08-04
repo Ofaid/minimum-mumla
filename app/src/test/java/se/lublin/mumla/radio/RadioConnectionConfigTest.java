@@ -20,6 +20,7 @@ public class RadioConnectionConfigTest {
         assertEquals("Minimum Test", config.getServiceName());
         assertEquals("voice.example.org", config.getHost());
         assertEquals(64738, config.getPort());
+        assertEquals("E25FGL-T99", config.getUsername());
         assertEquals("AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00112233445566778899",
                 config.getServerCertificateSha256());
         assertTrue(config.isAutoTrustServerCertificate());
@@ -44,6 +45,23 @@ public class RadioConnectionConfigTest {
         JSONObject missingDefault = new JSONObject(validConfig());
         missingDefault.getJSONObject("mumble").put("defaultRoom", "missing");
         assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(missingDefault));
+
+        JSONObject missingUsername = new JSONObject(validConfig());
+        missingUsername.getJSONObject("mumble").remove("username");
+        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(missingUsername));
+
+        JSONObject controlCharacterUsername = new JSONObject(validConfig());
+        controlCharacterUsername.getJSONObject("mumble").put("username", "BAD\nNAME");
+        assertThrows(JSONException.class,
+                () -> RadioConnectionConfig.fromJson(controlCharacterUsername));
+
+        JSONObject nonStringUsername = new JSONObject(validConfig());
+        nonStringUsername.getJSONObject("mumble").put("username", 25);
+        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(nonStringUsername));
+
+        JSONObject legacySchema = new JSONObject(validConfig());
+        legacySchema.put("schemaVersion", 1);
+        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(legacySchema));
     }
 
     @Test
@@ -80,10 +98,10 @@ public class RadioConnectionConfigTest {
 
     private static String validConfig() {
         return "{"
-                + "\"schemaVersion\":1,\"configVersion\":7,\"deviceId\":\"*\","
+                + "\"schemaVersion\":2,\"configVersion\":7,\"deviceId\":\"*\","
                 + "\"service\":{\"name\":\"Minimum Test\"},"
                 + "\"mumble\":{\"serverId\":\"test\",\"host\":\"voice.example.org\","
-                + "\"port\":64738,\"defaultRoom\":\"main\","
+                + "\"port\":64738,\"username\":\"E25FGL-T99\",\"defaultRoom\":\"main\","
                 + "\"serverCertificateSha256\":"
                 + "\"AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
                 + "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99\","

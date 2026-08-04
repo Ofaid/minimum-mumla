@@ -1,6 +1,6 @@
 {
-  "schemaVersion": 1,
-  "configVersion": 1,
+  "schemaVersion": 2,
+  "configVersion": 2,
   "deviceId": "*",
   "service": {
     "name": "Minimum Public PTT"
@@ -9,6 +9,7 @@
     "serverId": "public-main",
     "host": "voice.example.invalid",
     "port": 64738,
+    "username": "MINIMUM",
     "defaultRoom": "main",
     "autoTrustServerCertificate": true,
     "autoConnect": false,

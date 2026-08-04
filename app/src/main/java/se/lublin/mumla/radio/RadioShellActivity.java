@@ -775,10 +775,8 @@ public final class RadioShellActivity extends AppCompatActivity {
                 setStatus(COLOR_ERROR, getString(R.string.radio_certificate_failed));
                 return;
             }
-            String deviceId = new DeviceIdentityManager(
-                    PreferenceManager.getDefaultSharedPreferences(this)).getOrCreateDeviceId();
             Server server = new Server(-1, config.getServiceName(), config.getHost(),
-                    config.getPort(), deviceId, "");
+                    config.getPort(), config.getUsername(), "");
             new ServerConnectTask(this, database, config.getAccessTokens(),
                     config.isAutoReconnect()).execute(server);
         });

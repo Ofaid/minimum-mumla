@@ -1,6 +1,6 @@
 # Technical Brief gap analysis
 
-Last reviewed: 2026-08-04
+Last reviewed: 2026-08-05
 
 This document maps the supplied Public PoC Radio Client Technical Brief to the code that actually
 exists. `PROJECT_STATUS.md` remains the short hand-off source of truth; this file is the detailed
@@ -38,8 +38,8 @@ T99 rejects F2 as PTT. MediaSession remains an alternate headset/media path.
 | --- | --- | --- | --- |
 | 0 — Baseline | Partial | Upstream/Humla retained; FOSS debug tests and APK build; Minimum name/icon | Record a clean upstream voice/PTT baseline; choose a distinct application ID; decide radio/diagnostic flavor structure |
 | 1 — Radio Shell | Mostly complete | Dark `RadioShellActivity` loads LKG config, auto-connects/reconnects, joins the full-path default room, shows connection/RX/TX/access state and supports touch/physical PTT; real T99 boot-to-ready passed | Exercise multiple room presets and decide dedicated radio application ID/flavor |
-| 2 — Device Identity | Mostly complete | Six-character `SecureRandom` identity, persistence, validation and tests | Add protected admin UI/gesture for regeneration and acceptance tests across update/reboot/clear-data |
-| 3 — Remote Configuration | Mostly complete | Embedded fallback, HTTPS fetch, default/model/device merge, limits, validation, active/previous/pending cache, downgrade rejection, six-hour plus network-return refresh, service-owned RX/TX idle candidate trial, commit after room join, explicit rollback and JVM tests | Config signature verification and physical success/failure candidate acceptance |
+| 2 — Device Identity | Mostly complete | Six-character `SecureRandom` identity, persistence, validation, tests and ADB/system-shell-protected Config Profile assignment | Add protected on-device admin UI/gesture for regeneration and acceptance tests across update/reboot/clear-data |
+| 3 — Remote Configuration | Mostly complete | Schema 2 with independent `mumble.username`, embedded fallback, HTTPS fetch, default/model/device merge, limits, validation, active/previous/pending cache, downgrade rejection, six-hour plus network-return refresh, service-owned RX/TX idle candidate trial, commit after room join, explicit rollback and JVM tests | Config signature verification and physical success/failure candidate acceptance |
 | 4 — Rooms and Tokens | Mostly complete | Resolved public tokens feed existing Humla authentication without DB/log persistence; typed presets, exact full-path lookup, default join and one-second Up/Down hold-to-join; live nested-room T99 test passed | Multi-room live test, idle reconnect on token change and permission-denied/default-room fallback evidence |
 | 5 — Hardware PTT | T99 core pass / T88 open | T99 ten-button kernel map, F1 Android metadata, F2 EXIT isolation, private bounded diagnostics, dashboard PTT recovery, immediate reconnect request, five-second accidental-exit guard, Activity/MediaSession paths, local warning, screen wake, TX timer, release paths and 120 s watchdog | T88 capture, physical dashboard-F1 acceptance, complete foreground/background/screen-off matrix and OEM/vendor/global path only if a target requires it |
 | 6 — Hardening | Mostly implemented, acceptance incomplete | Automatic certificate/boot, indefinite capped reconnect, guarded T99 network-loss PASS, process watchdog SIGKILL PASS, automatic preprocessor/half-duplex/TTS, teardown unmute, config rollback/downgrade and managed self-signed trust with optional pin | Long-outage/server/audio/wake evidence, battery optimization, bundled voice prompts, protected-token store, config signatures and sanitized diagnostics/security review |

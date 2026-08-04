@@ -20,6 +20,18 @@
 
 ข้อมูลระบุตัวเครื่อง เช่น serial, IMEI, MAC address, IP และ public key ไม่เก็บไว้ในเอกสารสาธารณะนี้
 
+## Managed identity roles
+
+The current device deliberately keeps these identities separate:
+
+- Config Profile / six-character device lookup key: `GYZ3DE`
+- Mumble username sent by Minimum: `E25FGL-T99`
+- Operator's separate Mumble username (context only): `GY3ZDE`
+- Hardware/model profile: `t99` / `t99-qm011`
+
+The Config Profile selects `/devices/GYZ3DE.json`; it must never be silently reused as the Mumble
+username.
+
 ## USB interfaces
 
 Windows เห็น USB interface หลายตัวเป็นอุปกรณ์ชื่อ Android:

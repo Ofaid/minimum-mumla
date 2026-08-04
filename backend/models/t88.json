@@ -1,6 +1,6 @@
 {
-  "schemaVersion": 1,
-  "configVersion": 1,
+  "schemaVersion": 2,
+  "configVersion": 2,
   "modelProfile": "t88",
   "service": {
     "name": "Minimum T88"

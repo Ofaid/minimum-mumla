@@ -31,7 +31,7 @@ import java.nio.charset.StandardCharsets;
  * this class outside the JSON configuration cache supplied by the application.
  */
 public final class RadioConfigRepository {
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
     public static final int MAX_CONFIG_BYTES = 262144;
     public static final int MAX_PTT_SECONDS = 120;
     public static final String DEFAULT_BASE_URL = "https://awatchar.github.io/minimum/";
@@ -259,9 +259,11 @@ public final class RadioConfigRepository {
         JSONObject mumble = config.optJSONObject("mumble");
         JSONObject ptt = config.optJSONObject("ptt");
         if (mumble == null || mumble.optString("serverId", "").isEmpty()
-                || mumble.optString("defaultRoom", "").isEmpty()) {
+                || mumble.optString("defaultRoom", "").isEmpty()
+                || mumble.optString("username", "").isEmpty()) {
             throw new JSONException("incomplete Mumble config");
         }
+        RadioConnectionConfig.normalizeMumbleUsername(mumble.optString("username", ""));
         int port = mumble.optInt("port", -1);
         if (port < 1 || port > 65535) {
             throw new JSONException("invalid Mumble port");
@@ -298,6 +300,10 @@ public final class RadioConfigRepository {
             throw new JSONException("config is for another device");
         }
         JSONObject mumble = config.optJSONObject("mumble");
+        if (mumble != null && mumble.has("username")
+                && !(mumble.opt("username") instanceof String)) {
+            throw new JSONException("invalid Mumble username type");
+        }
         if (mumble != null && mumble.has("port")) {
             int port = mumble.optInt("port", -1);
             if (port < 1 || port > 65535) {
@@ -311,6 +317,10 @@ public final class RadioConfigRepository {
         if (mumble != null && mumble.has("autoTrustServerCertificate")
                 && !(mumble.opt("autoTrustServerCertificate") instanceof Boolean)) {
             throw new JSONException("invalid automatic certificate trust policy");
+        }
+        if (mumble != null && mumble.has("username")) {
+            RadioConnectionConfig.normalizeMumbleUsername(
+                    mumble.optString("username", ""));
         }
         JSONObject ptt = config.optJSONObject("ptt");
         if (ptt != null) {

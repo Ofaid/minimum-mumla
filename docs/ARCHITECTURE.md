@@ -167,6 +167,12 @@ retrying if a background launch is blocked, while generic Android profiles do no
 namespace. Actual keycode/scancode mappings remain data-driven because cheap radio firmware often
 exposes the same physical button through different Linux input devices.
 
+The six-character `DeviceIdentityManager` value is also the externally provisioned Config Profile
+and selects `/devices/{deviceId}.json`. It is not the Mumble login. Config schema 2 requires the
+independent `mumble.username`, which `RadioShellActivity` passes to the existing Mumla/Humla
+connection path. The current T99 mapping is Config Profile `GYZ3DE` and Mumble username
+`E25FGL-T99`; the hardware profile remains `t99`/`t99-qm011`.
+
 Verified T99 input sources and mappings are in `docs/T99_DEVICE_PROFILE.md`. T88 starts from
 `docs/T88_DEVICE_PROFILE.md` and must be filled from the real device.
 

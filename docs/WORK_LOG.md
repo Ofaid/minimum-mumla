@@ -29,6 +29,13 @@ This short log records meaningful project milestones. Detailed code truth remain
   greater-than-five-second red hold opened MinimumHome.
 - Disabled the normal Mumla PTT confirmation click for every managed radio in defaults and runtime;
   verified the installed T99 preference is false while retaining the PTT failure alert.
+- Split managed identity roles: config schema 2 now requires an explicit Mumble username instead
+  of reusing Device ID. Provisioning treats the six-character Device ID as the Config Profile used
+  for device-specific lookup. Current T99 values are profile `GYZ3DE` and Mumble username
+  `E25FGL-T99`; operator account `GY3ZDE` remains separate.
+- Installed private config v1003 on T99, verified the app preference and active config both use
+  `GYZ3DE`, and observed a fresh schema-2 launch return to the exact configured room in Ready state.
+  The temporary workstation migration copy (which could contain room access data) was removed.
 
 ## 2026-08-04
 

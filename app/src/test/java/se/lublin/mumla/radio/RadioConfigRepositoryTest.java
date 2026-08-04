@@ -64,6 +64,25 @@ public class RadioConfigRepositoryTest {
         assertEquals("stable", read(active));
     }
 
+    @Test
+    public void deviceProfileOverlayKeepsLookupIdentitySeparateFromMumbleUsername()
+            throws JSONException {
+        JSONObject base = new JSONObject("{"
+                + "\"schemaVersion\":2,\"configVersion\":2,\"deviceId\":\"*\","
+                + "\"mumble\":{\"username\":\"MINIMUM\"}}");
+        JSONObject profile = new JSONObject("{"
+                + "\"schemaVersion\":2,\"configVersion\":3,"
+                + "\"deviceId\":\"GYZ3DE\","
+                + "\"mumble\":{\"username\":\"E25FGL-T99\"}}");
+
+        RadioConfigRepository.validateOverlay(profile, "GYZ3DE");
+        JSONObject merged = RadioConfigRepository.merge(base, profile);
+
+        assertEquals("GYZ3DE", merged.getString("deviceId"));
+        assertEquals("E25FGL-T99",
+                merged.getJSONObject("mumble").getString("username"));
+    }
+
     private static File write(File directory, String name, String value) throws IOException {
         File file = new File(directory, name);
         try (FileOutputStream output = new FileOutputStream(file)) {

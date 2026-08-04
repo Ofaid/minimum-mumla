@@ -27,6 +27,7 @@ public final class RadioConnectionConfig {
     private final String serverId;
     private final String host;
     private final int port;
+    private final String username;
     private final String serverCertificateSha256;
     private final boolean autoTrustServerCertificate;
     private final boolean autoConnect;
@@ -36,7 +37,7 @@ public final class RadioConnectionConfig {
     private final int defaultRoomIndex;
 
     private RadioConnectionConfig(int configVersion, String serviceName, String serverId,
-                                  String host, int port, boolean autoConnect,
+                                  String host, int port, String username, boolean autoConnect,
                                   String serverCertificateSha256,
                                   boolean autoTrustServerCertificate, boolean autoReconnect,
                                   List<String> accessTokens,
@@ -46,6 +47,7 @@ public final class RadioConnectionConfig {
         this.serverId = serverId;
         this.host = host;
         this.port = port;
+        this.username = username;
         this.serverCertificateSha256 = serverCertificateSha256;
         this.autoTrustServerCertificate = autoTrustServerCertificate;
         this.autoConnect = autoConnect;
@@ -108,6 +110,7 @@ public final class RadioConnectionConfig {
                 requireNonBlank(mumble.optString("serverId", ""), "server id"),
                 host,
                 mumble.getInt("port"),
+                normalizeMumbleUsername(mumble.optString("username", "")),
                 mumble.optBoolean("autoConnect", false),
                 serverCertificateSha256,
                 mumble.optBoolean("autoTrustServerCertificate", true),
@@ -148,6 +151,20 @@ public final class RadioConnectionConfig {
         return normalized;
     }
 
+    static String normalizeMumbleUsername(String value) throws JSONException {
+        String username = requireNonBlank(value, "Mumble username");
+        if (username.length() > 128) {
+            throw new JSONException("Mumble username is too long");
+        }
+        for (int index = 0; index < username.length(); index++) {
+            char character = username.charAt(index);
+            if (Character.isISOControl(character)) {
+                throw new JSONException("Mumble username contains a control character");
+            }
+        }
+        return username;
+    }
+
     public int getConfigVersion() {
         return configVersion;
     }
@@ -166,6 +183,10 @@ public final class RadioConnectionConfig {
 
     public int getPort() {
         return port;
+    }
+
+    public String getUsername() {
+        return username;
     }
 
     public String getServerCertificateSha256() {

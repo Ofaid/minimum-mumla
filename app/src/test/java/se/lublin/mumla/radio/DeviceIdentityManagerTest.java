@@ -10,11 +10,13 @@ public class DeviceIdentityManagerTest {
     public void acceptsOnlySixUppercaseAlphanumericCharactersWithLetterAndDigit() {
         assertTrue(DeviceIdentityManager.isValidDeviceId("A7K3Q9"));
         assertTrue(DeviceIdentityManager.isValidDeviceId("4FX8LM"));
+        assertTrue(DeviceIdentityManager.isValidDeviceId("GYZ3DE"));
         assertFalse(DeviceIdentityManager.isValidDeviceId("AAAAAA"));
         assertFalse(DeviceIdentityManager.isValidDeviceId("123456"));
         assertFalse(DeviceIdentityManager.isValidDeviceId("a7K3Q9"));
         assertFalse(DeviceIdentityManager.isValidDeviceId("A7K3Q"));
         assertFalse(DeviceIdentityManager.isValidDeviceId("A7K3Q-"));
+        assertFalse(DeviceIdentityManager.isValidDeviceId("E25FGL-T99"));
     }
 
     @Test

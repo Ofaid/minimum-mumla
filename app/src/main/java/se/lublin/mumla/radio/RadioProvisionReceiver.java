@@ -15,16 +15,28 @@ import android.content.Intent;
 
 import androidx.preference.PreferenceManager;
 
-/** Narrow ADB provisioning entry point for installing the Launcher3 recovery shortcut. */
+/** Narrow, shell-permission-protected ADB entry point for managed radio provisioning. */
 public final class RadioProvisionReceiver extends BroadcastReceiver {
+    public static final String ACTION_ASSIGN_DEVICE_PROFILE =
+            "se.lublin.mumla.action.PROVISION_DEVICE_PROFILE";
+    public static final String EXTRA_DEVICE_PROFILE = "deviceProfile";
+
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (!RadioLauncherShortcutInstaller.ACTION_PROVISION_SHORTCUT.equals(intent.getAction())) {
+        if (intent == null) {
             return;
         }
-        RadioLauncherShortcutInstaller.ensureInstalled(
-                context,
-                PreferenceManager.getDefaultSharedPreferences(context),
-                true);
+        if (RadioLauncherShortcutInstaller.ACTION_PROVISION_SHORTCUT.equals(intent.getAction())) {
+            RadioLauncherShortcutInstaller.ensureInstalled(
+                    context,
+                    PreferenceManager.getDefaultSharedPreferences(context),
+                    true);
+        } else if (ACTION_ASSIGN_DEVICE_PROFILE.equals(intent.getAction())) {
+            String profile = intent.getStringExtra(EXTRA_DEVICE_PROFILE);
+            if (DeviceIdentityManager.isValidDeviceId(profile)) {
+                new DeviceIdentityManager(PreferenceManager.getDefaultSharedPreferences(context))
+                        .setDeviceIdForAdmin(profile);
+            }
+        }
     }
 }

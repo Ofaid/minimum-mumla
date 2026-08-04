@@ -67,6 +67,16 @@ public final class DeviceIdentityManager {
         return generated;
     }
 
+    /** Assigns an externally managed lookup identity through an authorized provisioning path. */
+    public void setDeviceIdForAdmin(String deviceId) {
+        if (!isValidDeviceId(deviceId)) {
+            throw new IllegalArgumentException("invalid device id");
+        }
+        if (!preferences.edit().putString(DEVICE_ID_PREFERENCE, deviceId).commit()) {
+            throw new IllegalStateException("device id could not be persisted");
+        }
+    }
+
     public static boolean isValidDeviceId(String value) {
         if (value == null || value.length() != DEVICE_ID_LENGTH) {
             return false;

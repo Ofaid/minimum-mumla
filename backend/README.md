@@ -4,6 +4,10 @@ This directory is the public, read-only configuration distribution for the Minim
 It is designed to be published as GitHub Pages and contains no GitHub token, password, protected
 Mumble token, or device secret.
 
+Config schema 2 requires `mumble.username`. This is the exact username sent to the Mumble server
+and is deliberately separate from `deviceId`, which selects `/devices/{deviceId}.json`, and from
+`hardware.profile`, which selects model behavior.
+
 The Android client should use these endpoints after Pages is enabled:
 
 ```text

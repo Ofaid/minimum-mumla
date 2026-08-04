@@ -23,6 +23,8 @@ param(
     [switch]$SkipZello,
     [switch]$SkipMinimumHome,
     [switch]$ReportOnly,
+    [Alias("DeviceId")]
+    [string]$DeviceProfile = "",
     [string]$RadioConfigPath = ""
 )
 
@@ -35,6 +37,7 @@ $MinimumHomeComponent = "se.lublin.mumla/se.lublin.mumla.radio.MinimumHomeActivi
 $MinimumRadioComponent = "se.lublin.mumla/se.lublin.mumla.radio.RadioShellActivity"
 $ShortcutProvisionReceiver = "se.lublin.mumla/.radio.RadioProvisionReceiver"
 $ShortcutProvisionAction = "se.lublin.mumla.action.PROVISION_LAUNCHER_SHORTCUT"
+$DeviceProfileProvisionAction = "se.lublin.mumla.action.PROVISION_DEVICE_PROFILE"
 
 $adbCommand = Get-Command adb -ErrorAction Stop
 $adbPath = $adbCommand.Source
@@ -182,6 +185,42 @@ if (-not $ReportOnly -and -not $WhatIfPreference) {
 
 $preferences = Get-MinimumPreferences
 $identityMatch = [regex]::Match($preferences, '<string name="radio_device_id">([A-Z0-9]{6})</string>')
+if ($DeviceProfile) {
+    if (($DeviceProfile -cnotmatch '^[A-Z0-9]{6}$') -or
+            ($DeviceProfile -notmatch '[A-Z]') -or
+            ($DeviceProfile -notmatch '\d')) {
+        throw "DeviceProfile must be six uppercase A-Z/0-9 characters with a letter and digit."
+    }
+    if (-not $identityMatch.Success) {
+        throw "Minimum Device ID is not initialized; launch Minimum once before assigning a profile."
+    }
+    if (($identityMatch.Groups[1].Value -cne $DeviceProfile) -and
+            (-not $ReportOnly) -and
+            $PSCmdlet.ShouldProcess(
+                "$targetLabel / Minimum identity",
+                "assign config profile/deviceId $DeviceProfile")) {
+        Invoke-TargetAdb -Arguments @(
+            "shell", "am", "force-stop", $MinimumPackage
+        ) | Out-Null
+        Invoke-TargetAdb -Arguments @(
+            "shell", "am", "broadcast",
+            "-a", $DeviceProfileProvisionAction,
+            "-n", $ShortcutProvisionReceiver,
+            "--es", "deviceProfile", $DeviceProfile
+        ) | Out-Null
+        $preferences = Get-MinimumPreferences
+        $identityMatch = [regex]::Match(
+                $preferences,
+                '<string name="radio_device_id">([A-Z0-9]{6})</string>')
+        if ((-not $identityMatch.Success) -or
+                ($identityMatch.Groups[1].Value -cne $DeviceProfile)) {
+            throw "Minimum config profile/deviceId assignment did not persist."
+        }
+        Write-Host "Minimum config profile assigned: $DeviceProfile"
+    } elseif ($ReportOnly -and $identityMatch.Groups[1].Value -cne $DeviceProfile) {
+        Write-Host "Requested config profile: $DeviceProfile (report-only; not applied)"
+    }
+}
 if ($identityMatch.Success) {
     $deviceId = $identityMatch.Groups[1].Value
     if ($deviceId -notmatch '[A-Z]' -or $deviceId -notmatch '\d') {
@@ -199,11 +238,15 @@ if (-not $ReportOnly -and $RadioConfigPath -and -not $WhatIfPreference) {
         throw "Radio config exceeds the 262144-byte application limit."
     }
     $configObject = Get-Content -LiteralPath $resolvedConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($configObject.schemaVersion -ne 1 -or $configObject.configVersion -lt 1) {
+    if ($configObject.schemaVersion -ne 2 -or $configObject.configVersion -lt 1) {
         throw "Radio config has an unsupported schema/config version."
     }
-    if (-not $configObject.mumble.host -or -not $configObject.mumble.defaultRoom -or -not $configObject.rooms -or $configObject.rooms.Count -lt 1) {
-        throw "Radio config is missing Mumble host/defaultRoom/rooms."
+    if ((-not $configObject.mumble.host) -or
+            (-not $configObject.mumble.username) -or
+            (-not $configObject.mumble.defaultRoom) -or
+            (-not $configObject.rooms) -or
+            ($configObject.rooms.Count -lt 1)) {
+        throw "Radio config is missing Mumble host/username/defaultRoom/rooms."
     }
     if ($identityMatch.Success -and $configObject.deviceId -ne "*" -and $configObject.deviceId -ne $deviceId) {
         throw "Radio config deviceId does not match Minimum Device ID $deviceId."

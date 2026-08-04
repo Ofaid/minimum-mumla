@@ -1,7 +1,8 @@
 {
   "schemaVersion": 1,
   "manifestVersion": 1,
-  "configVersion": 1,
+  "configVersion": 3,
+  "configSchemaVersion": 2,
   "defaultConfig": "default.json",
   "modelPath": "models/{modelProfile}.json",
   "devicePath": "devices/{deviceId}.json",

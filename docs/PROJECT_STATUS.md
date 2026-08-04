@@ -1,6 +1,6 @@
 # Minimum project status (source of truth)
 
-Last reviewed: 2026-08-04
+Last reviewed: 2026-08-05
 
 This is the canonical hand-off document for the `awatchar/minimum` public PoC. If another
 document disagrees with this file, verify the code and update this file first.
@@ -28,7 +28,8 @@ document disagrees with this file, verify the code and update this file first.
   alternates and forcibly resets its managed push-key preference to F1. T88 temporarily retains
   F1/F2 plus media defaults until the real device is captured.
 - Added the six-character persistent public Device ID and unit tests. It is now created at app
-  process startup by `MumlaApplication`.
+  process startup by `MumlaApplication`; provisioning may assign this lookup identity as the
+  user-facing Config Profile without changing any USB serial.
 - Added MediaSession handling for Android public media-style PTT keys.
 - Added fail-safe PTT recovery. F1 received by the T99 recovery dashboard opens RadioShell, sounds
   a local failure alert and requests an immediate connection; a disconnected RadioShell does the
@@ -86,7 +87,7 @@ document disagrees with this file, verify the code and update this file first.
   tokens, resolves the default room by its exact full path, joins it, and displays offline,
   connecting, ready, RX, TX and access-denied states. Holding Up/Down for one second selects and
   joins the adjacent configured room without confirmation. MENU (`DPAD_CENTER`), EXIT (F2) and red
-  (Back) must be held for five seconds before opening the recovery dashboard; physical green
+  (vendor-remapped `DPAD_RIGHT`) must be held for five seconds before opening the recovery dashboard; physical green
   (`KEY_MENU`) remains an immediate confirm/rejoin control.
 - Added config-authorized automatic trust for managed/self-signed Mumble servers. Normal Android
   trust is attempted first; on failure, `autoTrustServerCertificate` defaults to true, stores the
@@ -94,6 +95,9 @@ document disagrees with this file, verify the code and update this file first.
   stricter and a mismatch is still refused.
 - Added config-version downgrade rejection and JVM tests for config parsing, downgrade behavior,
   token handling and full-path room resolution.
+- Advanced the config contract to schema 2 and made `mumble.username` explicit and independent
+  from the six-character Config Profile/device lookup key. The current T99 uses Config Profile
+  `GYZ3DE` and Mumble username `E25FGL-T99`.
 - Minimum now defaults to dark mode while preserving an explicit user choice of light or system
   theme.
 - Added a legacy Launcher3 recovery shortcut installer and provisioning receiver. Launcher3 now
@@ -126,10 +130,9 @@ document disagrees with this file, verify the code and update this file first.
   opened and the original held press began TX. The installed hotfix now arms service and Activity
   release lockouts before launch and can force-stop any accidental TX; physical regression retest
   remains required before this path is marked PASS.
-- Current app diagnostics from the user's red-button hold report `KEYCODE_BACK`, scanCode 60,
-  `gpio-keys`, with 5.06-5.16 second DOWN-to-UP durations. The original delayed callback could be
-  cancelled by UP despite a valid hold; release-time duration fallback is now installed and passed
-  the exact scan-60 device test.
+- The physical red-button path has passed acceptance. An isolated capture proved kernel scan 2 /
+  `KEY_BACK` is vendor-remapped to Android `KEYCODE_DPAD_RIGHT`; the installed protected-exit path
+  displayed the hold prompt and opened MinimumHome after a greater-than-five-second hold.
 - Multiple configured room presets and one-second hold switching are implemented but have only
   been exercised with one live room. Permission-denied fallback and room changes during real
   traffic still need a multi-room acceptance test.
@@ -138,8 +141,9 @@ document disagrees with this file, verify the code and update this file first.
 - T88 boot/dashboard and legacy shortcut behavior still require live-device verification. Each new
   firmware must pass the no-ResolverActivity provisioning check.
 - Pending-config promotion and failure rollback pass JVM tests. Physical T99 inspection after the
-  workstation reboot showed active v1002, no pending file and previous v1001; v1002 connected and
-  joined the configured room. A physical failed-candidate rollback injection remains open.
+  schema-2 identity migration showed active v1003 with Config Profile `GYZ3DE` and Mumble username
+  `E25FGL-T99`; a fresh launch connected and joined the configured room as Ready. A physical
+  failed-candidate rollback injection remains open.
 - The workstation reboot cleared the Windows USB/ADB wedge. The latest APK was installed and the
   guarded 30-second Wi-Fi/LTE outage restored both original settings and returned to Ready without
   operator intervention. A same-UID SIGKILL initially exposed T99's roughly 16-minute OEM service

@@ -119,7 +119,8 @@ Set-Location D:\mumla-dev
 .\scripts\prepare-t99.ps1 -WhatIf
 .\scripts\prepare-t99.ps1
 .\scripts\prepare-t99.ps1 -SkipMinimumHome
-.\scripts\prepare-t99.ps1 -Force -RadioConfigPath C:\private\minimum-radio.json
+.\scripts\prepare-t99.ps1 -Force -DeviceProfile GYZ3DE `
+    -RadioConfigPath C:\private\minimum-radio.json
 ```
 
 If local PowerShell policy blocks scripts, run the same file with
@@ -128,6 +129,12 @@ repository: it may contain a public room token or a private server-certificate p
 checks size, schema/config version, required Mumble/room fields and Device ID, then copies it to
 app-private `files/radio-config/active-config.json` with directory mode 700 and file mode 600. It
 does not display token values and removes the temporary ADB copy.
+
+`-DeviceProfile` is the operator-facing name for the Technical Brief's six-character Device ID.
+It assigns the stable `/devices/{deviceId}.json` lookup key after validating the same six-character
+rules. It does not change the USB/ADB serial, hardware model profile or `mumble.username`. Config
+schema 2 requires the latter explicitly; the current T99 uses Config Profile `GYZ3DE` and Mumble
+username `E25FGL-T99`.
 
 This removes Zello for Android user 0. It does not erase the system APK from the read-only system
 partition; a factory reset or OEM restore can make it reappear. If several identical T99 devices
