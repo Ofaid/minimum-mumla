@@ -93,6 +93,10 @@ public class Settings {
     public static final String PREF_AUTO_RECONNECT = "autoReconnect";
     public static final Boolean DEFAULT_AUTO_RECONNECT = true;
 
+    /** Launch the client automatically after BOOT_COMPLETED. */
+    public static final String PREF_AUTO_START = "autoStart";
+    public static final Boolean DEFAULT_AUTO_START = true;
+
     public static final String PREF_THEME = "theme";
     public static final String PREF_LANGUAGE = "language";
 
@@ -301,6 +305,10 @@ public class Settings {
 
     public boolean isAutoReconnectEnabled() {
         return preferences.getBoolean(PREF_AUTO_RECONNECT, DEFAULT_AUTO_RECONNECT);
+    }
+
+    public boolean isAutoStartEnabled() {
+        return preferences.getBoolean(PREF_AUTO_START, DEFAULT_AUTO_START);
     }
 
     public boolean isTcpForced() {

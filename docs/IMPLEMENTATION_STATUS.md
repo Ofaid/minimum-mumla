@@ -23,6 +23,9 @@
 - เพิ่ม fail-safe TX watchdog 120 วินาที: หยุดส่งเมื่อ timeout, connection หลุด หรือ service ถูกทำลาย และต้องปล่อยปุ่มก่อนเริ่มใหม่
 - ปรับ first-run certificate ให้สร้างอัตโนมัติแบบไม่เปิด dialog และ retry เมื่อสร้างไม่สำเร็จ
 - เพิ่ม `RadioDeviceProfile` ที่รู้จัก T99 และเตรียม T88 โดยไม่ hard-code key mapping ที่ยังไม่ได้ตรวจจากเครื่องจริง
+- เพิ่ม `MumlaBootReceiver` และเปิดค่า auto-start เป็นค่าเริ่มต้น เพื่อเปิดแอปหลัง `BOOT_COMPLETED`
+- ลบ Zello (`com.loudtalks`) ออกจาก user 0 ของ T99 และเพิ่มสคริปต์ตรวจ serial/package ก่อนลบซ้ำ
+  สคริปต์อยู่ที่ `scripts/remove-zello-t99.ps1`
 
 ## ยังไม่อ้างว่าเสร็จ
 
@@ -31,7 +34,7 @@
 - auto-connect จาก local/remote config
 - Android-side GitHub Pages config consumer, cache, schema validation และ rollback
 - room preset/full-path resolver และ access-token resolver
-- hidden diagnostics และ boot/network lifecycle hardening
+- hidden diagnostics และ network lifecycle hardening
 
 T88 ยังไม่มีข้อมูล runtime จากเครื่องจริง จึงยังไม่บันทึก keycode/scancode หรือ USB profile ของ T88 จนกว่าจะเสียบเครื่องและเก็บข้อมูลจริง
 
@@ -55,3 +58,7 @@ JSON Schema รวมถึง GitHub Pages workflow `deploy-pages.yml` โด�
 3. เพิ่ม local config model ก่อน แล้วค่อย remote fetch/cache/rollback
 4. เพิ่ม room preset และ token resolver บนเส้นทาง Authenticate เดิม
 5. ทำ diagnostics และทดสอบ T99 foreground/background/screen-off ก่อนประกาศความสามารถ
+
+หมายเหตุ boot: Android/OEM รุ่นใหม่อาจบล็อกการเปิด Activity จาก background; receiver จึงจับ
+exception ไว้ และระยะถัดไปควรมี foreground-service notification fallback ส่วน T99 API 22 ใช้
+เส้นทางเปิด Activity หลัง boot ได้ตามปกติเมื่อผู้ใช้เปิดแอปอย่างน้อยหนึ่งครั้งแล้ว
