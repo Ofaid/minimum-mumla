@@ -39,8 +39,16 @@ This short log records meaningful project milestones. Detailed code truth remain
 - Fixed the RX UI race caused by Humla's unordered observer fan-out. Activity rendering and config
   idle evaluation are now deferred/coalesced until `MumlaService` has applied the same talk-state
   event to `RadioReceiveTracker`; room-join completion now uses the same RX-aware path. Added pure
-  Ready/single/multiple-state tests, built and installed the APK. Two passive device observations
-  totalling 100 seconds saw no incoming traffic, so natural live cycle acceptance remains open.
+  Ready/single/multiple-state tests, built and installed the APK. The operator then confirmed a
+  natural live Ready/speaker/Ready cycle and that both reported visual defects are gone.
+- Probed T99 location independently of Minimum. Android exposed its Qualcomm GPS stack and almanac
+  entries, but two sessions totalling more than five minutes produced zero SNR, no ephemeris, no
+  used satellites and no GPS fix. Location remains a failed/open hardware acceptance item and was
+  not added to provisioning defaults.
+- Added secure lab Wi-Fi provisioning to `prepare-t99.ps1` using a temporary standalone Android
+  5.1 helper and a git-ignored DPAPI credential. The helper never logs the PSK and is uninstalled
+  after use. Profile refresh passed on T99, followed by automatic reconnection to the lab SSID in
+  approximately 5.3 seconds after Wi-Fi was disabled and re-enabled.
 
 ## 2026-08-04
 

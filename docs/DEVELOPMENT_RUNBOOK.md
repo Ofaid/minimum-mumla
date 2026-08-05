@@ -123,6 +123,28 @@ Set-Location D:\mumla-dev
     -RadioConfigPath C:\private\minimum-radio.json
 ```
 
+The script also checks the lab SSID `..@EmergencyTU`. On a workstation's first use, create the
+git-ignored DPAPI credential interactively; never put the password in a command, script or tracked
+file:
+
+```powershell
+New-Item -ItemType Directory -Force .\scripts\.secrets | Out-Null
+$labWifi = Get-Credential -UserName '..@EmergencyTU' `
+    -Message 'Enter the Minimum T99 lab Wi-Fi password'
+$labWifi | Export-Clixml .\scripts\.secrets\t99-lab-wifi.credential.xml
+```
+
+If the target is not connected, preparation builds and installs the standalone
+`tools/t99-wifi-provisioner` helper, copies the credential through app-private storage, saves and
+enables the WPA2 profile, then removes both helper and transient files. Use `-RefreshLabWifi` to
+replace/recheck an existing profile or `-SkipLabWifi` to omit the step. The PSK is never printed or
+committed. T99 physically passed profile refresh and automatic reconnection after a Wi-Fi radio
+off/on cycle.
+
+Provisioning does not currently change Android Location settings. The framework/GPS HAL exists,
+but a window-side live test produced no satellite fix, no ephemeris and zero SNR; require an
+open-sky fix before enabling Location as a fleet default.
+
 If local PowerShell policy blocks scripts, run the same file with
 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File`. Keep the supplied JSON outside the
 repository: it may contain a public room token or a private server-certificate pin. The script

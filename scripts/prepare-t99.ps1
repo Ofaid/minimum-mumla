@@ -5,9 +5,10 @@
 .DESCRIPTION
     This is the canonical provisioning script. It reports the different serial identities,
     removes Zello for user 0, launches Minimum once so its app Device ID can be created, verifies
-    that identity, installs a Minimum recovery shortcut into the OEM Launcher3 workspace, verifies
-    that the system HOME no longer displays a chooser, and opens the one-icon-per-page radio
-    dashboard. It intentionally does not attempt to rewrite the USB/ADB serial:
+    that identity, provisions the lab Wi-Fi through a temporary helper that is removed immediately,
+    installs a Minimum recovery shortcut into the OEM Launcher3 workspace, verifies that the system
+    HOME no longer displays a chooser, and opens the one-icon-per-page radio dashboard. It
+    intentionally does not attempt to rewrite the USB/ADB serial:
     the T99 exposes that value through a root-owned USB gadget node and this non-root device
     cannot safely change it.
 
@@ -22,10 +23,15 @@ param(
     [switch]$Force,
     [switch]$SkipZello,
     [switch]$SkipMinimumHome,
+    [switch]$SkipLabWifi,
+    [switch]$RefreshLabWifi,
     [switch]$ReportOnly,
     [Alias("DeviceId")]
     [string]$DeviceProfile = "",
-    [string]$RadioConfigPath = ""
+    [string]$RadioConfigPath = "",
+    [string]$LabWifiSsid = "..@EmergencyTU",
+    [System.Management.Automation.PSCredential]$LabWifiCredential,
+    [string]$LabWifiCredentialPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,6 +44,11 @@ $MinimumRadioComponent = "se.lublin.mumla/se.lublin.mumla.radio.RadioShellActivi
 $ShortcutProvisionReceiver = "se.lublin.mumla/.radio.RadioProvisionReceiver"
 $ShortcutProvisionAction = "se.lublin.mumla.action.PROVISION_LAUNCHER_SHORTCUT"
 $DeviceProfileProvisionAction = "se.lublin.mumla.action.PROVISION_DEVICE_PROFILE"
+$WifiHelperPackage = "dev.minimum.wifiprovisioner"
+$WifiHelperActivity = "dev.minimum.wifiprovisioner/.WifiProvisionActivity"
+if (-not $LabWifiCredentialPath) {
+    $LabWifiCredentialPath = Join-Path $PSScriptRoot ".secrets\t99-lab-wifi.credential.xml"
+}
 
 $adbCommand = Get-Command adb -ErrorAction Stop
 $adbPath = $adbCommand.Source
@@ -113,6 +124,121 @@ function Test-MinimumRadioFocused {
     return ($windowState -join "`n").Contains($MinimumRadioComponent)
 }
 
+function Test-LabWifiConnected {
+    param([Parameter(Mandatory)][string]$Ssid)
+    $connectivity = Invoke-TargetAdb -Arguments @("shell", "dumpsys", "connectivity")
+    $escapedSsid = [regex]::Escape($Ssid)
+    return (($connectivity -join "`n") -match
+            "(?s)type:\s*WIFI.*?state:\s*CONNECTED/CONNECTED.*?extra:\s*`"$escapedSsid`"")
+}
+
+function Get-LabWifiCredential {
+    if ($LabWifiCredential) {
+        return $LabWifiCredential
+    }
+    if (Test-Path -LiteralPath $LabWifiCredentialPath) {
+        $stored = Import-Clixml -LiteralPath $LabWifiCredentialPath
+        if ($stored -isnot [System.Management.Automation.PSCredential]) {
+            throw "Lab Wi-Fi credential file is not a Windows PSCredential: $LabWifiCredentialPath"
+        }
+        return $stored
+    }
+    throw "Lab Wi-Fi is not connected and no credential was supplied. Pass -LabWifiCredential or create the ignored DPAPI credential at $LabWifiCredentialPath."
+}
+
+function Invoke-LabWifiProvisioning {
+    param(
+        [Parameter(Mandatory)][string]$Ssid,
+        [Parameter(Mandatory)][System.Management.Automation.PSCredential]$Credential
+    )
+
+    $helperRoot = Join-Path $PSScriptRoot "..\tools\t99-wifi-provisioner"
+    $gradleWrapper = Join-Path $PSScriptRoot "..\gradlew.bat"
+    $helperApk = Join-Path $helperRoot "app\build\outputs\apk\debug\app-debug.apk"
+    if (-not (Test-Path -LiteralPath $gradleWrapper)) {
+        throw "Gradle wrapper is missing; cannot build the temporary Wi-Fi provisioner."
+    }
+
+    & $gradleWrapper -p $helperRoot :app:assembleDebug
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $helperApk)) {
+        throw "Temporary Wi-Fi provisioner build failed."
+    }
+
+    $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) (
+            "minimum-wifi-" + [guid]::NewGuid().ToString("N"))
+    $requestPath = Join-Path $temporaryDirectory "request.json"
+    $remoteRequest = "/data/local/tmp/minimum-wifi-$PID.json"
+    $helperInstalled = $false
+    New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
+    try {
+        $plainPassword = $Credential.GetNetworkCredential().Password
+        $requestJson = [ordered]@{ ssid = $Ssid; psk = $plainPassword } |
+            ConvertTo-Json -Compress
+        [IO.File]::WriteAllText(
+                $requestPath,
+                $requestJson,
+                (New-Object Text.UTF8Encoding($false)))
+        $plainPassword = $null
+        $requestJson = $null
+
+        Invoke-TargetAdb -Arguments @("install", "-r", $helperApk) | Out-Null
+        $helperInstalled = $true
+        Invoke-TargetAdb -Arguments @("push", $requestPath, $remoteRequest) | Out-Null
+        Invoke-TargetAdb -Arguments @(
+            "shell", "run-as", $WifiHelperPackage, "mkdir", "-p", "files"
+        ) | Out-Null
+        Invoke-TargetAdb -Arguments @(
+            "shell", "run-as", $WifiHelperPackage, "cp", $remoteRequest, "files/request.json"
+        ) | Out-Null
+        Invoke-TargetAdb -Arguments @(
+            "shell", "run-as", $WifiHelperPackage, "chmod", "600", "files/request.json"
+        ) | Out-Null
+        Invoke-TargetAdb -Arguments @("shell", "rm", "-f", $remoteRequest) | Out-Null
+        Invoke-TargetAdb -Arguments @("shell", "am", "start", "-n", $WifiHelperActivity) |
+            Out-Null
+
+        $resultText = ""
+        $deadline = (Get-Date).AddSeconds(25)
+        while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 500
+            $resultArgs = $targetArgs + @(
+                "shell", "run-as", $WifiHelperPackage, "cat", "files/result.json"
+            )
+            $resultOutput = & $adbPath @resultArgs 2>$null
+            if ($LASTEXITCODE -eq 0 -and $resultOutput) {
+                $resultText = ($resultOutput -join "")
+                break
+            }
+        }
+        if (-not $resultText) {
+            throw "Temporary Wi-Fi provisioner did not return a result."
+        }
+        $result = $resultText | ConvertFrom-Json
+        if (-not $result.ok) {
+            throw "Lab Wi-Fi provisioning failed: $($result.error)"
+        }
+        Write-Host "Lab Wi-Fi profile saved for SSID '$Ssid'; credential value was not displayed."
+    } finally {
+        & $adbPath @($targetArgs + @("shell", "rm", "-f", $remoteRequest)) 1>$null 2>$null
+        if ($helperInstalled) {
+            & $adbPath @($targetArgs + @("uninstall", $WifiHelperPackage)) 1>$null 2>$null
+        }
+        if (Test-Path -LiteralPath $temporaryDirectory) {
+            Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force
+        }
+    }
+
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $deadline -and -not (Test-LabWifiConnected -Ssid $Ssid)) {
+        Start-Sleep -Seconds 1
+    }
+    if (Test-LabWifiConnected -Ssid $Ssid) {
+        Write-Host "Lab Wi-Fi connected and available for automatic reconnection: '$Ssid'."
+    } else {
+        Write-Warning "Lab Wi-Fi profile is saved but '$Ssid' was not reachable within 30 seconds."
+    }
+}
+
 Write-Host "Target: T99/T88 / $targetLabel"
 Write-Host "Manufacturer/model: $(Get-TargetProperty -Name ro.product.manufacturer) / $(Get-TargetProperty -Name ro.product.model)"
 $adbSerial = (& $adbPath @targetArgs get-serialno) -join ""
@@ -133,6 +259,20 @@ if (-not $SkipZello -and $packagePath) {
 $minimumInstalled = Invoke-TargetAdb -Arguments @("shell", "pm", "list", "packages", $MinimumPackage)
 if (-not $minimumInstalled) {
     throw "Minimum ($MinimumPackage) is not installed; install the APK before provisioning."
+}
+
+$labWifiConnected = Test-LabWifiConnected -Ssid $LabWifiSsid
+if ($labWifiConnected -and -not $RefreshLabWifi) {
+    Write-Host "Lab Wi-Fi is connected: '$LabWifiSsid'."
+} elseif ($ReportOnly) {
+    Write-Host "Lab Wi-Fi connected=$labWifiConnected refresh=$RefreshLabWifi (report-only): '$LabWifiSsid'."
+} elseif ($SkipLabWifi) {
+    Write-Host "Lab Wi-Fi provisioning skipped by request."
+} elseif ($PSCmdlet.ShouldProcess("$targetLabel / $LabWifiSsid", "save and enable lab Wi-Fi")) {
+    if (-not $WhatIfPreference) {
+        $credential = Get-LabWifiCredential
+        Invoke-LabWifiProvisioning -Ssid $LabWifiSsid -Credential $credential
+    }
 }
 
 if (-not $ReportOnly -and -not $WhatIfPreference) {

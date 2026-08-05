@@ -20,6 +20,30 @@
 
 ข้อมูลระบุตัวเครื่อง เช่น serial, IMEI, MAC address, IP และ public key ไม่เก็บไว้ในเอกสารสาธารณะนี้
 
+## GPS and location acceptance
+
+T99 advertises `android.hardware.location.gps`, loads Qualcomm `gps.default.so`, runs the vendor
+location processes and accepts a live `GPS_PROVIDER` fine-location request. This proves that the
+Android framework and vendor GPS stack are present, but not that the RF path can produce a fix.
+
+On 2026-08-05 a temporary standalone probe (not Minimum) requested GPS every second in two sessions
+totalling more than five minutes while the radio was beside a window. The HAL reported up to 14
+satellites from almanac data, but every reported SNR remained `0.0`, ephemeris count and used-in-fix
+count remained zero, and no GPS location was delivered. The only cached fused location had roughly
+440 km accuracy and is not GPS evidence. The temporary probe was removed after the test.
+
+Result: GPS hardware/framework presence is confirmed, but real positioning is **not accepted as
+working**. Repeat under unobstructed open sky before relying on it. `prepare-t99.ps1` deliberately
+does not alter Location settings until a real fix with meaningful accuracy passes.
+
+## Lab Wi-Fi provisioning
+
+`prepare-t99.ps1` manages the lab SSID `..@EmergencyTU` without placing its PSK in source control.
+The password is stored in a git-ignored, Windows-user-bound DPAPI `PSCredential`. A temporary helper
+APK reads a short-lived app-private request, saves/enables the WPA2 network through Android 5.1's
+`WifiManager`, deletes the request and is immediately uninstalled. A physical refresh test passed,
+and Wi-Fi disable/enable returned to the lab SSID automatically in approximately 5.3 seconds.
+
 ## Managed identity roles
 
 The current device deliberately keeps these identities separate:

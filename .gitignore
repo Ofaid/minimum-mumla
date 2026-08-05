@@ -4,6 +4,7 @@ build/
 .gradle/
 *.iml
 signing.gradle
+scripts/.secrets/
 
 # Eclipse
 bin/

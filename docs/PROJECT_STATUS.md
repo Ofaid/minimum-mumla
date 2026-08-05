@@ -109,6 +109,10 @@ document disagrees with this file, verify the code and update this file first.
 - Extended `scripts/prepare-t99.ps1` to install a locally supplied config into app-private storage,
   set restrictive permissions, grant/recognize microphone permission by Android API level and open
   the radio client without exposing token values.
+- Extended T99 preparation with secure lab Wi-Fi provisioning. The public script contains only the
+  SSID; its ignored password is a Windows-user-bound DPAPI credential. A temporary standalone
+  helper saves/enables the WPA2 profile and is then removed. Physical refresh and Wi-Fi off/on
+  auto-reconnection to the lab network passed.
 - Verified on the physical T99: private config provisioning, pinned TLS connection to the supplied
   self-signed server, token authentication, exact full-path room join, ready UI, service survival
   while the display was off, and a real reboot returning directly to the same ready room without a
@@ -155,9 +159,12 @@ document disagrees with this file, verify the code and update this file first.
   PID in 23.9 seconds and restored RadioShell/Ready in 30.9 seconds without `am start` or PTT.
 - Wake-screen, reconnect visual state, half-duplex and PTT-failure behavior still require the
   remaining supervised matrix in `RECONNECT_TEST_PLAN.md`.
-- The RX state ordering fix has JVM coverage and is installed on T99; the first 45-second passive
-  observation and a second 55-second awake observation contained no server RX, so one natural live
-  `Ready -> speaker -> Ready` cycle remains to be visually confirmed.
+- The RX state ordering fix has JVM coverage and is installed on T99. The operator subsequently
+  confirmed a natural live `Ready -> speaker -> Ready` cycle: the initial Ready flash and stale
+  speaker name are both gone.
+- T99 exposes the Qualcomm GPS framework/HAL, but a standalone fine-location probe beside a window
+  produced no fix in more than five minutes: up to 14 almanac entries, zero SNR, zero ephemeris and
+  zero satellites used. Location is therefore not enabled by provisioning; repeat under open sky.
 - The reconnect harness now validates that both original network settings are exactly `0` or `1`,
   verifies their restored values, and detects Ready through the stable accessibility marker
   `minimum-state-ready` rather than localized UI text.
