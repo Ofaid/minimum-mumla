@@ -18,3 +18,9 @@ local.properties
 
 # Java
 *.class
+
+# Minimum configuration portal
+web/.next/
+web/node_modules/
+web/tsconfig.tsbuildinfo
+web-dev*.log
