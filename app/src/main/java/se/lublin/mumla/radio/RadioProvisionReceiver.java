@@ -18,6 +18,7 @@ import androidx.preference.PreferenceManager;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.Locale;
 
 import se.lublin.mumla.service.MumlaService;
 
@@ -27,6 +28,8 @@ public final class RadioProvisionReceiver extends BroadcastReceiver {
             "se.lublin.mumla.action.PROVISION_DEVICE_PROFILE";
     public static final String ACTION_REPORT_IDENTITY =
             "se.lublin.mumla.action.PROVISION_REPORT_IDENTITY";
+    public static final String ACTION_REPORT_STATUS =
+            "se.lublin.mumla.action.PROVISION_REPORT_STATUS";
     public static final String ACTION_INSTALL_RADIO_CONFIG =
             "se.lublin.mumla.action.PROVISION_RADIO_CONFIG";
     public static final String ACTION_INSTALL_DEVICE_CONFIG_CREDENTIAL =
@@ -61,6 +64,8 @@ public final class RadioProvisionReceiver extends BroadcastReceiver {
                     PreferenceManager.getDefaultSharedPreferences(context)).getOrCreateDeviceId();
             setResultCode(-1);
             setResultData(deviceId);
+        } else if (ACTION_REPORT_STATUS.equals(intent.getAction())) {
+            reportProvisioningStatus(context);
         } else if (ACTION_INSTALL_RADIO_CONFIG.equals(intent.getAction())) {
             String credential = intent.getStringExtra(EXTRA_DEVICE_CONFIG_CREDENTIAL);
             String credentialPath = intent.getStringExtra(EXTRA_DEVICE_CONFIG_CREDENTIAL_PATH);
@@ -75,6 +80,33 @@ public final class RadioProvisionReceiver extends BroadcastReceiver {
                     intent.getStringExtra(EXTRA_DEVICE_CONFIG_CREDENTIAL_PATH));
         } else if (ACTION_SET_APRS_OBJECT_NAME.equals(intent.getAction())) {
             updateAprsObjectName(context, intent.getStringExtra(EXTRA_APRS_OBJECT_NAME));
+        }
+    }
+
+    /** Reports only non-secret state needed by the one-shot provisioning acceptance check. */
+    private void reportProvisioningStatus(Context context) {
+        setResultCode(0);
+        setResultData("unavailable");
+        try {
+            String deviceId = new DeviceIdentityManager(
+                    PreferenceManager.getDefaultSharedPreferences(context)).getOrCreateDeviceId();
+            DeviceConfigCredentialStore credentialStore = new DeviceConfigCredentialStore(context);
+            boolean credentialPresent = credentialStore.getCredential() != null;
+            RadioConfigRepository repository = new RadioConfigRepository(context);
+            org.json.JSONObject active = repository.loadActiveOrDefault();
+            String activeDeviceId = active.optString("deviceId", "");
+            int configVersion = active.optInt("configVersion", -1);
+            setResultCode(-1);
+            setResultData(String.format(Locale.US,
+                    "deviceId=%s;credential=%s;activeDeviceId=%s;configVersion=%d;pending=%s;lastSuccessMs=%d",
+                    deviceId,
+                    credentialPresent ? "present" : "missing",
+                    activeDeviceId,
+                    configVersion,
+                    repository.hasPending() ? "true" : "false",
+                    RadioConfigUpdater.getLastSuccess(context)));
+        } catch (IOException | RuntimeException | org.json.JSONException ignored) {
+            // Status intentionally contains no config fields, credentials, endpoints or room data.
         }
     }
 

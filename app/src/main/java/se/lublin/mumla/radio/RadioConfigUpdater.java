@@ -34,6 +34,7 @@ public final class RadioConfigUpdater {
     private static final String PREF_LAST_SUCCESS = "radio_config_last_success_ms";
     private static final long REFRESH_INTERVAL_MS = 6L * 60L * 60L * 1000L;
     private static final AtomicBoolean REFRESH_IN_FLIGHT = new AtomicBoolean(false);
+    private static final AtomicBoolean FORCE_REFRESH_PENDING = new AtomicBoolean(false);
     private static final Object NETWORK_MONITOR_LOCK = new Object();
 
     private static boolean networkMonitorRegistered;
@@ -55,7 +56,15 @@ public final class RadioConfigUpdater {
 
     /** Forces a refresh after a protected device credential is installed or rotated. */
     static void scheduleNow(Context context) {
+        PreferenceManager.getDefaultSharedPreferences(context.getApplicationContext())
+                .edit().remove(PREF_LAST_SUCCESS).apply();
         schedule(context, true);
+    }
+
+    /** Returns only the last successful managed refresh time for protected provisioning status. */
+    static long getLastSuccess(Context context) {
+        return PreferenceManager.getDefaultSharedPreferences(context.getApplicationContext())
+                .getLong(PREF_LAST_SUCCESS, 0L);
     }
 
     static boolean shouldRefresh(long now, long lastSuccess, boolean force) {
@@ -67,8 +76,13 @@ public final class RadioConfigUpdater {
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(applicationContext);
         long now = System.currentTimeMillis();
         long lastSuccess = preferences.getLong(PREF_LAST_SUCCESS, 0L);
-        if (!shouldRefresh(now, lastSuccess, force)
-                || !REFRESH_IN_FLIGHT.compareAndSet(false, true)) {
+        if (!shouldRefresh(now, lastSuccess, force)) {
+            return;
+        }
+        if (!REFRESH_IN_FLIGHT.compareAndSet(false, true)) {
+            if (force) {
+                FORCE_REFRESH_PENDING.set(true);
+            }
             return;
         }
 
@@ -96,6 +110,9 @@ public final class RadioConfigUpdater {
                         + exception.getClass().getSimpleName() + ")");
             } finally {
                 REFRESH_IN_FLIGHT.set(false);
+                if (FORCE_REFRESH_PENDING.getAndSet(false)) {
+                    schedule(applicationContext, true);
+                }
             }
         }, "minimum-radio-config").start();
     }

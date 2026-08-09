@@ -32,6 +32,13 @@ The portal source is `web/`, a Next.js application deployed at
 `https://minimum.vra.or.th/` with Vercel's **Next.js framework preset**. Keep the deployment on the
 normal Next.js build output; do not add a standalone trace workaround for the Windows junction.
 
+Vercel's project-level **Ignored Build Step** is set to **Only build production**. The production
+branch is `main`; pushes to other branches are not expected to create Preview deployments. For a
+requested Minimum WebUI change, branch/PR checks are an intermediate gate rather than delivery:
+merge the reviewed change into `main`, wait for the resulting Vercel production deployment, and
+smoke-check `https://minimum.vra.or.th/`. Skip merge/deployment only when the user explicitly asks
+for local-only work.
+
 Run the web checks from the build-safe junction:
 
 ```powershell
@@ -154,6 +161,59 @@ The receiver is enabled by default through `Settings.PREF_AUTO_START`. A valid s
 Android may refuse the Activity launch on newer OEM builds. That is a platform limitation, not proof
 that the receiver is missing; add a foreground-service/notification fallback before claiming broad
 new-device support.
+
+## One-shot provisioning for a known radio
+
+Use the repository-root `Provision Minimum Device.cmd` for a factory-reset or newly received
+T99/T56. The normal operator double-clicks this file and does not enter PowerShell parameters. The
+guided flow detects the active ADB port, explains how to authorize USB debugging, offers a numbered
+device menu when several radios are attached, and shows recommended/custom setup choices. It keeps
+the window open on PASS or failure so the result is not lost.
+
+Connect only one unit of a given model for the final reboot check. The workflow verifies the exact hardware,
+builds the FOSS debug APK when requested or when the default APK is missing, installs it without
+clearing app data, runs the guarded model preparation, opens the Portal, installs the one-time device
+credential through the `DUMP`-protected receiver, waits for `minimum-state-ready`, reboots, and waits
+for Ready again:
+
+Double-click:
+
+```text
+Provision Minimum Device.cmd
+```
+
+Port `5037` is the Android standard and is selected when no ADB server is running. Port `5041` is
+the existing Minimum lab alternative. The guided flow chooses the only port with an authorized
+device automatically; if both servers are active or no device is visible, it presents a menu and
+the USB-debugging/authorization checklist. Advanced automation may still call the underlying
+PowerShell script with parameters, but field operators should use the launcher.
+
+The script displays only the six-character Device ID and detected Portal model (`t99` or `t56`).
+Register that ID under **Devices** at `https://minimum.vra.or.th/` with the displayed model, issue
+its one-time token, and paste the token into the hidden prompt in the same running script. The
+transient token file is removed from both Windows and
+`/data/local/tmp` immediately after the protected receiver returns. The token is never placed in an
+ADB argument or printed.
+
+For an unattended operator station, create a tightly protected temporary token file outside the
+repository and pass it explicitly. Delete that source file after the command succeeds:
+
+```powershell
+.\scripts\provision-minimum-device.ps1 -AdbPort 5041 -BuildApk `
+    -DeviceProfile ABC123 `
+    -DeviceConfigCredentialPath C:\private\minimum-device-token.txt `
+    -NonInteractive
+```
+
+Use `-Serial` or `-TransportId` when more than one authorized ADB device is attached. Pass
+`-SkipLabWifi` only when the unit has another verified network path; otherwise the existing ignored
+DPAPI lab Wi-Fi credential is used. T56 network-assisted location remains an explicit operator
+consent flow through `-RequestNetworkLocationConsent`.
+
+Unknown manufacturer/model pairs are inventory-reported and rejected before APK installation or
+provisioning changes. Complete physical button/PTT capture, add a guarded hardware profile and its
+model preparation wrapper, and pass real-device acceptance before adding that model to this
+one-shot path. Never treat the app's `generic-radio` fallback as hardware acceptance.
 
 ## T99 preparation and Zello removal
 
