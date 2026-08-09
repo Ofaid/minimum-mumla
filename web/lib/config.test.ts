@@ -108,6 +108,9 @@ describe('Minimum config validation', () => {
     expect(repaired.configVersion).toBe(7);
     expect((repaired.connections as Record<string, Record<string, unknown>>)['private-main'].password)
       .toBe('placeholder-not-a-credential');
+    expect(Object.keys(repaired.connections as Record<string, unknown>))
+      .toEqual(['private-main']);
+    expect((repaired.connections as Record<string, unknown>)['public-main']).toBeUndefined();
     expect((repaired.channels as Array<Record<string, unknown>>)[0]).toMatchObject({
       alias: 'OPS', presetKey: 'P2', connectionId: 'private-main'
     });

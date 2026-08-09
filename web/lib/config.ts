@@ -183,6 +183,12 @@ export function repairConfig(value: unknown, deviceId?: string, model?: ModelPro
   const resolvedDeviceId = deviceIdFromConfig(source, deviceId);
   const template = emptyConfig(resolvedDeviceId, resolvedModel) as ConfigObject;
   const merged = mergeConfigObjects(template, source) as MinimumConfig;
+  // Connections are an ID-keyed collection, not a partial object overlay. Once a
+  // config supplies the collection, preserve it exactly so the portal baseline
+  // cannot reintroduce its placeholder public-main connection.
+  if (isRecord(source.connections) && Object.keys(source.connections).length > 0) {
+    merged.connections = cloneRecord(source.connections);
+  }
   merged.channels = repairChannelDefaults(template, source);
   const channels = Array.isArray(merged.channels)
     ? merged.channels.filter(isRecord)
