@@ -2,13 +2,14 @@
 
 import {
   Activity, AlertCircle, Check, ChevronRight, Copy, KeyRound, LayoutDashboard,
-  LogOut, Plus, RadioTower, RefreshCw, Save, Settings2, ShieldCheck, Trash2,
+  LogOut, Plus, RadioTower, RefreshCw, Save, Search, Settings2, ShieldCheck, Trash2,
   X
 } from 'lucide-react';
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import type { DeviceSummary, MinimumConfig, PendingDeviceRequestSummary } from '@/lib/types';
 import { applyModelProfile, emptyConfig } from '@/lib/default-config';
 import { MODEL_PROFILES, type ModelProfile } from '@/lib/model-profiles';
+import { filterDevices } from '@/lib/device-search';
 import { ConfigEditorForm } from './ConfigEditorForm';
 
 type SessionState = {
@@ -200,6 +201,7 @@ export function AdminPortal() {
 
 function Dashboard({ username, setNotice, notice, onLogout }: { username: string; setNotice: (notice: Notice) => void; notice: Notice; onLogout: () => void }) {
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<DeviceRecord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -207,6 +209,8 @@ function Dashboard({ username, setNotice, notice, onLogout }: { username: string
   const [prefillDeviceId, setPrefillDeviceId] = useState('');
   const [pendingRequests, setPendingRequests] = useState<PendingDeviceRequestSummary[]>([]);
   const [activeNav, setActiveNav] = useState('Devices');
+  const visibleDevices = useMemo(() => filterDevices(devices, searchQuery), [devices, searchQuery]);
+  const isSearching = searchQuery.trim().length > 0;
   const loadDevices = async () => {
     setLoading(true);
     try {
@@ -250,7 +254,22 @@ function Dashboard({ username, setNotice, notice, onLogout }: { username: string
             <div className="panel-heading"><div><span className="eyebrow">CONFIG PROFILES</span><h2>Devices <span className="heading-count">{devices.length.toString().padStart(2, '0')}</span></h2></div><div className="panel-actions"><button className="icon-button" onClick={() => void loadDevices()} title="Refresh devices" aria-label="Refresh devices"><RefreshCw size={17} /></button><button className="primary-button" onClick={() => setShowAdd(true)}><Plus size={17} /> Add device</button></div></div>
             <PendingRequests requests={pendingRequests} onRegister={(deviceId) => { setPrefillDeviceId(deviceId); setShowAdd(true); }} />
             {showAdd && <AddDeviceForm key={prefillDeviceId || 'new'} initialDeviceId={prefillDeviceId} onClose={() => { setShowAdd(false); setPrefillDeviceId(''); }} onSaved={(token, device) => { setShowAdd(false); setPrefillDeviceId(''); setNotice({ tone: 'success', text: `Device ${device.deviceId} created. Copy this one-time token now: ${token}` }); void loadDevices(); setSelectedId(device.deviceId); setSelected({ ...device, config: emptyConfig(device.deviceId, device.model) }); }} />}
-            {loading ? <div className="loading-row"><RefreshCw size={17} className="spin" />Loading registry...</div> : devices.length === 0 ? <EmptyState onAdd={() => setShowAdd(true)} /> : <div className="device-table"><div className="table-head"><span>PROFILE</span><span>MODEL</span><span>VERSION</span><span>UPDATED</span><span /></div>{devices.map((device) => <button className={`device-row ${selectedId === device.deviceId ? 'selected' : ''}`} key={device.deviceId} onClick={() => void chooseDevice(device.deviceId)}><span className="device-identity"><span className="device-mark"><RadioTower size={16} /></span><span><strong>{device.deviceId}</strong><small>{device.label}</small></span></span><span className="muted mono">{device.model}</span><span className="version-pill">v{device.configVersion}</span><span className="muted">{formatDate(device.updatedAt)}</span><ChevronRight size={16} className="row-chevron" /></button>)}</div>}
+            {!loading && devices.length > 0 && <div className="registry-search">
+              <label className="search-field">
+                <span className="sr-only">Search devices by Device ID or display label</span>
+                <Search size={16} aria-hidden="true" />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search Device ID or display label"
+                  autoComplete="off"
+                />
+                {isSearching && <button type="button" className="search-clear" onClick={() => setSearchQuery('')} aria-label="Clear device search" title="Clear search"><X size={15} /></button>}
+              </label>
+              <span className="search-summary" aria-live="polite">{isSearching ? `${visibleDevices.length} of ${devices.length}` : `${devices.length} total`}</span>
+            </div>}
+            {loading ? <div className="loading-row"><RefreshCw size={17} className="spin" />Loading registry...</div> : devices.length === 0 ? <EmptyState onAdd={() => setShowAdd(true)} /> : visibleDevices.length === 0 ? <div className="search-empty"><Search size={24} /><h3>No matching devices</h3><p>Try a different Device ID or display label.</p><button className="quiet-button" type="button" onClick={() => setSearchQuery('')}>Clear search</button></div> : <div className="device-table"><div className="table-head"><span>PROFILE</span><span>MODEL</span><span>VERSION</span><span>UPDATED</span><span /></div>{visibleDevices.map((device) => <button className={`device-row ${selectedId === device.deviceId ? 'selected' : ''}`} key={device.deviceId} onClick={() => void chooseDevice(device.deviceId)}><span className="device-identity"><span className="device-mark"><RadioTower size={16} /></span><span><strong>{device.deviceId}</strong><small>{device.label}</small></span></span><span className="muted mono">{device.model}</span><span className="version-pill">v{device.configVersion}</span><span className="muted">{formatDate(device.updatedAt)}</span><ChevronRight size={16} className="row-chevron" /></button>)}</div>}
           </section>
           {selectedId && <DeviceEditor key={selectedId} device={selected} onSaved={(updated) => { setSelected(updated); setNotice({ tone: 'success', text: `${updated.deviceId} saved at config v${updated.config.configVersion}.` }); void loadDevices(); }} onDeleted={() => { setSelected(null); setSelectedId(null); setNotice({ tone: 'success', text: 'Device removed.' }); void loadDevices(); }} onToken={(token) => setNotice({ tone: 'success', text: `New device token: ${token}` })} />}
         </section>}
