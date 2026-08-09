@@ -6,7 +6,7 @@ import {
   X
 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import type { DeviceSummary, MinimumConfig } from '@/lib/types';
+import type { DeviceSummary, MinimumConfig, PendingDeviceRequestSummary } from '@/lib/types';
 import { emptyConfig } from '@/lib/default-config';
 
 type SessionState = {
@@ -147,6 +147,30 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
   return <div className="empty-state"><div className="empty-icon"><RadioTower size={25} /></div><h2>No devices registered</h2><p>Provision a device profile to start publishing configuration.</p><button className="primary-button" type="button" onClick={onAdd}><Plus size={17} /> Add device</button></div>;
 }
 
+function PendingRequests({ requests, onRegister }: {
+  requests: PendingDeviceRequestSummary[];
+  onRegister: (deviceId: string) => void;
+}) {
+  if (!requests.length) return null;
+  return (
+    <section className="pending-requests" aria-labelledby="pending-requests-heading">
+      <div className="pending-heading">
+        <div><span className="eyebrow">INBOUND REQUESTS</span><h3 id="pending-requests-heading">Awaiting registration <span className="heading-count">{requests.length.toString().padStart(2, '0')}</span></h3></div>
+        <span className="muted">Last 24 hours</span>
+      </div>
+      <div className="pending-list">
+        {requests.map((request) => (
+          <div className="pending-row" key={request.deviceId}>
+            <span className="device-mark"><RadioTower size={15} /></span>
+            <span className="pending-identity"><strong>{request.deviceId}</strong><small>{request.requestCount} request{request.requestCount === 1 ? '' : 's'} · {formatDate(request.lastSeenAt)}</small></span>
+            <button className="quiet-button" type="button" onClick={() => onRegister(request.deviceId)}>Register <ChevronRight size={15} /></button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function AdminPortal() {
   const [session, setSession] = useState<SessionState>({ loading: true, configured: false, authenticated: false, username: null });
   const [notice, setNotice] = useState<Notice>(null);
@@ -167,12 +191,18 @@ function Dashboard({ username, setNotice, notice, onLogout }: { username: string
   const [selected, setSelected] = useState<DeviceRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [prefillDeviceId, setPrefillDeviceId] = useState('');
+  const [pendingRequests, setPendingRequests] = useState<PendingDeviceRequestSummary[]>([]);
   const [activeNav, setActiveNav] = useState('Devices');
   const loadDevices = async () => {
     setLoading(true);
     try {
-      const data = await api<{ devices: DeviceSummary[] }>('/api/devices');
+      const [data, pending] = await Promise.all([
+        api<{ devices: DeviceSummary[] }>('/api/devices'),
+        api<{ requests: PendingDeviceRequestSummary[] }>('/api/devices/pending').catch(() => ({ requests: [] }))
+      ]);
       setDevices(data.devices);
+      setPendingRequests(pending.requests);
       if (selectedId && !data.devices.some((device) => device.deviceId === selectedId)) { setSelectedId(null); setSelected(null); }
     } catch (err) { setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Could not load devices' }); }
     finally { setLoading(false); }
@@ -205,7 +235,8 @@ function Dashboard({ username, setNotice, notice, onLogout }: { username: string
         {activeNav === 'Devices' && <section className="workspace-grid">
           <section className="registry-panel surface">
             <div className="panel-heading"><div><span className="eyebrow">CONFIG PROFILES</span><h2>Devices <span className="heading-count">{devices.length.toString().padStart(2, '0')}</span></h2></div><div className="panel-actions"><button className="icon-button" onClick={() => void loadDevices()} title="Refresh devices" aria-label="Refresh devices"><RefreshCw size={17} /></button><button className="primary-button" onClick={() => setShowAdd(true)}><Plus size={17} /> Add device</button></div></div>
-            {showAdd && <AddDeviceForm onClose={() => setShowAdd(false)} onSaved={(token, device) => { setShowAdd(false); setNotice({ tone: 'success', text: `Device ${device.deviceId} created. Copy the token before closing.` }); void loadDevices(); setSelectedId(device.deviceId); setSelected({ ...device, config: emptyConfig(device.deviceId) }); }} />}
+            <PendingRequests requests={pendingRequests} onRegister={(deviceId) => { setPrefillDeviceId(deviceId); setShowAdd(true); }} />
+            {showAdd && <AddDeviceForm key={prefillDeviceId || 'new'} initialDeviceId={prefillDeviceId} onClose={() => { setShowAdd(false); setPrefillDeviceId(''); }} onSaved={(token, device) => { setShowAdd(false); setPrefillDeviceId(''); setNotice({ tone: 'success', text: `Device ${device.deviceId} created. Copy the token before closing.` }); void loadDevices(); setSelectedId(device.deviceId); setSelected({ ...device, config: emptyConfig(device.deviceId) }); }} />}
             {loading ? <div className="loading-row"><RefreshCw size={17} className="spin" />Loading registry...</div> : devices.length === 0 ? <EmptyState onAdd={() => setShowAdd(true)} /> : <div className="device-table"><div className="table-head"><span>PROFILE</span><span>MODEL</span><span>VERSION</span><span>UPDATED</span><span /></div>{devices.map((device) => <button className={`device-row ${selectedId === device.deviceId ? 'selected' : ''}`} key={device.deviceId} onClick={() => void chooseDevice(device.deviceId)}><span className="device-identity"><span className="device-mark"><RadioTower size={16} /></span><span><strong>{device.deviceId}</strong><small>{device.label}</small></span></span><span className="muted mono">{device.model}</span><span className="version-pill">v{device.configVersion}</span><span className="muted">{formatDate(device.updatedAt)}</span><ChevronRight size={16} className="row-chevron" /></button>)}</div>}
           </section>
           {selectedId && <DeviceEditor key={selectedId} device={selected} onSaved={(updated) => { setSelected(updated); setNotice({ tone: 'success', text: `${updated.deviceId} saved at config v${updated.config.configVersion}.` }); void loadDevices(); }} onDeleted={() => { setSelected(null); setSelectedId(null); setNotice({ tone: 'success', text: 'Device removed.' }); void loadDevices(); }} onToken={(token) => setNotice({ tone: 'success', text: `New device token: ${token}` })} />}
@@ -216,12 +247,13 @@ function Dashboard({ username, setNotice, notice, onLogout }: { username: string
   );
 }
 
-function AddDeviceForm({ onClose, onSaved }: { onClose: () => void; onSaved: (token: string, device: DeviceRecord) => void }) {
+function AddDeviceForm({ initialDeviceId = '', onClose, onSaved }: { initialDeviceId?: string; onClose: () => void; onSaved: (token: string, device: DeviceRecord) => void }) {
   const [deviceId, setDeviceId] = useState('');
   const [label, setLabel] = useState('');
   const [model, setModel] = useState('generic-radio');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => { setDeviceId(initialDeviceId); }, [initialDeviceId]);
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('');
     try {

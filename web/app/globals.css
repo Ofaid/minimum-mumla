@@ -93,6 +93,15 @@ input:focus, textarea:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px r
 .registry-panel { min-height: 570px; }
 .panel-heading, .editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 23px 22px 20px; border-bottom: 1px solid var(--line-soft); }
 .panel-heading h2, .editor-heading h2 { margin: 6px 0 0; font-size: 21px; letter-spacing: -.03em; }
+.pending-requests { margin: 18px 22px 0; border: 1px solid rgba(240, 177, 80, .42); background: rgba(240, 177, 80, .045); }
+.pending-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 16px 12px; border-bottom: 1px solid var(--line-soft); }
+.pending-heading h3 { margin: 5px 0 0; font-size: 15px; }
+.pending-list { display: grid; }
+.pending-row { display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 8px 12px 8px 16px; border-top: 1px solid var(--line-soft); }
+.pending-row:first-child { border-top: 0; }
+.pending-identity { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.pending-identity strong { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 13px; letter-spacing: .04em; }
+.pending-identity small { color: var(--muted); font-size: 11px; }
 .heading-count { color: var(--muted-2); font-size: 13px; font-weight: 500; margin-left: 6px; }
 .panel-actions, .editor-actions { display: flex; align-items: center; gap: 8px; }
 .device-table { width: 100%; }
@@ -172,6 +181,9 @@ input:focus, textarea:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px r
   .kv-status { display: none; }
   .workspace-grid { margin-top: 16px; }
   .panel-heading, .editor-heading { padding: 18px 15px; }
+  .pending-requests { margin: 15px; }
+  .pending-heading { align-items: flex-start; flex-direction: column; }
+  .pending-row { padding-left: 12px; }
   .table-head, .device-row { grid-template-columns: minmax(135px, 1.4fr) 64px 50px 18px; padding: 0 15px; gap: 8px; }
   .table-head span:nth-child(2), .device-row > .muted.mono { display: none; }
   .table-head span:nth-child(4), .device-row > span:nth-child(4) { display: none; }

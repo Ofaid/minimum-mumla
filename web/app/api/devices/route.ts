@@ -1,7 +1,7 @@
 import { errorResponse, jsonResponse, readJson, requireAdmin, requireAdminMutation } from '@/lib/api';
 import { assertDeviceConfig, emptyConfig } from '@/lib/config';
 import { createDeviceToken, hashDeviceToken, validDeviceId } from '@/lib/security';
-import { getDevice, listDevices, putDevice } from '@/lib/storage';
+import { deletePendingDeviceRequest, getDevice, listDevices, putDevice } from '@/lib/storage';
 import type { DeviceSummary, MinimumConfig, StoredDevice } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -60,6 +60,7 @@ export async function POST(request: Request) {
   };
   try {
     await putDevice(device);
+    await deletePendingDeviceRequest(deviceId).catch(() => undefined);
     return jsonResponse({ device: summary(device), token }, 201);
   } catch {
     return errorResponse('Device store unavailable', 503);

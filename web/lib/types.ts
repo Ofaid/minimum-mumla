@@ -27,3 +27,12 @@ export type DeviceSummary = Omit<StoredDevice, 'tokenHash' | 'config'> & {
   configVersion: number;
   tokenHint: string;
 };
+
+export type PendingDeviceRequest = {
+  deviceId: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  requestCount: number;
+};
+
+export type PendingDeviceRequestSummary = PendingDeviceRequest;

@@ -1,4 +1,4 @@
-import type { StoredAdmin, StoredDevice } from './types';
+import type { PendingDeviceRequest, StoredAdmin, StoredDevice } from './types';
 
 declare global {
   // Shared across Next development route bundles; production never uses this store.
@@ -14,6 +14,9 @@ type CloudflareConfig = {
   namespaceId: string;
   baseUrl: string;
 };
+
+const PENDING_DEVICE_PREFIX = 'pending-device:';
+const PENDING_DEVICE_TTL_SECONDS = 24 * 60 * 60;
 
 function cloudflareConfig(): CloudflareConfig | null {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -58,14 +61,17 @@ export async function kvGet<T>(key: string): Promise<T | null> {
   return JSON.parse(await response.text()) as T;
 }
 
-export async function kvPut<T>(key: string, value: T) {
+export async function kvPut<T>(key: string, value: T, options?: { expirationTtlSeconds?: number }) {
   const serialized = JSON.stringify(value);
   const config = cloudflareConfig();
   if (!config) {
     memory.set(key, serialized);
     return;
   }
-  const response = await kvRequest(config, `/values/${encodeURIComponent(key)}`, {
+  const suffix = options?.expirationTtlSeconds
+    ? `/values/${encodeURIComponent(key)}?expiration_ttl=${Math.max(60, Math.floor(options.expirationTtlSeconds))}`
+    : `/values/${encodeURIComponent(key)}`;
+  const response = await kvRequest(config, suffix, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: serialized
@@ -125,6 +131,36 @@ export async function listDevices() {
   const keys = await kvList('device:');
   const devices = await Promise.all(keys.map((key) => kvGet<StoredDevice>(key)));
   return devices.filter((device): device is StoredDevice => Boolean(device));
+}
+
+export async function recordPendingDeviceRequest(deviceId: string) {
+  const now = new Date().toISOString();
+  const existing = await kvGet<PendingDeviceRequest>(`${PENDING_DEVICE_PREFIX}${deviceId}`);
+  const pending: PendingDeviceRequest = {
+    deviceId,
+    firstSeenAt: existing?.firstSeenAt || now,
+    lastSeenAt: now,
+    requestCount: Math.min((existing?.requestCount || 0) + 1, 100000)
+  };
+  await kvPut(`${PENDING_DEVICE_PREFIX}${deviceId}`, pending, {
+    expirationTtlSeconds: PENDING_DEVICE_TTL_SECONDS
+  });
+}
+
+export async function listPendingDeviceRequests() {
+  const keys = await kvList(PENDING_DEVICE_PREFIX);
+  const entries = await Promise.all(keys.map((key) => kvGet<PendingDeviceRequest>(key)));
+  const cutoff = Date.now() - PENDING_DEVICE_TTL_SECONDS * 1000;
+  return entries
+    .filter((entry): entry is PendingDeviceRequest => entry !== null
+      && Number.isFinite(Date.parse(entry.lastSeenAt))
+      && Date.parse(entry.lastSeenAt) >= cutoff)
+    .sort((left, right) => Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt))
+    .slice(0, 100);
+}
+
+export async function deletePendingDeviceRequest(deviceId: string) {
+  return kvDelete(`${PENDING_DEVICE_PREFIX}${deviceId}`);
 }
 
 export function resetMemoryStore() {
