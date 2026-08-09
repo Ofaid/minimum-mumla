@@ -1,0 +1,330 @@
+# Development runbook
+
+## Build and test
+
+Run Gradle from `D:\mumla-dev`, not from the path containing a space, because the current NDK
+toolchain has already shown path-sensitive behavior.
+
+Clone with submodules. The parent uses GitLab Mumla history while the customized Humla commit is
+published on the `humla-minimum` branch of `awatchar/minimum`:
+
+```powershell
+git clone --recurse-submodules https://github.com/awatchar/minimum.git
+```
+
+```powershell
+Set-Location D:\mumla-dev
+.\gradlew.bat :app:testFossDebugUnitTest :app:assembleFossDebug --no-daemon
+```
+
+APK output:
+
+```text
+D:\mumla-dev\app\build\outputs\apk\foss\debug\mumla-foss-debug.apk
+```
+
+Do not stage the pre-existing untracked `DEV_ENVIRONMENT_REQUIREMENTS.md` unless the user asks for
+that separate file to be included.
+
+## Admin portal development and handoff
+
+The portal source is `web/`, a Next.js application deployed at
+`https://minimum.vra.or.th/` with Vercel's **Next.js framework preset**. Keep the deployment on the
+normal Next.js build output; do not add a standalone trace workaround for the Windows junction.
+
+Run the web checks from the build-safe junction:
+
+```powershell
+Set-Location D:\mumla-dev\web
+pnpm install --frozen-lockfile
+pnpm test
+pnpm exec tsc --noEmit
+pnpm build
+```
+
+For local UI work, `pnpm dev --hostname 127.0.0.1 --port 3010` may use the development-only memory
+store. Production must fail closed unless Cloudflare KV is configured. Set these Vercel environment
+variables server-side and never paste their values into a shell transcript or tracked file:
+`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_KV_NAMESPACE_ID`, optional
+`CLOUDFLARE_KV_API_BASE`, `SESSION_SECRET` (32+ characters), and
+`DEVICE_TOKEN_HASH_SECRET` (32+ characters). BotID protection is enabled for production browser
+mutations; do not disable it as a deployment workaround.
+
+First-run production handoff:
+
+1. Open `https://minimum.vra.or.th/` and create the administrator account when the `FIRST-RUN
+   SETUP` screen appears. The password is stored as a one-way hash and the browser receives an
+   eight-hour, HttpOnly, same-site admin session.
+2. Register each device in **Devices**, then copy the one-time bearer token into the device-private
+   config/provisioning path. The portal persists only its token hash; use **Rotate token** to revoke
+   a lost token before issuing a replacement.
+3. Verify the Android client can fetch `GET /api/device-config/{deviceId}` with
+   `Authorization: Bearer <device token>`. The legacy `/api/device/{deviceId}/config` path remains
+   available for compatibility. Never put the bearer token in `backend/`, GitHub Pages, logs or this
+   documentation.
+
+Read-only production smoke checks (no credentials required):
+
+```powershell
+curl.exe -sS https://minimum.vra.or.th/api/session
+curl.exe -I https://minimum.vra.or.th/api/device-config/AB12C3
+curl.exe -I https://minimum.vra.or.th/api/device/AB12C3/config
+```
+
+The expected pre-handoff state is `/api/session` `200` with `configured:false` and generic `401`
+responses from both bearer-protected device routes. A `200` from a device route requires a valid
+device token and must return only that device's schema-3 config.
+
+## T99 ADB session
+
+The current workstation ADB server uses port `5041` and the authorized T99 serial is `12344321`.
+
+```powershell
+$adb = "adb -P 5041 -s 12344321"
+& adb -P 5041 devices
+& adb -P 5041 -s 12344321 install -r D:\mumla-dev\app\build\outputs\apk\foss\debug\mumla-foss-debug.apk
+& adb -P 5041 -s 12344321 shell am start -n se.lublin.mumla/.app.MumlaActivity
+& adb -P 5041 -s 12344321 logcat -d -t 300
+```
+
+Avoid `pm clear` on the working T99 unless a fresh first-run test is explicitly needed; it removes
+the device's current certificates, favourites and test state.
+
+If `adb devices` hangs instead of returning an offline/unauthorized/device row, stop every `adb.exe`
+process and retry ports 5041 and 5037. Confirm that Windows still reports the MI_03 `ADB Interface`
+with problem code 0. A T99 power cycle does not repair a wedged Windows USB stack; if both the
+installed platform-tools and a known-good isolated ADB exhibit the same hang, reboot Windows before
+changing the handset, driver or app. Never factory-reset the radio for this host-side symptom.
+
+For the reversible network-loss/recovery acceptance test, use the guarded script below. It restores
+and reads back the exact prior Wi-Fi/mobile-data state in a `finally` block, refuses ambiguous
+original settings, and never presses PTT:
+
+```powershell
+.\scripts\test-radio-reconnect.ps1 -WhatIf
+.\scripts\test-radio-reconnect.ps1 -Force -OutageSeconds 30
+```
+
+The full fault matrix and the distinction between local audio handoff and server receipt are in
+`docs/RECONNECT_TEST_PLAN.md`.
+
+T99/T56 builds keep a bounded app-private hardware trace. It contains key metadata only and can be
+read without exposing radio config or tokens:
+
+```powershell
+& adb -P 5041 -s 12344321 shell run-as se.lublin.mumla `
+    cat files/radio-diagnostics/key-events.log
+```
+
+T99's verified PTT is F1/scan 59; F2 is physical EXIT and must never be configured as T99 PTT.
+Clear the trace only when beginning a deliberate commissioning capture. Do not commit raw device
+logs; copy only the sanitized mapping into the device profile.
+
+For process-death acceptance, first confirm Ready and record the exact PID. Kill only that process
+through the debuggable app UID; never use force-stop or clear app data:
+
+```powershell
+$minimumProcess = & adb -P 5041 -s 12344321 shell ps | Select-String 'se.lublin.mumla$'
+$minimumPid = (($minimumProcess.ToString().Trim()) -split '\s+')[1]
+& adb -P 5041 -s 12344321 shell run-as se.lublin.mumla kill -9 $minimumPid
+```
+
+T99's normal service restart may be deferred by roughly 16 minutes. The dedicated-radio watchdog
+must instead produce a new PID within about 30 seconds, open RadioShell automatically and return to
+`minimum-state-ready`. Do not issue `am start` after the kill because that invalidates the test.
+
+The radio config directory has three durable states: `active-config.json` is the Last Known Good,
+`pending-config.json` is waiting for an idle trial, and `previous-config.json` is the rollback copy.
+Do not overwrite active merely to test an update. Stage pending, start `RadioShellActivity`, and
+verify it connects and joins the selected room before expecting promotion. The pending-available
+broadcast receiver is app-internal/non-exported, so an ADB `am broadcast` is intentionally not a
+valid trigger; startup and the updater both invoke the safe path.
+
+## Boot auto-start check
+
+The receiver is enabled by default through `Settings.PREF_AUTO_START`. A valid simulated check is:
+
+1. Launch the app once so Android has started the package normally.
+2. Kill the app process without stopping the package.
+3. Send `android.intent.action.BOOT_COMPLETED`.
+4. On T99/T56, check `dumpsys activity activities` for
+   `se.lublin.mumla/.radio.RadioShellActivity`; generic Android retains
+   `se.lublin.mumla/.app.MumlaActivity`.
+
+Android may refuse the Activity launch on newer OEM builds. That is a platform limitation, not proof
+that the receiver is missing; add a foreground-service/notification fallback before claiming broad
+new-device support.
+
+## T99 preparation and Zello removal
+
+The canonical provisioning script is `scripts/prepare-t99.ps1`. The old
+`scripts/remove-zello-t99.ps1` name remains as a compatibility wrapper. Preparation reports the
+ADB serial, Android serial, USB gadget serial and Minimum app Device ID; it does not attempt a
+root-only USB serial rewrite.
+
+```powershell
+Set-Location D:\mumla-dev
+.\scripts\prepare-t99.ps1 -ReportOnly
+.\scripts\prepare-t99.ps1 -WhatIf
+.\scripts\prepare-t99.ps1
+.\scripts\prepare-t99.ps1 -SkipMinimumHome
+.\scripts\prepare-t99.ps1 -Force -DeviceProfile GYZ3DE `
+    -RadioConfigPath C:\private\minimum-radio.json
+```
+
+The script also checks the lab SSID `..@EmergencyTU`. On a workstation's first use, create the
+git-ignored DPAPI credential interactively; never put the password in a command, script or tracked
+file:
+
+```powershell
+New-Item -ItemType Directory -Force .\scripts\.secrets | Out-Null
+$labWifi = Get-Credential -UserName '..@EmergencyTU' `
+    -Message 'Enter the Minimum T99 lab Wi-Fi password'
+$labWifi | Export-Clixml .\scripts\.secrets\t99-lab-wifi.credential.xml
+```
+
+If the target is not connected, preparation builds and installs the standalone
+`tools/t99-wifi-provisioner` helper, copies the credential through app-private storage, saves and
+enables the WPA2 profile, then removes both helper and transient files. Use `-RefreshLabWifi` to
+replace/recheck an existing profile or `-SkipLabWifi` to omit the step. The PSK is never printed or
+committed. T99 physically passed profile refresh and automatic reconnection after a Wi-Fi radio
+off/on cycle.
+
+Provisioning enables Android Location by default: T99 uses high-accuracy GPS/network mode, while
+T56 defaults to device-only GPS. To request T56 network location, run its provisioner with
+`-RequestNetworkLocationConsent`; the script stops Minimum, resets consent through Google Services
+Framework's own activity, opens its consent dialog and waits up to 120 seconds until the stored
+`use_location_for_services` value changes from `0` to `1` after the operator accepts. Only then does
+it request high-accuracy mode and wait for any additional Google network-location dialog to close.
+It never presses or bypasses consent automatically, and restores GPS-only mode if consent is not
+completed. Pass `-SkipLocation`
+only for an explicit exception. Re-run the temporary redacted acceptance probe
+with `scripts/test-radio-location.ps1 -Serial <adb-serial>`; coordinates are hidden unless
+`-ShowCoordinates` is explicitly supplied. T56 has passed a roughly 5 m GPS fix, while T99 still
+reports zero SNR/ephemeris and no fix. After operator consent, T56 also passed a redacted network
+fix at roughly 29.21 m accuracy. Future tracking code must use
+`RadioDeviceProfile.supportsLocationTracking(...)`; T99 and unverified generic hardware are denied.
+
+If local PowerShell policy blocks scripts, run the same file with
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File`. Keep the supplied JSON outside the
+repository: it may contain a public room token or a private server-certificate pin. The script
+checks size, schema/config version, required Mumble/room fields and Device ID, then copies it to
+app-private `files/radio-config/active-config.json` with directory mode 700 and file mode 600. It
+does not display token values and removes the temporary ADB copy.
+
+`-DeviceProfile` is the operator-facing name for the Technical Brief's six-character Device ID.
+It assigns the stable `/devices/{deviceId}.json` lookup key after validating the same six-character
+rules. It does not change the USB/ADB serial, hardware model profile or connection username. Config
+schema 3 requires the latter explicitly per connection; the current T99 uses Config Profile `GYZ3DE` and Mumble
+username `E25FGL-T99`.
+
+This removes Zello for Android user 0. It does not erase the system APK from the read-only system
+partition; a factory reset or OEM restore can make it reappear. If several identical T99 devices
+show the same ADB serial, use `adb devices -l` and select the unique `transport_id`:
+
+```powershell
+.\scripts\prepare-t99.ps1 -TransportId 1
+```
+
+Without `-RadioConfigPath`, preparation opens `MinimumHomeActivity` after the Device ID check. It
+provides two swipe pages: the large Minimum icon and Android Settings. With a config, it opens
+`RadioShellActivity` so connection and room join can be verified immediately. T99 firmware does
+not accept the data-installed Minimum
+activity as a usable default HOME choice, so the app deliberately does not register as HOME. The
+script requests a legacy Minimum shortcut in Launcher3, launches a real system HOME intent and
+fails if ResolverActivity appears. At boot, T99/T56 profiles launch the radio client directly;
+generic Android continues to launch MumlaActivity. Back from the radio client opens the recovery
+dashboard instead of exiting to an uncertain launcher state.
+
+`-SkipMinimumHome` skips shortcut/dashboard provisioning. Launcher3 is retained as an emergency
+fallback and should show both Minimum and Settings after preparation.
+
+## T56 preparation and capture procedure
+
+T56 uses the default ADB port 5037 and must be selected by its verified `UNIPRO` manufacturer and
+`ZX` model rather than by a committed serial. The wrapper delegates to the shared guarded T99
+implementation after applying those identity checks:
+
+```powershell
+.\scripts\prepare-t56.ps1 -ReportOnly
+.\scripts\prepare-t56.ps1 -WhatIf
+.\scripts\prepare-t56.ps1 -Force
+```
+
+If this workstation currently owns both radios through the existing ADB daemon on port 5041, pass
+`-AdbPort 5041`. T56 firmware does not include `/system/bin/run-as`; provisioning therefore uses
+the app's `android.permission.DUMP`-protected receiver to report Device ID and import a validated
+temporary config. The receiver accepts only `/data/local/tmp/minimum-radio-config-*.json`, and the
+script removes that file immediately after the result is returned.
+
+The captured T56 profile is `UNIPRO/ZX/L809`, Android 5.1.1/API 22, 160x128. Its PTT is vendor
+keyCode 261; F1 is Menu and must never be copied from T99's PTT rule. The OEM keyguard consumes the
+first raw event during display wake but simultaneously broadcasts `unipro.hotkey.ptt.down` and
+`unipro.hotkey.ptt.up`. Minimum's manifest receiver forwards those T56-only actions to
+`MumlaService`. Verify the receiver and the screen-off firmware actions with:
+
+```powershell
+adb -P 5041 -s <t56> shell dumpsys package se.lublin.mumla
+adb -P 5041 -s <t56> logcat -d | Select-String 'unipro.hotkey.ptt'
+```
+
+The provisioner removes the obsolete experimental AccessibilityService component if an earlier lab
+build left it enabled, while preserving unrelated accessibility services. Commissioning still
+needs an operator physical retest of screen-off PTT after the OEM receiver build is installed. The
+app-private trace remains useful for the two side keys and screen-power event; read
+it with `run-as` as described for T99 when the target image provides that tool, sanitize it, and
+update `docs/T56_DEVICE_PROFILE.md`. Never commit serials, certificates, tokens or personal Wi-Fi
+details.
+
+## APRS tracking verification
+
+The complete packet and privacy contract is [APRS_TRACKING.md](APRS_TRACKING.md). Use this bounded
+procedure for a live check:
+
+1. Build from `D:\mumla-dev` and install the FOSS debug APK. Do not build from
+   `D:\VR Android App\mumla`; the current NDK is path-sensitive.
+2. Confirm the target is the verified T56 profile, location consent is complete, and the device has
+   an unobstructed sky view. Never enable tracking on T99; its immutable gate must remain disabled.
+3. Clear only the `MinimumAprs` log buffer (`adb logcat -c`), start Minimum and wait for a quality-
+   passing fix. PTT may evaluate a cached fix but must not be used to force GPS acquisition.
+4. Inspect `adb logcat -d -s MinimumAprs:I MinimumAprs:W` for
+   `APRS position accepted by send-only server`. A local write or a `204` without
+   `X-Packetsrcvd > 0` is not acceptance.
+5. On APRS.fi search `VR-*` and verify the new item is an Object, not a callsign station position;
+   verify the state icon and compact Health fields. Use only redacted screenshots/log excerpts.
+6. For isolation, check T99 with `dumpsys location` and `MinimumAprs` logs: no app location request,
+   tracking manager or APRS send should exist.
+
+Do not print or paste APRS passcodes, Mumble tokens, serials, Device IDs, SSIDs or exact coordinates.
+Previously accepted callsign-owned packets cannot be removed from APRS-IS/APRS.fi history; they are
+historical artifacts and must not be treated as the current implementation. HTTPS uses the pinned
+ISRG Root X1 CA on API-22 and must retain normal hostname verification.
+
+To change only a T56 APRS Object label without exporting its private config, install a build that
+contains the protected provisioning action, then run:
+
+```powershell
+.\scripts\set-t56-aprs-object-name.ps1 -ObjectName T56-ROOF -StartRadioShell
+```
+
+The script verifies the `UNIPRO/ZX` target. The app validates/normalizes the label, increments
+`configVersion` only when it changes, preserves credentials in app-private storage and keeps the old
+active config as `previous-config.json`.
+
+## Git workflow
+
+Read [GITHUB_RELEASE_WORKFLOW.md](GITHUB_RELEASE_WORKFLOW.md) before triaging field Issues, marking
+PR #1 ready, or publishing an APK. The repository CI and manual signed-release workflows do not
+replace the physical T99/T56 acceptance gates.
+
+```powershell
+Set-Location D:\VR Android App\mumla
+git status --short --branch
+git diff --check
+git add <only-intended-files>
+git commit -m "<focused change>"
+git push github agent/minimum-foundation
+```
+
+Keep `origin` pointing to GitLab upstream and use the `github` remote for this project. PR #1 is
+draft; do not merge it automatically.
