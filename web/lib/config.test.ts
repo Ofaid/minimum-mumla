@@ -181,6 +181,27 @@ describe('Minimum config validation', () => {
     expect(imported.configVersion).toBe(1004);
   });
 
+  it('persists a selected default channel and advances its config version', () => {
+    const previous = repairConfig({
+      ...emptyConfig('AB12C3', 't56'),
+      channels: [
+        { id: 'dispatch', label: 'Dispatch', alias: 'DISPATCH', connectionId: 'public-main', path: '/DISPATCH', access: { mode: 'none' } },
+        { id: 'field', label: 'Field', alias: 'FIELD', connectionId: 'public-main', path: '/FIELD', access: { mode: 'none' } }
+      ],
+      radio: { defaultChannel: 'dispatch', autoConnect: true, autoReconnect: true }
+    }, 'AB12C3', 't56');
+    previous.configVersion = 20;
+
+    const changed = prepareConfigForSave({
+      ...previous,
+      radio: { ...(previous.radio as Record<string, unknown>), defaultChannel: 'field' }
+    }, previous, 'AB12C3');
+
+    expect((changed.radio as Record<string, unknown>).defaultChannel).toBe('field');
+    expect(changed.configVersion).toBe(21);
+    expect(validateConfig(changed, 'AB12C3')).toEqual({ valid: true, errors: [] });
+  });
+
   it('rejects unsupported tracking and missing public/protected access requirements', () => {
     const unsupported = emptyConfig('AB12C3', 't99');
     (unsupported.tracking as Record<string, unknown>).enabled = true;
