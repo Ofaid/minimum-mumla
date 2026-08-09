@@ -144,15 +144,15 @@ public final class AprsTrackingManager {
     }
 
     public void reloadConfig(JSONObject root) {
-        if (!RadioDeviceProfile.T56.equals(RadioDeviceProfile.detectCurrent())) {
+        String hardwareProfile = RadioDeviceProfile.detectCurrent();
+        if (!RadioDeviceProfile.T56.equals(hardwareProfile)) {
             return;
         }
-        final AprsTrackingConfig loaded;
-        try {
-            loaded = AprsTrackingConfig.fromJson(root, RadioDeviceProfile.detectCurrent());
-        } catch (JSONException exception) {
-            Log.w(TAG, "tracking config rejected: " + exception.getMessage());
-            return;
+        final AprsTrackingConfig loaded = parseConfigOrDisabled(root, hardwareProfile, true);
+        if (!loaded.isEnabled() || !loaded.isAprsEnabled()) {
+            // Flip the in-memory gate before scheduling listener/alarm cleanup so concurrent
+            // PTT/location callbacks fail closed while the handler drains its queue.
+            config = loaded;
         }
         handler.post(() -> {
             String nextObjectName = loaded.getObjectName().isEmpty()
@@ -179,6 +179,27 @@ public final class AprsTrackingManager {
             requestLocationUpdates();
             sendReady();
         });
+    }
+
+    /**
+     * Parses a tracking section using the same fail-closed policy as {@link #reloadConfig}.
+     * Package-private visibility keeps this small policy independently unit-testable without
+     * constructing Android location/telephony services in a JVM test.
+     */
+    static AprsTrackingConfig parseConfigOrDisabled(JSONObject root, String hardwareProfile) {
+        return parseConfigOrDisabled(root, hardwareProfile, false);
+    }
+
+    private static AprsTrackingConfig parseConfigOrDisabled(JSONObject root, String hardwareProfile,
+                                                             boolean logRejection) {
+        try {
+            return AprsTrackingConfig.fromJson(root, hardwareProfile);
+        } catch (JSONException exception) {
+            if (logRejection) {
+                Log.w(TAG, "tracking config rejected: " + exception.getMessage());
+            }
+            return AprsTrackingConfig.disabled();
+        }
     }
 
     public void onPoll() {

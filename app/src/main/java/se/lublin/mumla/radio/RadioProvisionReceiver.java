@@ -19,6 +19,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 
+import se.lublin.mumla.service.MumlaService;
+
 /** Narrow, shell-permission-protected ADB entry point for managed radio provisioning. */
 public final class RadioProvisionReceiver extends BroadcastReceiver {
     public static final String ACTION_ASSIGN_DEVICE_PROFILE =
@@ -83,6 +85,9 @@ public final class RadioProvisionReceiver extends BroadcastReceiver {
             String deviceId = new DeviceIdentityManager(
                     PreferenceManager.getDefaultSharedPreferences(context)).getOrCreateDeviceId();
             new RadioConfigRepository(context).updateActiveAprsObjectName(deviceId, objectName);
+            // The running service owns the APRS manager; ask it to re-read the active cache
+            // without exporting the config or credentials through the provisioning result.
+            MumlaService.reloadTrackingConfigIfRunning();
             setResultCode(-1);
             setResultData("updated");
         } catch (IOException | RuntimeException | org.json.JSONException ignored) {

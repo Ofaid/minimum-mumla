@@ -735,6 +735,9 @@ public final class RadioShellActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     pendingConfigIoInFlight = false;
                     pendingConfigTrial = false;
+                    if (service != null) {
+                        service.reloadTrackingConfig();
+                    }
                     if (destroyed) {
                         return;
                     }

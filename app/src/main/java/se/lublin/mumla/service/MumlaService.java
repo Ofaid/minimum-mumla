@@ -106,6 +106,7 @@ public class MumlaService extends HumlaService implements
     private static final long RADIO_WAKE_COOLDOWN_MS = 1000L;
     private static final long RADIO_WAKE_DURATION_MS = 5000L;
     private static final Locale THAI_LOCALE = new Locale("th", "TH");
+    private static volatile MumlaService sRunningService;
 
     private Settings mSettings;
     private MumlaConnectionNotification mNotification;
@@ -419,6 +420,7 @@ public class MumlaService extends HumlaService implements
     @Override
     public void onCreate() {
         super.onCreate();
+        sRunningService = this;
         registerObserver(mObserver);
 
         // Register for preference changes
@@ -487,6 +489,9 @@ public class MumlaService extends HumlaService implements
 
     @Override
     public void onDestroy() {
+        if (sRunningService == this) {
+            sRunningService = null;
+        }
         if (mAprsTrackingManager != null) {
             mAprsTrackingManager.stop();
             mAprsTrackingManager = null;
@@ -1072,6 +1077,14 @@ public class MumlaService extends HumlaService implements
                         + exception.getClass().getSimpleName());
             }
         }, "minimum-t56-tracking-config").start();
+    }
+
+    /** Requests a reload only when the service is already running. */
+    public static void reloadTrackingConfigIfRunning() {
+        MumlaService service = sRunningService;
+        if (service != null) {
+            service.reloadTrackingConfig();
+        }
     }
 
     /**

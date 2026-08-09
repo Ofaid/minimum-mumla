@@ -43,6 +43,18 @@ public class AprsTrackingConfigTest {
         assertEquals("T56-ROOF ", config.getObjectName());
     }
 
+    @Test
+    public void malformedConfigFallsBackToDisabledTracking() throws Exception {
+        JSONObject configJson = enabledConfig();
+        configJson.getJSONObject("tracking").getJSONObject("aprs").remove("passcode");
+
+        AprsTrackingConfig config = AprsTrackingManager.parseConfigOrDisabled(
+                configJson, RadioDeviceProfile.T56);
+
+        assertFalse(config.isEnabled());
+        assertFalse(config.isAprsEnabled());
+    }
+
     @Test(expected = JSONException.class)
     public void rejectsInvalidConfiguredObjectName() throws Exception {
         JSONObject config = enabledConfig();
