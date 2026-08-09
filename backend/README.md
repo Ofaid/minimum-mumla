@@ -1,8 +1,10 @@
 # Minimum static configuration backend
 
-This directory is the public, read-only configuration distribution for the Minimum radio client.
-It is designed to be published as GitHub Pages and contains no GitHub token, password, protected
-Mumble token, or device secret.
+This directory is the public, read-only configuration reference/recovery distribution for the
+Minimum radio client. It is designed to be published as GitHub Pages and contains no GitHub token,
+password, protected Mumble token, or device secret. Provisioned managed devices fetch their complete
+device-specific configuration directly from `https://minimum.vra.or.th/api/device-config/{deviceId}`;
+they do not merge these files during normal refresh.
 
 Config schema 3 separates selectable `channels` from keyed `connections`. Each channel references
 one connection, so channels may use different hosts, ports, usernames, server passwords, TLS pins

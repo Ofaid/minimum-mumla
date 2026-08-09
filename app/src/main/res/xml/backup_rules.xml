@@ -2,5 +2,4 @@
 <!-- Private managed-radio configuration may contain server passwords and tracking credentials. -->
 <full-backup-content>
     <exclude domain="file" path="radio-config/" />
-    <exclude domain="noBackup" path="radio-config/" />
 </full-backup-content>

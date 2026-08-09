@@ -23,7 +23,8 @@ MumlaService (long-lived voice path)
 
 RadioConfigRepository
   ├─ embedded safe default
-  ├─ GitHub Pages default/model/device overlays
+  ├─ bearer-authenticated complete config from minimum.vra.or.th
+  ├─ API-22 TLS 1.2 plus platform/ISRG Root X1 trust
   ├─ schema and safety validation
   └─ downgrade-protected pending/active/previous private cache
 
@@ -46,8 +47,9 @@ MumlaBootReceiver
   └── generic Android -> MumlaActivity
 
 RadioShellActivity (managed radio entry point)
-  ├─ Device ID/profile display
-  └─ large touch PTT bridge to MumlaService
+  ├─ hardware-first connection/RX/TX state display
+  ├─ prominent channel alias and multi-talker display
+  └─ full-screen Device ID overlay from verified hardware holds
 ```
 
 The component map above preserves the original Mumla entry points for diagnostics. The managed
@@ -56,25 +58,33 @@ to the recovery dashboard. `RadioConnectionConfig` provides the typed validated 
 the shell, and `RoomPathResolver` performs exact full-path channel lookup. `MinimumHomeActivity`
 remains a deliberate recovery route to Minimum and Android Settings.
 
+The production configuration control plane is the Next.js administrator portal at
+`minimum.vra.or.th`. It keeps administrator sessions, pending-device registrations, device records
+and canonical Schema-3 model templates, persists them in Cloudflare KV, and serves a complete
+device-specific config through a bearer-authenticated endpoint. The portal advances
+`configVersion` for effective changes; Android remains responsible for operational Last Known Good
+trial and promotion.
+
 On T99, the recovery dashboard consumes F1 by sounding a local failure alert and opening
 RadioShell with an explicit connection request; it never queues that press for later TX. RadioShell
 requires a one-second Up/Down hold to select and join a room, and requires a five-second hold on
 physical MENU/EXIT/red before returning to the dashboard.
 
-## Configuration precedence
+## Configuration source and precedence
 
-The intended merge order is:
+Managed devices fetch one complete device-specific Schema-3 document from
+`https://minimum.vra.or.th/api/device-config/{deviceId}` with a provisioned bearer token. The portal
+normalizes its model template and device record before serving it; Android no longer fetches and
+merges the public GitHub Pages default/model/device files. The checked-in Pages tree remains a
+non-secret reference/recovery artifact. If no managed credential is provisioned, startup still has
+the embedded safe default.
+
+A lower `configVersion` cannot replace a valid newer active config, and changed content at the same
+version is rejected. Portal normalization must preserve an existing keyed `connections` map as a
+collection; it must not reinsert the placeholder `public-main` connection into a managed record.
 
 ```text
-embedded default -> remote default -> model profile -> device override
-```
-
-Object fields merge recursively. Arrays replace the previous array as a whole. A lower
-`configVersion` cannot replace a valid newer active config, and changed content at the same version
-is rejected.
-
-```text
-remote merge + validation
+managed response validation
   -> pending-config.json
   -> wait until connection transition, RX and TX are idle
   -> trial candidate in memory
@@ -86,6 +96,11 @@ remote merge + validation
 Startup reads `active-config.json`. If it is corrupt and `previous-config.json` is valid, the
 repository restores previous; otherwise it uses the embedded safe default. Network return forces a
 new fetch, while an in-flight guard prevents overlapping refreshes.
+
+Channel selection has two layers. The app-private Last Selected Channel wins across Activity,
+process and connection recovery. `radio.defaultChannel`, edited explicitly in the portal's
+**Channels & default** tab, is used only when that selection is absent or references a removed
+channel. Changing the default never silently replaces a valid saved selection.
 
 ## Radio connection and trust flow
 

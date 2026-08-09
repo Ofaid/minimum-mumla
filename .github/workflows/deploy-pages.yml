@@ -1,4 +1,4 @@
-name: Deploy radio configuration
+name: Deploy public recovery configuration
 
 on:
   push:
@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Configure Pages
         uses: actions/configure-pages@v5
-      - name: Upload configuration artifact
+      - name: Upload public recovery configuration
         uses: actions/upload-pages-artifact@v3
         with:
           path: backend

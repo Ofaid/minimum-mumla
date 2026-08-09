@@ -139,3 +139,18 @@ network and storage health is appended to the existing position beacon rather th
 packets, which keeps the beacon cadence bounded and makes health and position share one timestamp.
 The immutable T56-only gate is deliberate: T99 has not produced a usable location fix and must not
 silently begin public tracking if remote configuration changes.
+
+## D-019: Managed configuration is served by the private portal
+
+The Vercel portal at `minimum.vra.or.th` is the authoritative control plane for registered device
+records and complete private Schema-3 configuration. Android authenticates with a per-device bearer
+token and retains active/previous/pending copies app-privately. GitHub Pages remains a public,
+non-secret reference and recovery artifact. This prevents server passwords and protected channel
+tokens from entering a public repository while preserving an embedded startup fallback.
+
+## D-020: Default channel is a fallback, not a forced selection
+
+`radio.defaultChannel` is edited explicitly in the portal's **Channels & default** UI. Android first
+restores its app-private Last Selected Channel across process and connection recovery. It uses the
+configured default only when no saved selection exists or that channel was removed. This avoids a
+routine portal save unexpectedly moving an operator's active radio channel.

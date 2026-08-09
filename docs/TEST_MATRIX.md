@@ -4,6 +4,7 @@
 |---|---|---|
 | FOSS debug unit tests | PASS | `:app:testFossDebugUnitTest` |
 | FOSS debug APK build | PASS | `:app:assembleFossDebug` |
+| FOSS release APK assembly | PASS LOCALLY / UNSIGNED | `:app:assembleFossRelease`; release-only Lint passes after removing invalid redundant `noBackup` XML domains. Signing and tagged GitHub provenance remain open. |
 | T99 ADB install | PASS | T99 serial `12344321` |
 | T99 Device ID format/persistence | PASS | `DeviceIdentityManagerTest`; startup integration added |
 | Automatic certificate generation | IMPLEMENTED | Must rerun only on a disposable fresh app-data test |
@@ -30,7 +31,9 @@
 | Zello user-0 removal | PASS | `pm uninstall --user 0 com.loudtalks` verified |
 | Zello repeat script dry run | PASS | `remove-zello-t99.ps1 -WhatIf` |
 | Static backend JSON | PASS | Parsed with PowerShell `ConvertFrom-Json` |
-| GitHub Pages workflow | CONFIGURED | Deploy occurs after workflow reaches `main` |
+| GitHub Pages workflow | CONFIGURED / RECOVERY ONLY | Deploy occurs after workflow reaches `main`; managed devices use the Vercel device endpoint |
+| Vercel/Cloudflare admin portal | PASS IN WEB / PRODUCTION SMOKE | First-run admin, pending-device queue, device CRUD, Schema-3 structured editor, bearer endpoint and KV persistence; production secrets stay server-side |
+| Web `radio.defaultChannel` editor | PASS IN WEB | **Channels & default** selector and per-channel **Set default** persist `radio.defaultChannel` and advance `configVersion`; handset Last Selected Channel still wins when valid |
 | Android config embedded fallback | PASS | Asset + validation in repository |
 | Android remote config fetch/cache | PASS IN JVM / DEVICE ACCEPTANCE OPEN | Six-hour and network-return refresh, in-flight guard, pending staging and LKG fallback |
 | Public access-token resolver | PASS | JVM tests cover trimming, case, ordering, duplicates and malformed/protected entries |
@@ -76,4 +79,6 @@
 
 Do not call the Minimum radio PoC radio-ready until screen-off PTT, network-loss TX release,
 certificate first-run, boot behavior and T56/T99 profile selection have each passed on the target
-hardware or been explicitly marked as unsupported.
+hardware or been explicitly marked as unsupported. Do not publish a GitHub APK Release until the
+signing, reproducibility, checksum, release-notes and known-limitations checks in
+[GITHUB_RELEASE_WORKFLOW.md](GITHUB_RELEASE_WORKFLOW.md) are complete.

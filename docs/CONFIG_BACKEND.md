@@ -25,6 +25,13 @@ T56-only Location/APRS settings have dedicated controls. Raw Schema-3 JSON remai
 under **Advanced** for exceptional fields. Model selection applies the model-owned service/hardware
 overlay without discarding connection credentials, channel tokens or APRS Object name.
 
+`radio.defaultChannel` is visible under **Channels & default**. The administrator may choose it in
+the highlighted **Default channel** selector or press **Set default** on a channel card; the chosen
+card is marked **Default**. This is not a command to override a handset's Last Selected Channel.
+Android restores its app-private selected channel first and uses `radio.defaultChannel` only for a
+new device state, a cleared selection, or when the selected channel ID no longer exists. Saving a
+different default is an effective config change and advances `configVersion`.
+
 Portal-issued configurations begin at `configVersion` 7 because the embedded public baseline is v6;
 this prevents a newly registered portal profile from looking like a downgrade to Android. Older
 portal records are repaired against the canonical Schema-3 template and advanced monotonically when

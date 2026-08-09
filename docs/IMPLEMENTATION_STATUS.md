@@ -15,7 +15,9 @@ This file remains as a compatibility link for earlier notes. The maintained hand
   rotation are implemented. Raw JSON is an Advanced fallback. Credential material is persisted as password/token
   hashes; device metadata/config remain persisted, and Android reads a device config through
   `Authorization: Bearer <device token>`.
-- Verification completed: 16 web tests, TypeScript and the production Next.js build pass from
+- The **Channels & default** editor exposes `radio.defaultChannel` through a highlighted selector
+  and per-channel **Set default** action while keeping Last Selected Channel as handset-owned state.
+- Verification completed: the web test suite, TypeScript and the production Next.js build pass from
   `D:\mumla-dev\web`. Browser QA covered a two-server/two-channel save and version advance from v7
   to v8 plus a 390 px viewport without page-level horizontal overflow. The operator reported that
   production administrator setup and registration of the development T56/T99 records are complete.
@@ -30,6 +32,8 @@ Use these documents by purpose:
 - Reasons behind safety and scope choices: [DECISIONS.md](DECISIONS.md)
 - Chronological milestone notes: [WORK_LOG.md](WORK_LOG.md)
 - APRS tracking contract and verification: [APRS_TRACKING.md](APRS_TRACKING.md)
+- GitHub Issue triage, merge and APK release gates:
+  [GITHUB_RELEASE_WORKFLOW.md](GITHUB_RELEASE_WORKFLOW.md)
 
 Hardware source documents:
 

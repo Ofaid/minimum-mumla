@@ -1,0 +1,140 @@
+name: Release signed APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag pointing at the commit to build (for example 3.7.3-minimum.1)
+        required: true
+        type: string
+      prerelease:
+        description: Mark the GitHub release as a prerelease
+        required: true
+        default: true
+        type: boolean
+      expected_version_code:
+        description: Android versionCode reviewed for this release
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Verify, sign and publish FOSS APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: release
+    steps:
+      - name: Validate tag format
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          EXPECTED_VERSION_CODE: ${{ inputs.expected_version_code }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Tag must begin with a numeric x.y.z version so Android versionName is deterministic." >&2
+            exit 1
+          fi
+          if [[ ! "$EXPECTED_VERSION_CODE" =~ ^[1-9][0-9]*$ ]]; then
+            echo "expected_version_code must be a positive integer." >&2
+            exit 1
+          fi
+      - name: Checkout release tag with Humla
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          submodules: recursive
+          fetch-depth: 0
+      - name: Verify required signing secrets
+        env:
+          MINIMUM_RELEASE_KEYSTORE_BASE64: ${{ secrets.MINIMUM_RELEASE_KEYSTORE_BASE64 }}
+          MINIMUM_RELEASE_STORE_PASSWORD: ${{ secrets.MINIMUM_RELEASE_STORE_PASSWORD }}
+          MINIMUM_RELEASE_KEY_ALIAS: ${{ secrets.MINIMUM_RELEASE_KEY_ALIAS }}
+          MINIMUM_RELEASE_KEY_PASSWORD: ${{ secrets.MINIMUM_RELEASE_KEY_PASSWORD }}
+          MINIMUM_RELEASE_APPLICATION_ID: ${{ vars.MINIMUM_RELEASE_APPLICATION_ID }}
+        run: |
+          for value in \
+            MINIMUM_RELEASE_KEYSTORE_BASE64 \
+            MINIMUM_RELEASE_STORE_PASSWORD \
+            MINIMUM_RELEASE_KEY_ALIAS \
+            MINIMUM_RELEASE_KEY_PASSWORD \
+            MINIMUM_RELEASE_APPLICATION_ID; do
+            if [[ -z "${!value}" ]]; then
+              echo "Required release secret $value is not configured." >&2
+              exit 1
+            fi
+          done
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install pinned NDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;25.1.8937393"
+      - name: Materialize signing configuration
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MINIMUM_RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.MINIMUM_RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.MINIMUM_RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.MINIMUM_RELEASE_KEY_PASSWORD }}
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/minimum-release.jks"
+          cat > app/signing.gradle <<'GRADLE'
+          android {
+              signingConfigs {
+                  release {
+                      storeFile file(System.getenv('MINIMUM_KEYSTORE_PATH'))
+                      storePassword System.getenv('MINIMUM_STORE_PASSWORD')
+                      keyAlias System.getenv('MINIMUM_KEY_ALIAS')
+                      keyPassword System.getenv('MINIMUM_KEY_PASSWORD')
+                  }
+              }
+          }
+          GRADLE
+          echo "MINIMUM_KEYSTORE_PATH=$RUNNER_TEMP/minimum-release.jks" >> "$GITHUB_ENV"
+          echo "MINIMUM_STORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "MINIMUM_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "MINIMUM_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+      - name: Build patched Spongy Castle jars
+        working-directory: libraries/humla/libs/humla-spongycastle
+        run: |
+          chmod +x ../../gradlew
+          ../../gradlew jar --no-daemon
+      - name: Test and assemble signed FOSS release
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testFossDebugUnitTest :app:assembleFossRelease --no-daemon --stacktrace
+      - name: Verify APK signature and identity
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          EXPECTED_VERSION_CODE: ${{ inputs.expected_version_code }}
+          EXPECTED_APPLICATION_ID: ${{ vars.MINIMUM_RELEASE_APPLICATION_ID }}
+        run: |
+          APK=app/build/outputs/apk/foss/release/mumla-foss-release.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee "$RUNNER_TEMP/apk-badging.txt"
+          grep -F "package: name='$EXPECTED_APPLICATION_ID'" "$RUNNER_TEMP/apk-badging.txt"
+          grep -F "versionCode='$EXPECTED_VERSION_CODE'" "$RUNNER_TEMP/apk-badging.txt"
+          grep -F "versionName='$RELEASE_TAG'" "$RUNNER_TEMP/apk-badging.txt"
+          cp "$APK" "minimum-${RELEASE_TAG}-foss.apk"
+          sha256sum "minimum-${RELEASE_TAG}-foss.apk" > "minimum-${RELEASE_TAG}-foss.apk.sha256"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          prerelease_flag=()
+          if [[ "$PRERELEASE" == "true" ]]; then prerelease_flag+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" \
+            "minimum-${RELEASE_TAG}-foss.apk" \
+            "minimum-${RELEASE_TAG}-foss.apk.sha256" \
+            --verify-tag --generate-notes --title "Minimum $RELEASE_TAG" "${prerelease_flag[@]}"

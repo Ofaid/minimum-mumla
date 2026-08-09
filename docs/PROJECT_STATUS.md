@@ -17,6 +17,13 @@ document disagrees with this file, verify the code and update this file first.
 - Draft PR: https://github.com/awatchar/minimum/pull/1
 - Android application ID: `se.lublin.mumla`
 - Current supported build target: FOSS debug APK
+- Local FOSS release assembly and release Lint now pass, but the output is not an approved public
+  release until the application ID/signing identity, protected GitHub environment, tagged workflow
+  and remaining hardware limitations are accepted.
+- GitHub now has structured Bug/Device acceptance/Feature request forms, a PR safety checklist,
+  Android/Web CI definitions and a manual signed-release workflow. These files prepare the process;
+  they do not prove release readiness until required checks and signing secrets are configured and
+  the integrated commit passes them. See [GITHUB_RELEASE_WORKFLOW.md](GITHUB_RELEASE_WORKFLOW.md).
 
 ## Production admin portal status
 
@@ -31,6 +38,9 @@ document disagrees with this file, verify the code and update this file first.
   canonical model templates and automatic config-version advancement. The everyday editor has
   dedicated Server, Channel/Alias/Access, PTT behavior and T56-only Location/APRS sections; raw JSON
   is an Advanced fallback rather than the primary workflow.
+  The **Channels & default** tab exposes `radio.defaultChannel` explicitly: an administrator can
+  select it from the Default channel control or use **Set default** on a channel card. This value is
+  the fallback only when no saved Last Selected Channel exists or the saved channel was removed.
   Device configuration delivery is bearer-authenticated at `/api/device-config/{deviceId}`;
   `/api/device/{deviceId}/config` remains a compatibility route. Only the token hash is persisted
   for device credentials, and rotation revokes the previous token.
@@ -38,7 +48,7 @@ document disagrees with this file, verify the code and update this file first.
   records are repaired without dropping private connection/channel/APRS values. Connection maps
   supplied by a device record replace the template map, so repair cannot reintroduce the placeholder
   `public-main` server. T99/generic profiles cannot enable location tracking. The development T56
-  and T99 records are registered and provisioned at config v1101. Local verification passes 17 web tests, TypeScript,
+  and T99 records are registered and provisioned at config v1101. Local verification passes the web test suite, TypeScript,
   production build, two-server/two-channel browser round-trip, and 390 px responsive QA without
   page-level horizontal overflow.
 
@@ -287,6 +297,10 @@ document disagrees with this file, verify the code and update this file first.
 5. Run physical failed-candidate rollback acceptance, then add config signatures.
 6. Extend the new private key diagnostics with config/audio health, then decide the dedicated radio
    flavor/application ID.
+7. Use the maintained GitHub Issue forms and triage labels for field-test reports. Before merging
+   or publishing an APK, follow the separate gates in
+   [GITHUB_RELEASE_WORKFLOW.md](GITHUB_RELEASE_WORKFLOW.md); a passing debug build alone is not a
+   signed release.
 
 APRS-specific remaining risks are tracked in [APRS_TRACKING.md](APRS_TRACKING.md): A-GPS attribution,
 certificate-rotation integration coverage and confirmation that the server-advertised HTTPS send-only
@@ -305,3 +319,5 @@ The detailed Technical Brief comparison and implementation order are maintained 
   T56's captured primary PTT is vendor keyCode 261.
 - Keep the normal Mumla build working while the radio interface is developed.
 - Do not merge PR #1 without explicit user approval.
+- Do not publish an APK as a GitHub Release until the signing identity, CI artifact provenance,
+  checksums, release notes and explicitly accepted hardware limitations satisfy the release gate.

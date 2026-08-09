@@ -1,6 +1,6 @@
 # Technical Brief gap analysis
 
-Last reviewed: 2026-08-08
+Last reviewed: 2026-08-09
 
 This document maps the supplied Public PoC Radio Client Technical Brief to the code that actually
 exists. `PROJECT_STATUS.md` remains the short hand-off source of truth; this file is the detailed
@@ -43,13 +43,13 @@ T99 rejects F2 as PTT. MediaSession remains an alternate headset/media path.
 | Brief phase | Status | Evidence already present | Remaining work |
 | --- | --- | --- | --- |
 | 0 — Baseline | Partial | Upstream/Humla retained; FOSS debug tests and APK build; Minimum name/icon | Record a clean upstream voice/PTT baseline; choose a distinct application ID; decide radio/diagnostic flavor structure |
-| 1 — Radio Shell | Mostly complete | Dark `RadioShellActivity` loads LKG config, restores the selected full-path channel, auto-connects/reconnects, keeps the Android status bar visible, shows connection/RX/TX/access state and supports touch/physical PTT; real T99 boot-to-ready passed | Exercise multiple channel presets and decide dedicated radio application ID/flavor |
+| 1 — Radio Shell | Mostly complete | Dark `RadioShellActivity` loads LKG config, restores the selected full-path channel, auto-connects/reconnects, keeps the Android status bar visible, shows connection/RX/TX/access state and supports verified hardware/MediaSession PTT paths; real T99 boot-to-ready passed | Exercise multiple channel presets and decide dedicated radio application ID/flavor |
 | 2 — Device Identity | Mostly complete | Six-character `SecureRandom` identity, persistence, validation, tests and ADB/system-shell-protected Config Profile assignment | Add protected on-device admin UI/gesture for regeneration and acceptance tests across update/reboot/clear-data |
-| 3 — Remote Configuration | Mostly complete | Schema 3 keyed connections and per-channel auth, selected-channel persistence, embedded fallback, HTTPS fetch, default/model/device merge, limits, validation, active/previous/pending cache, downgrade rejection, six-hour plus network-return refresh, service-owned RX/TX idle candidate trial, commit after channel join, explicit rollback and JVM tests | Config signature verification and physical success/failure candidate acceptance |
+| 3 — Remote Configuration | Mostly complete | Schema 3 keyed connections and per-channel auth, selected-channel persistence, embedded fallback, complete bearer-authenticated Vercel device fetch, portal model/device normalization, limits, validation, active/previous/pending cache, downgrade rejection, six-hour plus network-return refresh, service-owned RX/TX idle candidate trial, commit after channel join, explicit rollback and JVM/web tests | Config signature verification and physical success/failure candidate acceptance |
 | 4 — Rooms and Tokens | Mostly complete | Selected-channel public tokens feed Humla authentication without DB/preference/log persistence; channels can cross server/password/token boundaries and reconnect as needed; typed presets, exact full-path lookup, restored selection and one-second Up/Down hold; one live nested-channel T99 test passed | Multi-server live test, permission-denied/default-channel fallback evidence |
 | 5 — Hardware PTT | T99 core pass / T56 provisioned, PTT acceptance open | T99 ten-button map and T56 eleven-control input capture; T56 guarded provisioning and reboot-to-RadioShell pass; profile-specific PTT rules; private bounded diagnostics; dashboard recovery; throttled reconnect; deliberate exit; Activity/MediaSession paths; local warning; screen wake; TX timer; release paths and 120 s watchdog | T56 app-level side/power trace and physical foreground/screen-off PTT matrix, T99 dashboard-F1 acceptance, and OEM/vendor/global path only if a target requires it |
 | 6 — Hardening | Mostly implemented, acceptance incomplete | Automatic certificate/boot, transport-only 15/30/60-second reconnect with persisted 15-second attempt guard and rejection hold, guarded T99 network-loss PASS, process watchdog SIGKILL PASS, managed chat heads-up suppression, automatic preprocessor/half-duplex/TTS, teardown unmute, config rollback/downgrade and managed self-signed trust with optional pin | Long-outage/server/audio/wake evidence, battery optimization, bundled voice prompts, protected-token store, config signatures and sanitized diagnostics/security review |
-| 7 — Release | Early | Public GitHub repo, draft PR, GPLv3 source base, architecture/runbook/hardware docs, Pages deployment workflow | Android CI, signed APK, release notes, known-limitations report, instrumentation tests, device video and LTE/Wi-Fi/screen-off/reconnect report |
+| 7 — Release | Merge process prepared / release not accepted | Public GitHub repo, draft PR, GPLv3 source base, architecture/runbook/hardware docs, structured Issue/PR templates, Android/Web CI definition and manual signed APK workflow with checksum/signature verification | Pass CI on the integrated commit; configure/protect release signing; run a tagged release candidate; approve release notes/known limitations; add instrumentation/device video and remaining LTE/Wi-Fi/screen-off/reconnect evidence |
 
 The post-brief T56 Location/APRS extension is a live pass: quality/stale-fix filtering, a bounded
 stationary GPS window, adaptive movement states, `VR-` Object identity, state icons, Health comment,
@@ -80,14 +80,15 @@ integration coverage and continued public-location privacy review remain open.
    half-duplex and supervised PTT-failure evidence; network and process-death cases already pass.
 2. Complete T56 app-private side/power capture, live-room and supervised PTT tests; do not copy T99
    F1/F2 assumptions. Provisioning and reboot-to-RadioShell already pass.
-4. Exercise multiple room presets, denied-room fallback and watchdog release with an operator present.
-5. Complete pending-config physical acceptance, then add signed config and hidden diagnostics.
-6. Complete the hardware/lifecycle/security acceptance matrix, then introduce the dedicated application
+3. Exercise multiple room presets, denied-room fallback and watchdog release with an operator present.
+4. Complete pending-config physical acceptance, then add signed config and hidden diagnostics.
+5. Complete the hardware/lifecycle/security acceptance matrix, then introduce the dedicated application
    ID/flavor and release pipeline in an isolated commit. The application ID must be chosen before
    production provisioning because changing it later creates a separate Android app/data identity.
 
 ## Explicit non-goals retained from the brief
 
-No web admin backend, GitHub login/token in the APK, chat, direct message, public server browser,
-channel tree in radio UI, recording, firmware flashing/root, Mumble/Opus rewrite, bridge, or OTA APK
-update is part of the MVP.
+No GitHub login/token in the APK, chat, direct message, public server browser, channel tree in radio
+UI, recording, firmware flashing/root, Mumble/Opus rewrite, bridge, or OTA APK update is part of the
+MVP. The Vercel/Cloudflare portal is now an implemented configuration control plane, but it remains
+separate from Android binary release and does not store secrets in the public Pages backend.

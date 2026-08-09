@@ -313,6 +313,10 @@ active config as `previous-config.json`.
 
 ## Git workflow
 
+Read [GITHUB_RELEASE_WORKFLOW.md](GITHUB_RELEASE_WORKFLOW.md) before triaging field Issues, marking
+PR #1 ready, or publishing an APK. The repository CI and manual signed-release workflows do not
+replace the physical T99/T56 acceptance gates.
+
 ```powershell
 Set-Location D:\VR Android App\mumla
 git status --short --branch

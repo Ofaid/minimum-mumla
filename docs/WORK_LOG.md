@@ -3,6 +3,25 @@
 This short log records meaningful project milestones. Detailed code truth remains in
 `PROJECT_STATUS.md` and the source files.
 
+## 2026-08-09 - Default channel editor and hand-off documentation
+
+- The Web portal's **Channels & default** tab now exposes `radio.defaultChannel` as a dedicated
+  selector, marks the selected channel with a **Default** badge and provides a **Set default** action
+  on each channel card. The value is persisted and advances `configVersion`; it remains a fallback
+  behind the handset's Last Selected Channel.
+- Reconciled the architecture, configuration, project-status, acceptance and gap-analysis documents
+  with the production Vercel/Cloudflare control plane and direct managed Android endpoint.
+- Added `GITHUB_RELEASE_WORKFLOW.md` so field Issues, triage, PR merge review and signed APK release
+  decisions have a repeatable public hand-off.
+- Added structured Bug, Device acceptance and Feature request forms, a PR safety checklist,
+  Android/Web CI and a manual tag-based signed FOSS APK workflow with signature/version/checksum
+  verification. Release signing secrets and an actual tagged run remain release gates, not assumed
+  completions.
+- Release assembly initially exposed invalid `noBackup` domains in Android backup-rule XML. Those
+  redundant entries were removed because `getNoBackupFilesDir()` is already excluded by Android;
+  FOSS unit tests, debug APK and release APK assembly then passed together. CI now runs the same
+  release target so a release-only Lint regression blocks merge.
+
 ## 2026-08-09 - Managed credential provisioning and v1101 physical acceptance
 
 - Reissued the one-time device bearer credentials from the production portal and installed them
