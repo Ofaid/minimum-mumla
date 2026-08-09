@@ -33,6 +33,11 @@ automatically; re-saving unchanged content does not. The operator reported compl
 setup and registering the development T56/T99 records on 2026-08-09. Tokens and private config values
 remain outside this documentation.
 
+`connections` is an ID-keyed collection rather than a field-by-field template overlay. When an
+existing record supplies it, normalization preserves that collection exactly and does not add the
+baseline `public-main` placeholder. This matters because Android rejects changed content at the same
+`configVersion`; removing or adding a connection is an effective change and must advance the version.
+
 ## Public files
 
 The checked-in public distribution under `backend/` remains a non-secret reference and recovery
@@ -145,7 +150,7 @@ now handled by the managed radio shell. The successful T99 test config remains o
 repository and is installed into app-private storage with `prepare-t99.ps1 -RadioConfigPath`.
 
 For the current T99, the provisioned Config Profile/device lookup key is `GYZ3DE`, while
-`connections.public-main.username` is `E25FGL-T99`. The operator's separate Mumble account `GY3ZDE` is not used as
+`connections.tse-public-main.username` is `E25FGL-T99`. The operator's separate Mumble account `GY3ZDE` is not used as
 the managed device login. Future backend/database implementations must preserve these distinct
 fields instead of deriving one from another. The public, non-secret identity override is
 `backend/devices/GYZ3DE.json`; server endpoint, room access and token data remain device-private.

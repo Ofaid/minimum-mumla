@@ -35,9 +35,10 @@ document disagrees with this file, verify the code and update this file first.
   `/api/device/{deviceId}/config` remains a compatibility route. Only the token hash is persisted
   for device credentials, and rotation revokes the previous token.
 - Portal-issued config starts at v7 so it is newer than Android's bundled v6 baseline. Legacy portal
-  records are repaired without dropping private connection/channel/APRS values, and T99/generic
-  profiles cannot enable location tracking. The operator reported completing first-run setup and
-  registering the development T56/T99 records. Local verification passes 16 web tests, TypeScript,
+  records are repaired without dropping private connection/channel/APRS values. Connection maps
+  supplied by a device record replace the template map, so repair cannot reintroduce the placeholder
+  `public-main` server. T99/generic profiles cannot enable location tracking. The development T56
+  and T99 records are registered and provisioned at config v1101. Local verification passes 17 web tests, TypeScript,
   production build, two-server/two-channel browser round-trip, and 390 px responsive QA without
   page-level horizontal overflow.
 

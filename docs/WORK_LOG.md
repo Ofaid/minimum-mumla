@@ -3,6 +3,26 @@
 This short log records meaningful project milestones. Detailed code truth remains in
 `PROJECT_STATUS.md` and the source files.
 
+## 2026-08-09 - Managed credential provisioning and v1101 physical acceptance
+
+- Reissued the one-time device bearer credentials from the production portal and installed them
+  through the DUMP-protected provisioning receiver on T99 `GYZ3DE` and T56 `P1L4A0`. Temporary
+  host and `/data/local/tmp` credential files were removed after installation.
+- Physical refresh exposed a portal repair bug: deep-merging the baseline connection map added the
+  unused `public-main` placeholder to otherwise complete records. Android correctly rejected that
+  same-version content change. Connection maps now replace the template collection when supplied,
+  with regression coverage preventing placeholder reintroduction.
+- Removed the stale placeholder from both production records, which advanced them to config v1101.
+  The endpoint now returns only `tse-public-main` and `e2hub`; T99 tracking remains disabled, while
+  T56 tracking/APRS and Object name `HS3HP` remain enabled.
+- Built and installed APK `9cda090-debug` on both radios. T99's active cache is v1101; both physical
+  UIs are Ready on the restored `E2HUB HS1AB` selection. T56 continues to report accepted stationary
+  GPS fixes. The isolated T99 restart used the persisted reconnect floor, and T56 recovered from one
+  transport error after about 17 seconds rather than reconnecting rapidly.
+- BotID enforcement was disabled only for the credential-rotation window because automated Chrome
+  was classified as non-human, then restored to `BOTID_ENFORCE=true` with a Ready production
+  deployment. Web regression verification is 17 tests plus TypeScript and production build.
+
 ## 2026-08-09 - Direct managed config refresh on API 22
 
 - Live T99/T56 testing after a PC restart showed that the old Android trust store rejected the
