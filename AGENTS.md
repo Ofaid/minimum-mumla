@@ -53,6 +53,10 @@ TOML and smoke-test `luna_worker`. Never rewrite agent configuration silently.
 
 - Preserve unrelated user changes and do not stage `DEV_ENVIRONMENT_REQUIREMENTS.md` unless the
   user explicitly requests it.
+- Vercel builds and deploys the Minimum portal only from the production branch `main`. A request to
+  change the Minimum WebUI is not complete at branch/PR validation alone unless the user explicitly
+  asks for local-only work: run the `web/` checks, merge the reviewed change into `main`, monitor the
+  resulting Vercel production deployment, and smoke-check `https://minimum.vra.or.th/`.
 - Never commit Mumble access tokens, private certificate fingerprints, credentials or unsanitized
   device data.
 - Do not claim T99/T56 screen-off hardware PTT support without a real device trace.
