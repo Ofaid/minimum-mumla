@@ -1,5 +1,5 @@
 import { errorResponse, jsonResponse, readJson, requireAdmin, requireAdminMutation } from '@/lib/api';
-import { assertDeviceConfig, configsEqual } from '@/lib/config';
+import { assertDeviceConfig, prepareConfigForSave, repairConfig } from '@/lib/config';
 import { validDeviceId } from '@/lib/security';
 import { validModelProfile } from '@/lib/model-profiles';
 import { deleteDevice, getDevice, putDevice } from '@/lib/storage';
@@ -17,7 +17,7 @@ export async function GET(request: Request, context: Context) {
   const device = await getDevice(deviceId);
   if (!device) return errorResponse('Device not found', 404);
   const { tokenHash: _tokenHash, ...safeDevice } = device;
-  return jsonResponse({ device: safeDevice });
+  return jsonResponse({ device: { ...safeDevice, config: repairConfig(device.config, deviceId, device.model) } });
 }
 
 export async function PATCH(request: Request, context: Context) {
@@ -33,12 +33,13 @@ export async function PATCH(request: Request, context: Context) {
   if (!label || label.length > 128 || !validModelProfile(model)) return errorResponse('Label and a supported model profile are required');
   let config: MinimumConfig;
   try {
-    config = assertDeviceConfig(body?.config, deviceId);
+    if (!body?.config || typeof body.config !== 'object' || Array.isArray(body.config)) {
+      return errorResponse('A configuration object is required');
+    }
+    const draft = { ...(body.config as Record<string, unknown>), modelProfile: model };
+    config = assertDeviceConfig(prepareConfigForSave(draft, device.config, deviceId), deviceId);
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : 'Invalid configuration');
-  }
-  if (!configsEqual(config, device.config) && config.configVersion <= device.config.configVersion) {
-    return errorResponse(`configVersion must advance beyond ${device.config.configVersion}`, 409);
   }
   const updated = { ...device, label, model, config, updatedAt: new Date().toISOString() };
   await putDevice(updated);

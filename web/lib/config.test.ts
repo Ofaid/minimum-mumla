@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { configsEqual, emptyConfig, validateConfig } from './config';
+import {
+  applyModelProfile,
+  configsEqual,
+  effectiveConfigsEqual,
+  emptyConfig,
+  prepareConfigForSave,
+  repairConfig,
+  validateConfig
+} from './config';
 import type { MinimumConfig } from './types';
 import { validModelProfile } from './model-profiles';
 
@@ -41,7 +49,172 @@ describe('Minimum config validation', () => {
     const t99 = emptyConfig('ZX98Y7', 't99');
     expect((t56.hardware as { profile: string }).profile).toBe('t56-unipro-zx-l809');
     expect((t99.hardware as { profile: string }).profile).toBe('t99-qm011');
+    expect(t56.modelProfile).toBe('t56');
+    expect(t99.modelProfile).toBe('t99');
+    expect((t56.hardware as { locationTrackingSupported: boolean }).locationTrackingSupported).toBe(true);
+    expect((t99.hardware as { locationTrackingSupported: boolean }).locationTrackingSupported).toBe(false);
     expect(validModelProfile('t56')).toBe(true);
     expect(validModelProfile('T-56 typo')).toBe(false);
+  });
+
+  it('creates every canonical section without enabling tracking or APRS', () => {
+    for (const model of ['t56', 't99', 'generic-radio'] as const) {
+      const config = emptyConfig('AB12C3', model);
+      expect(config).toMatchObject({
+        schemaVersion: 3,
+        service: expect.any(Object),
+        radio: expect.any(Object),
+        connections: expect.any(Object),
+        channels: expect.any(Array),
+        ui: expect.any(Object),
+        ptt: expect.any(Object),
+        tracking: { enabled: false, aprs: { enabled: false } },
+        hardware: expect.any(Object),
+        update: expect.any(Object)
+      });
+      expect(validateConfig(config, 'AB12C3')).toEqual({ valid: true, errors: [] });
+    }
+  });
+
+  it('repairs a partial config while preserving supplied channel and connection values', () => {
+    const repaired = repairConfig({
+      deviceId: 'AB12C3',
+      modelProfile: 't56',
+      configVersion: 4,
+      connections: {
+        'private-main': {
+          name: 'Private',
+          host: 'radio.example.invalid',
+          port: 64739,
+          username: 'operator',
+          password: 'placeholder-not-a-credential',
+          autoTrustServerCertificate: false
+        }
+      },
+      channels: [{
+        id: 'private',
+        label: 'Private room',
+        alias: 'OPS',
+        connectionId: 'private-main',
+        path: '/OPS',
+        presetKey: 'P2',
+        access: { mode: 'protected', tokenRef: 'private-token-ref' }
+      }],
+      radio: { defaultChannel: 'private' },
+      tracking: { aprs: { objectName: 'OPS56' } }
+    });
+
+    expect(repaired.configVersion).toBe(7);
+    expect((repaired.connections as Record<string, Record<string, unknown>>)['private-main'].password)
+      .toBe('placeholder-not-a-credential');
+    expect((repaired.channels as Array<Record<string, unknown>>)[0]).toMatchObject({
+      alias: 'OPS', presetKey: 'P2', connectionId: 'private-main'
+    });
+    expect((repaired.tracking as Record<string, unknown>).aprs).toMatchObject({
+      enabled: false, objectName: 'OPS56'
+    });
+    expect(validateConfig(repaired, 'AB12C3')).toEqual({ valid: true, errors: [] });
+
+    const legacyChannels = repairConfig({
+      deviceId: 'AB12C3',
+      channels: [{
+        id: 'main', label: 'Main room', connectionId: 'public-main', path: '/PUBLIC/MAIN',
+        access: { mode: 'none' }
+      }]
+    });
+    expect((legacyChannels.channels as Array<Record<string, unknown>>)[0]).toMatchObject({
+      alias: 'MAIN', presetKey: 'P1'
+    });
+
+    const legacy = emptyConfig('AB12C3', 't56');
+    delete legacy.modelProfile;
+    const repairedLegacy = repairConfig(legacy);
+    expect(repairedLegacy.modelProfile).toBe('t56');
+    expect((repairedLegacy.hardware as Record<string, unknown>).locationTrackingSupported).toBe(true);
+  });
+
+  it('changes model-owned values only and disables unsupported tracking', () => {
+    const original = emptyConfig('AB12C3', 't56');
+    const connections = original.connections as Record<string, Record<string, unknown>>;
+    const channels = original.channels as Array<Record<string, unknown>>;
+    const tracking = original.tracking as Record<string, unknown>;
+    const aprs = tracking.aprs as Record<string, unknown>;
+    connections['public-main'].password = 'placeholder-not-a-credential';
+    channels[0].access = { mode: 'protected', tokenRef: 'placeholder-token-ref' };
+    aprs.objectName = 'OPS56';
+    aprs.enabled = true;
+    tracking.enabled = true;
+
+    const changed = applyModelProfile(original, 't99');
+    expect(changed).not.toBe(original);
+    expect((changed.service as Record<string, unknown>).name).toBe('Minimum T99');
+    expect((changed.hardware as Record<string, unknown>).profile).toBe('t99-qm011');
+    expect((changed.hardware as Record<string, unknown>).locationTrackingSupported).toBe(false);
+    expect((changed.tracking as Record<string, unknown>).enabled).toBe(false);
+    expect(((changed.tracking as Record<string, unknown>).aprs as Record<string, unknown>).enabled).toBe(false);
+    expect(((changed.tracking as Record<string, unknown>).aprs as Record<string, unknown>).objectName).toBe('OPS56');
+    expect((changed.connections as Record<string, Record<string, unknown>>)['public-main'].password)
+      .toBe('placeholder-not-a-credential');
+    expect((changed.channels as Array<Record<string, unknown>>)[0].access)
+      .toEqual({ mode: 'protected', tokenRef: 'placeholder-token-ref' });
+    expect(tracking.enabled).toBe(true);
+    expect(aprs.enabled).toBe(true);
+  });
+
+  it('advances version only for an effective save change', () => {
+    const previous = emptyConfig('AB12C3', 't56');
+    previous.configVersion = 7;
+    const unchanged = prepareConfigForSave({ ...previous, configVersion: 1 }, previous);
+    expect(unchanged.configVersion).toBe(7);
+    expect(effectiveConfigsEqual(unchanged, previous)).toBe(true);
+
+    const draft = repairConfig(previous, 'AB12C3', 't56');
+    (draft.ui as Record<string, unknown>).showChat = true;
+    const changed = prepareConfigForSave({ ...draft, configVersion: 1 }, previous);
+    expect(changed.configVersion).toBe(8);
+    expect((changed.ui as Record<string, unknown>).showChat).toBe(true);
+  });
+
+  it('rejects unsupported tracking and missing public/protected access requirements', () => {
+    const unsupported = emptyConfig('AB12C3', 't99');
+    (unsupported.tracking as Record<string, unknown>).enabled = true;
+    const trackingResult = validateConfig(unsupported, 'AB12C3');
+    expect(trackingResult.valid).toBe(false);
+    expect(trackingResult.errors.join(' ')).toContain('locationTrackingSupported');
+
+    const publicAccess = emptyConfig('AB12C3');
+    (publicAccess.channels as Array<Record<string, unknown>>)[0].access = { mode: 'public' };
+    const publicResult = validateConfig(publicAccess, 'AB12C3');
+    expect(publicResult.valid).toBe(false);
+    expect(publicResult.errors.join(' ')).toContain('token');
+
+    const protectedAccess = emptyConfig('AB12C3');
+    (protectedAccess.channels as Array<Record<string, unknown>>)[0].access = { mode: 'protected' };
+    const protectedResult = validateConfig(protectedAccess, 'AB12C3');
+    expect(protectedResult.valid).toBe(false);
+    expect(protectedResult.errors.join(' ')).toContain('tokenRef');
+  });
+
+  it('matches the Android APRS passcode range', () => {
+    const config = emptyConfig('AB12C3', 't56');
+    const tracking = config.tracking as Record<string, unknown>;
+    tracking.enabled = true;
+    tracking.aprs = {
+      enabled: true,
+      sourceCallsign: 'E25FGL',
+      passcode: '32767',
+      host: 'ametx.com',
+      port: 8888
+    };
+    expect(validateConfig(config, 'AB12C3')).toEqual({ valid: true, errors: [] });
+    (tracking.aprs as Record<string, unknown>).passcode = '32768';
+    expect(validateConfig(config, 'AB12C3').valid).toBe(false);
+  });
+
+  it('does not require APRS credentials while APRS is disabled or unspecified', () => {
+    const config = emptyConfig('AB12C3', 't56');
+    const tracking = config.tracking as Record<string, unknown>;
+    tracking.aprs = {};
+    expect(validateConfig(config, 'AB12C3')).toEqual({ valid: true, errors: [] });
   });
 });

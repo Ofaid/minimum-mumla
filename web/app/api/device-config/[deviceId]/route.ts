@@ -1,6 +1,7 @@
 import { errorResponse, jsonResponse } from '@/lib/api';
 import { verifyDeviceToken, validDeviceId } from '@/lib/security';
-import { getDevice, recordPendingDeviceRequest } from '@/lib/storage';
+import { getDevice, putDevice, recordPendingDeviceRequest } from '@/lib/storage';
+import { effectiveConfigsEqual, prepareConfigForSave } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
@@ -19,5 +20,9 @@ export async function GET(request: Request, context: Context) {
     return errorResponse('Unauthorized', 401);
   }
   if (!verifyDeviceToken(match[1], device.tokenHash)) return errorResponse('Unauthorized', 401);
-  return jsonResponse(device.config);
+  const config = prepareConfigForSave({ ...(device.config as Record<string, unknown>), modelProfile: device.model }, device.config, device.deviceId);
+  if (config.configVersion !== device.config.configVersion || !effectiveConfigsEqual(config, device.config)) {
+    await putDevice({ ...device, config, updatedAt: new Date().toISOString() });
+  }
+  return jsonResponse(config);
 }

@@ -1,5 +1,5 @@
 import { errorResponse, jsonResponse, readJson, requireAdmin, requireAdminMutation } from '@/lib/api';
-import { assertDeviceConfig, emptyConfig } from '@/lib/config';
+import { assertDeviceConfig, emptyConfig, repairConfig } from '@/lib/config';
 import { createDeviceToken, hashDeviceToken, validDeviceId } from '@/lib/security';
 import { validModelProfile } from '@/lib/model-profiles';
 import { deletePendingDeviceRequest, getDevice, listDevices, putDevice } from '@/lib/storage';
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
   if (await getDevice(deviceId)) return errorResponse('Device already exists', 409);
   let config: MinimumConfig;
   try {
-    config = assertDeviceConfig(body?.config || emptyConfig(deviceId, model), deviceId);
+    config = assertDeviceConfig(repairConfig(body?.config || emptyConfig(deviceId, model), deviceId, model), deviceId);
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : 'Invalid configuration');
   }

@@ -64,13 +64,17 @@
               "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9 _-]{0,7}[A-Za-z0-9_-])?$",
               "description": "Optional APRS Object label. It is uppercased and padded to nine bytes; when absent, VR- plus the six-character Device ID is used."
             },
-            "passcode": { "type": "string", "pattern": "^[0-9]{1,5}$" },
+            "passcode": {
+              "type": "string",
+              "pattern": "^(?:0[0-9]{4}|[0-9]{1,4}|[12][0-9]{4}|3[01][0-9]{3}|32[0-6][0-9]{2}|327[0-5][0-9]|3276[0-7])$",
+              "description": "APRS-IS passcode, 0 through 32767."
+            },
             "host": { "type": "string", "minLength": 1, "maxLength": 253, "pattern": "^[A-Za-z0-9.-]+$" },
             "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
           },
           "allOf": [
             {
-              "if": { "properties": { "enabled": { "const": true } } },
+              "if": { "required": ["enabled"], "properties": { "enabled": { "const": true } } },
               "then": { "required": ["sourceCallsign", "passcode"] }
             }
           ],
