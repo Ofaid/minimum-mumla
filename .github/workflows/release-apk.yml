@@ -126,6 +126,47 @@ jobs:
           grep -F "versionName='$RELEASE_TAG'" "$RUNNER_TEMP/apk-badging.txt"
           cp "$APK" "minimum-${RELEASE_TAG}-foss.apk"
           sha256sum "minimum-${RELEASE_TAG}-foss.apk" > "minimum-${RELEASE_TAG}-foss.apk.sha256"
+      - name: Build temporary Wi-Fi provisioner
+        run: |
+          ./gradlew -p tools/t99-wifi-provisioner :app:assembleDebug --no-daemon --stacktrace
+          test -f tools/t99-wifi-provisioner/app/build/outputs/apk/debug/app-debug.apk
+      - name: Package standalone Windows provisioning bundle
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          BUNDLE_NAME="minimum-provisioning-${RELEASE_TAG}"
+          BUNDLE_DIR="$RUNNER_TEMP/$BUNDLE_NAME"
+          mkdir -p "$BUNDLE_DIR/scripts" "$BUNDLE_DIR/assets"
+          cp "Provision Minimum Device.cmd" "$BUNDLE_DIR/"
+          cp "minimum-${RELEASE_TAG}-foss.apk" "$BUNDLE_DIR/minimum-foss.apk"
+          cp scripts/provision-minimum-device.ps1 "$BUNDLE_DIR/scripts/"
+          cp scripts/prepare-t99.ps1 "$BUNDLE_DIR/scripts/"
+          cp scripts/prepare-t56.ps1 "$BUNDLE_DIR/scripts/"
+          cp tools/t99-wifi-provisioner/app/build/outputs/apk/debug/app-debug.apk \
+            "$BUNDLE_DIR/assets/t99-wifi-provisioner.apk"
+          cp docs/PROVISIONING_BUNDLE_README.txt "$BUNDLE_DIR/README.txt"
+          printf '%s\n' "$RELEASE_TAG" > "$BUNDLE_DIR/VERSION.txt"
+          (
+            cd "$RUNNER_TEMP"
+            zip -r "$GITHUB_WORKSPACE/$BUNDLE_NAME.zip" "$BUNDLE_NAME"
+          )
+          unzip -l "$BUNDLE_NAME.zip" | tee "$RUNNER_TEMP/provisioning-bundle-files.txt"
+          for required in \
+            "$BUNDLE_NAME/Provision Minimum Device.cmd" \
+            "$BUNDLE_NAME/minimum-foss.apk" \
+            "$BUNDLE_NAME/scripts/provision-minimum-device.ps1" \
+            "$BUNDLE_NAME/scripts/prepare-t99.ps1" \
+            "$BUNDLE_NAME/scripts/prepare-t56.ps1" \
+            "$BUNDLE_NAME/assets/t99-wifi-provisioner.apk" \
+            "$BUNDLE_NAME/README.txt" \
+            "$BUNDLE_NAME/VERSION.txt"; do
+            grep -F "$required" "$RUNNER_TEMP/provisioning-bundle-files.txt"
+          done
+          if unzip -l "$BUNDLE_NAME.zip" | grep -E '(^|/)(\.secrets|signing\.gradle|.*\.jks)(/|$)'; then
+            echo "Provisioning bundle contains a forbidden secret/signing path." >&2
+            exit 1
+          fi
+          sha256sum "$BUNDLE_NAME.zip" > "$BUNDLE_NAME.zip.sha256"
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -137,4 +178,6 @@ jobs:
           gh release create "$RELEASE_TAG" \
             "minimum-${RELEASE_TAG}-foss.apk" \
             "minimum-${RELEASE_TAG}-foss.apk.sha256" \
+            "minimum-provisioning-${RELEASE_TAG}.zip" \
+            "minimum-provisioning-${RELEASE_TAG}.zip.sha256" \
             --verify-tag --generate-notes --title "Minimum $RELEASE_TAG" "${prerelease_flag[@]}"
