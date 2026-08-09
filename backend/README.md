@@ -4,9 +4,10 @@ This directory is the public, read-only configuration distribution for the Minim
 It is designed to be published as GitHub Pages and contains no GitHub token, password, protected
 Mumble token, or device secret.
 
-Config schema 2 requires `mumble.username`. This is the exact username sent to the Mumble server
-and is deliberately separate from `deviceId`, which selects `/devices/{deviceId}.json`, and from
-`hardware.profile`, which selects model behavior.
+Config schema 3 separates selectable `channels` from keyed `connections`. Each channel references
+one connection, so channels may use different hosts, ports, usernames, server passwords, TLS pins
+and access tokens. Keyed connections also let a device overlay change one login without replacing
+the complete channel list. `deviceId` remains only the `/devices/{deviceId}.json` lookup key.
 
 The Android client should use these endpoints after Pages is enabled:
 
@@ -19,13 +20,21 @@ The Android client should use these endpoints after Pages is enabled:
 
 The checked-in defaults intentionally keep Mumble auto-connect disabled until a real public Mumble
 host is configured. Replace the placeholder host in `default.json` only through a reviewed commit.
-Public access tokens may be placed in config, but they are not secrets. Protected rooms must use a
-future secure-store reference and must never put the token value in this directory.
+Public access tokens may be placed on individual channels, but they are not secrets. Server
+passwords and protected access tokens must only exist in a device-private config or future secure
+store; they must never be committed to this public directory.
 
-`mumble.autoTrustServerCertificate` defaults to `true`. If normal Android TLS validation rejects a
+Tracking is also disabled by default in public data. APRS passcodes, private endpoint overrides,
+cached positions and Health telemetry must remain device-private. On verified T56 hardware the app
+accepts an optional public `tracking.aprs.objectName` label of 1-9 safe ASCII characters. If absent,
+it derives the Object name locally as `VR-` plus the six-character Device ID. The backend must not
+enable tracking for T99/generic profiles. The full wire, receipt and privacy contract is in
+[APRS_TRACKING.md](../docs/APRS_TRACKING.md).
+
+Connection-level `autoTrustServerCertificate` defaults to `true`. If normal Android TLS validation rejects a
 configured Mumble endpoint, Minimum automatically stores the presented leaf certificate in its
 app-private trust store and reconnects. The validated external config is therefore the trust root
-for selecting the server host. `mumble.serverCertificateSha256` remains an optional stricter pin;
+for selecting the server host. `serverCertificateSha256` remains an optional stricter pin;
 when present, a mismatch fails closed instead of using automatic trust.
 
 Every effective configuration change must advance `configVersion`. Minimum stages validated

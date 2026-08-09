@@ -22,8 +22,10 @@ public class RadioKeyActionPolicyTest {
                 RadioDeviceProfile.T99, KeyEvent.KEYCODE_DPAD_RIGHT));
         assertFalse(RadioKeyActionPolicy.isProtectedExitKey(
                 RadioDeviceProfile.T99, KeyEvent.KEYCODE_MENU));
+        assertTrue(RadioKeyActionPolicy.isProtectedExitKey(
+                RadioDeviceProfile.T56, KeyEvent.KEYCODE_BACK));
         assertFalse(RadioKeyActionPolicy.isProtectedExitKey(
-                RadioDeviceProfile.T88, KeyEvent.KEYCODE_F2));
+                RadioDeviceProfile.T56, KeyEvent.KEYCODE_F2));
     }
 
     @Test
@@ -34,6 +36,31 @@ public class RadioKeyActionPolicyTest {
         assertEquals(-1, RadioKeyActionPolicy.roomDirection(KeyEvent.KEYCODE_DPAD_UP));
         assertEquals(1, RadioKeyActionPolicy.roomDirection(KeyEvent.KEYCODE_DPAD_DOWN));
         assertEquals(0, RadioKeyActionPolicy.roomDirection(KeyEvent.KEYCODE_MENU));
+    }
+
+    @Test
+    public void identityToggleUsesCapturedProfileKeys() {
+        assertEquals(1_000L, RadioKeyActionPolicy.IDENTITY_HOLD_MS);
+        assertTrue(RadioKeyActionPolicy.isIdentityToggleKey(
+                RadioDeviceProfile.T99, KeyEvent.KEYCODE_MENU));
+        assertTrue(RadioKeyActionPolicy.isIdentityToggleKey(
+                RadioDeviceProfile.T56, KeyEvent.KEYCODE_DPAD_LEFT));
+        assertFalse(RadioKeyActionPolicy.isIdentityToggleKey(
+                RadioDeviceProfile.T56, KeyEvent.KEYCODE_STEM_PRIMARY));
+        assertFalse(RadioKeyActionPolicy.isIdentityToggleKey(
+                RadioDeviceProfile.T56, KeyEvent.KEYCODE_STEM_2));
+    }
+
+    @Test
+    public void identityToggleAcceptsCapturedScanCodesAcrossOemKeyCodeVariants() {
+        assertTrue(RadioKeyActionPolicy.isIdentityToggleEvent(
+                RadioDeviceProfile.T99, KeyEvent.KEYCODE_DPAD_CENTER, 139));
+        assertFalse(RadioKeyActionPolicy.isIdentityToggleEvent(
+                RadioDeviceProfile.T99, KeyEvent.KEYCODE_DPAD_CENTER, 353));
+        assertTrue(RadioKeyActionPolicy.isIdentityToggleEvent(
+                RadioDeviceProfile.T56, KeyEvent.KEYCODE_UNKNOWN, 64));
+        assertFalse(RadioKeyActionPolicy.isIdentityToggleEvent(
+                RadioDeviceProfile.T56, KeyEvent.KEYCODE_UNKNOWN, 63));
     }
 
     @Test

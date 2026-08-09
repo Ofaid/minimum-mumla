@@ -33,7 +33,7 @@ and the script verifies the exact package/device before acting. Factory reset ma
 
 ## D-007: Radio dashboard is explicit; Launcher3 is the recovery HOME
 
-T99/T88 devices need a visible route to Minimum even when the OEM Launcher3 workspace only contains
+T99/T56 devices need a visible route to Minimum even when the OEM Launcher3 workspace only contains
 Settings. `MinimumHomeActivity` provides one large action per swipe page for Minimum and Settings.
 T99's OEM resolver does not offer the data-installed Minimum activity as a usable default HOME and
 therefore displays a broken chooser. Minimum does not register as HOME. Boot and provisioning open
@@ -49,8 +49,8 @@ GitHub Pages, DNS, or the network is unavailable.
 
 Supported radio profiles initialize PTT mode and known alternatives at application startup. Live T99
 capture overrides the earlier generic assumption: F1 is PTT and F2 is EXIT. T99 therefore forces F1
-and rejects F2 regardless of stale preferences. Media/headset keys use MediaSession as alternates;
-T88 remains provisional until its own trace exists.
+and rejects F2 regardless of stale preferences. T56 uses its captured vendor PTT keyCode 261 and
+rejects F1 because that physical control is Menu. Media/headset keys use MediaSession as alternates.
 
 ## D-010: Validated external config authorizes automatic server-certificate trust
 
@@ -70,13 +70,15 @@ permission, room or TLS failure discards the candidate and reconnects with the p
 Promotion retains the old active file as previous for explicit rollback. This separates transport
 and schema validity from operational validity and prevents a bad backend edit from bricking a radio.
 
-## D-012: Managed radios retry indefinitely, except across a trust-policy failure
+## D-012: Managed radios retry transport failures, not server rejections
 
-Transport, server reject, kick and other unexpected disconnects use capped exponential backoff and
-continue until Mumble synchronizes. Network return attempts immediately, with a timer fallback for
-OEM broadcast loss, and process death redelivers the connection intent. A certificate pin or trust-
-policy mismatch is not treated as availability failure: retry is held to avoid weakening fail-closed
-TLS behavior.
+Transport disconnects use capped 15/30/60-second exponential backoff and continue until Mumble
+synchronizes. Every managed-radio connection path, including network return, channel/server change
+and service-process recovery, shares a persisted 15-second minimum attempt interval. Server reject,
+kick, ban and other non-transport failures stop retrying so invalid authentication or policy cannot
+create an attempt storm. This is based on Mumble's verified default IP autoban policy: 10 attempts
+inside 120 seconds, a 300-second ban, successful connections counted, and a ban when the count
+exceeds the configured limit. A certificate pin or trust-policy mismatch remains fail-closed.
 
 ## D-013: PTT delivery warning is local evidence, not a server receipt
 
@@ -89,7 +91,7 @@ listener heard the audio.
 ## D-014: Dedicated radios use a renewable process watchdog lease
 
 `START_REDELIVER_INTENT` remains the first service-recovery mechanism, but OEM firmware may impose a
-restart backoff that is unacceptable for PTT availability. T99/T88 services therefore renew a
+restart backoff that is unacceptable for PTT availability. T99/T56 services therefore renew a
 30-second AlarmManager lease every 10 seconds. Lease expiry explicitly reopens RadioShell and
 re-arms recovery until the service heartbeat resumes. The lease is profile-gated and modern Android
 uses an inexact permission-free alarm fallback rather than requiring special exact-alarm access.
@@ -109,7 +111,31 @@ keylayout integration.
 
 ## D-016: Managed radios suppress normal PTT confirmation sound
 
-The short Mumla sound played when local TX begins is disabled for T99/T88 at both managed defaults
+The short Mumla sound played when local TX begins is disabled for T99/T56 at both managed defaults
 and service runtime, including when a stale preference requests it. Hardware feel and the full-
 screen TX state provide sufficient normal feedback. The separate failure tone remains mandatory so
 an operator is warned when a press cannot be delivered locally.
+
+## D-017: Channel selection is a persistent connection target
+
+Schema 3 separates stable selectable channels from keyed connection profiles. A channel references
+its server connection and owns its access tokens, so selecting another channel may require a full
+disconnect/authenticate/join cycle rather than only an in-session room move. Minimum persists only
+the selected channel ID, never its password or tokens, and restores it after Activity/process/
+connection recovery. A removed ID falls back to `radio.defaultChannel`. Keyed connection objects
+preserve deep-merge device overrides without replacing the entire channel array. Inline server
+passwords and protected tokens are permitted only in app-private provisioned config, never in the
+public backend.
+
+## D-018: APRS tracking is a T56 Object with piggybacked health
+
+Tracking location is represented as an APRS Object, never as the source callsign's station
+position. By default the Object name is `VR-` plus the six-character Minimum Device ID (nine
+characters total), so operators can use `VR-*` wildcard searches without exposing hardware
+identifiers. An optional validated `tracking.aprs.objectName` may replace that public label when an
+operator needs a stable functional name; omission always preserves the Device ID fallback. Stationary,
+walking and vehicle states use distinct APRS symbols as part of the packet contract. Battery,
+network and storage health is appended to the existing position beacon rather than sent as separate
+packets, which keeps the beacon cadence bounded and makes health and position share one timestamp.
+The immutable T56-only gate is deliberate: T99 has not produced a usable location fix and must not
+silently begin public tracking if remote configuration changes.

@@ -10,6 +10,7 @@ import {
 } from './config';
 import type { MinimumConfig } from './types';
 import { validModelProfile } from './model-profiles';
+import { calculateAprsPasscode } from './aprs';
 
 describe('Minimum config validation', () => {
   it('accepts the schema 3 device baseline', () => {
@@ -173,6 +174,8 @@ describe('Minimum config validation', () => {
     const changed = prepareConfigForSave({ ...draft, configVersion: 1 }, previous);
     expect(changed.configVersion).toBe(8);
     expect((changed.ui as Record<string, unknown>).showChat).toBe(true);
+    const imported = prepareConfigForSave({ ...draft, configVersion: 1004 }, previous);
+    expect(imported.configVersion).toBe(1004);
   });
 
   it('rejects unsupported tracking and missing public/protected access requirements', () => {
@@ -216,5 +219,11 @@ describe('Minimum config validation', () => {
     const tracking = config.tracking as Record<string, unknown>;
     tracking.aprs = {};
     expect(validateConfig(config, 'AB12C3')).toEqual({ valid: true, errors: [] });
+  });
+
+  it('calculates the standard APRS-IS passcode from the base callsign', () => {
+    expect(calculateAprsPasscode('N0CALL')).toBe('13023');
+    expect(calculateAprsPasscode('n0call-9')).toBe('13023');
+    expect(calculateAprsPasscode('AB')).toBe('');
   });
 });

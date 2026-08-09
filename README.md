@@ -15,8 +15,9 @@ Project status and T99 hardware notes:
 - [Engineering decisions](docs/DECISIONS.md)
 - [Work log](docs/WORK_LOG.md)
 - [Implementation status](docs/IMPLEMENTATION_STATUS.md)
+- [APRS tracking contract](docs/APRS_TRACKING.md)
 - [T99 device profile](docs/T99_DEVICE_PROFILE.md)
-- [T88 device profile checklist](docs/T88_DEVICE_PROFILE.md)
+- [T56 device profile](docs/T56_DEVICE_PROFILE.md)
 - [Static configuration backend](backend/README.md)
 
 # Software maintenance situation

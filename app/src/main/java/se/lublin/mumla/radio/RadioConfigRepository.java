@@ -25,16 +25,20 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
+import se.lublin.mumla.radio.tracking.AprsObjectName;
+
 /**
  * Loads the radio configuration from the embedded safe default and optional GitHub Pages data.
- * Network refresh must be called from a worker thread. No access token is logged or persisted by
- * this class outside the JSON configuration cache supplied by the application.
+ * Network refresh must be called from a worker thread. Device credentials are read from the
+ * app-private credential store, applied only to the private device request, and never logged.
  */
 public final class RadioConfigRepository {
-    public static final int SCHEMA_VERSION = 2;
+    public static final int SCHEMA_VERSION = 3;
     public static final int MAX_CONFIG_BYTES = 262144;
     public static final int MAX_PTT_SECONDS = 120;
     public static final String DEFAULT_BASE_URL = "https://awatchar.github.io/minimum/";
+    public static final String DEVICE_CONFIG_BASE_URL =
+            "https://minimum.vra.or.th/api/device-config/";
 
     private static final int CONNECT_TIMEOUT_MS = 8000;
     private static final int READ_TIMEOUT_MS = 8000;
@@ -43,26 +47,37 @@ public final class RadioConfigRepository {
     private static final String PREVIOUS_FILE = "previous-config.json";
     private static final String PENDING_FILE = "pending-config.json";
     private static final String TEMP_FILE = "downloaded-config.tmp";
+    private static final String PROVISIONED_TEMP_FILE = "provisioned-config.tmp";
     private static final String ROLLBACK_TEMP_FILE = "rollback-config.tmp";
     private static final String PREVIOUS_BACKUP_FILE = "previous-config.backup";
     private static final Object CACHE_LOCK = new Object();
 
     private final Context context;
     private final String baseUrl;
+    private final DeviceConfigCredentialStore credentialStore;
 
     public RadioConfigRepository(Context context) {
-        this(context, DEFAULT_BASE_URL);
+        this(context, DEFAULT_BASE_URL, new DeviceConfigCredentialStore(context));
     }
 
     public RadioConfigRepository(Context context, String baseUrl) {
+        this(context, baseUrl, new DeviceConfigCredentialStore(context));
+    }
+
+    RadioConfigRepository(Context context, String baseUrl,
+                          DeviceConfigCredentialStore credentialStore) {
         if (context == null) {
             throw new IllegalArgumentException("context must not be null");
         }
         if (baseUrl == null || !baseUrl.startsWith("https://") || !baseUrl.endsWith("/")) {
             throw new IllegalArgumentException("config base URL must be HTTPS and end with '/'");
         }
+        if (credentialStore == null) {
+            throw new IllegalArgumentException("credential store must not be null");
+        }
         this.context = context.getApplicationContext();
         this.baseUrl = baseUrl;
+        this.credentialStore = credentialStore;
     }
 
     /** Returns the validated active cache, or the embedded default if the cache is absent/bad. */
@@ -73,7 +88,7 @@ public final class RadioConfigRepository {
             if (active.isFile()) {
                 try {
                     JSONObject cached = readJson(active);
-                    validateConfig(cached, null);
+                    validateCompleteConfig(cached, null);
                     return cached;
                 } catch (JSONException | IOException ignored) {
                     // Try the previous Last Known Good before the embedded fallback.
@@ -83,7 +98,7 @@ public final class RadioConfigRepository {
             if (previous.isFile()) {
                 try {
                     JSONObject recovered = readJson(previous);
-                    validateConfig(recovered, null);
+                    validateCompleteConfig(recovered, null);
                     rollbackFiles(directory);
                     return recovered;
                 } catch (JSONException | IOException ignored) {
@@ -92,7 +107,7 @@ public final class RadioConfigRepository {
             }
         }
         JSONObject fallback = readEmbeddedDefault();
-        validateConfig(fallback, null);
+        validateCompleteConfig(fallback, null);
         return fallback;
     }
 
@@ -108,7 +123,6 @@ public final class RadioConfigRepository {
         if (!isSafePathPart(modelProfile)) {
             throw new IllegalArgumentException("invalid model profile");
         }
-
         JSONObject merged = readEmbeddedDefault();
         JSONObject remoteDefault = fetchJson("default.json");
         validateConfig(remoteDefault, null);
@@ -118,22 +132,27 @@ public final class RadioConfigRepository {
         validateOverlay(model, null);
         merged = merge(merged, model);
 
+        final String authorization;
         try {
-            JSONObject device = fetchJson("devices/" + deviceId + ".json");
-            validateOverlay(device, deviceId);
-            merged = merge(merged, device);
-        } catch (NotFoundException ignored) {
-            // Device-specific overrides are optional.
+            authorization = credentialStore.getAuthorizationHeader();
+        } catch (IllegalArgumentException exception) {
+            throw new DeviceConfigUnavailableException();
         }
+        if (authorization == null) {
+            throw new DeviceConfigUnavailableException();
+        }
+        JSONObject device = fetchDeviceConfig(deviceId, authorization);
+        validateOverlay(device, deviceId);
+        merged = merge(merged, device);
 
-        validateConfig(merged, deviceId);
+        validateCompleteConfig(merged, deviceId);
         synchronized (CACHE_LOCK) {
             File active = new File(cacheDirectory(), ACTIVE_FILE);
             if (active.isFile()) {
                 JSONObject current = null;
                 try {
                     current = readJson(active);
-                    validateConfig(current, null);
+                    validateCompleteConfig(current, null);
                 } catch (IOException | JSONException ignored) {
                     // An unreadable active cache is not a valid equality baseline.
                 }
@@ -163,7 +182,7 @@ public final class RadioConfigRepository {
                 return null;
             }
             JSONObject candidate = readJson(pending);
-            validateConfig(candidate, null);
+            validateCompleteConfig(candidate, null);
             return candidate;
         }
     }
@@ -183,12 +202,12 @@ public final class RadioConfigRepository {
                 throw new IOException("no pending config to commit");
             }
             JSONObject candidate = readJson(pending);
-            validateConfig(candidate, null);
+            validateCompleteConfig(candidate, null);
             File active = new File(directory, ACTIVE_FILE);
             if (active.isFile()) {
                 try {
                     JSONObject current = readJson(active);
-                    validateConfig(current, null);
+                    validateCompleteConfig(current, null);
                     rejectDowngrade(candidate, current);
                 } catch (JSONException error) {
                     throw error;
@@ -210,7 +229,7 @@ public final class RadioConfigRepository {
                 throw new IOException("no previous config to roll back");
             }
             JSONObject restored = readJson(previous);
-            validateConfig(restored, null);
+            validateCompleteConfig(restored, null);
             rollbackFiles(directory);
             return restored;
         }
@@ -220,6 +239,90 @@ public final class RadioConfigRepository {
         synchronized (CACHE_LOCK) {
             discardPendingLocked();
         }
+    }
+
+    /** Installs or rotates the per-device bearer credential without changing radio config files. */
+    public void setDeviceConfigCredential(String credential) throws IOException {
+        credentialStore.setCredential(credential);
+    }
+
+    /** Removes the per-device bearer credential without changing radio config files. */
+    public void clearDeviceConfigCredential() throws IOException {
+        credentialStore.clearCredential();
+    }
+
+    /** Installs an explicitly provisioned Last Known Good config from the protected ADB path. */
+    public JSONObject installProvisionedActive(InputStream input, String expectedDeviceId)
+            throws IOException, JSONException {
+        if (input == null) {
+            throw new IllegalArgumentException("input must not be null");
+        }
+        JSONObject provisioned = new JSONObject(readLimited(input));
+        validateCompleteConfig(provisioned, expectedDeviceId);
+        synchronized (CACHE_LOCK) {
+            File directory = cacheDirectory();
+            File active = new File(directory, ACTIVE_FILE);
+            if (active.isFile()) {
+                JSONObject current = readJson(active);
+                validateCompleteConfig(current, null);
+                rejectDowngrade(provisioned, current);
+                if (current.optInt("configVersion", -1)
+                        == provisioned.optInt("configVersion", -2)
+                        && !current.toString().equals(provisioned.toString())) {
+                    throw new JSONException("config content changed without version advance");
+                }
+            }
+            installProvisionedFiles(directory,
+                    provisioned.toString().getBytes(StandardCharsets.UTF_8));
+        }
+        return provisioned;
+    }
+
+    /** Updates only the active APRS Object label without exporting the private config. */
+    public JSONObject updateActiveAprsObjectName(String expectedDeviceId, String configuredName)
+            throws IOException, JSONException {
+        synchronized (CACHE_LOCK) {
+            File directory = cacheDirectory();
+            File active = new File(directory, ACTIVE_FILE);
+            if (!active.isFile()) {
+                throw new IOException("active radio config is missing");
+            }
+            JSONObject current = readJson(active);
+            JSONObject updated = withAprsObjectName(current, expectedDeviceId, configuredName);
+            if (!current.toString().equals(updated.toString())) {
+                installProvisionedFiles(directory,
+                        updated.toString().getBytes(StandardCharsets.UTF_8));
+            }
+            return updated;
+        }
+    }
+
+    static JSONObject withAprsObjectName(JSONObject current, String expectedDeviceId,
+                                         String configuredName) throws JSONException {
+        validateConfig(current, expectedDeviceId);
+        String normalized;
+        try {
+            normalized = AprsObjectName.normalizeConfiguredName(configuredName);
+        } catch (IllegalArgumentException exception) {
+            throw new JSONException(exception.getMessage());
+        }
+        JSONObject updated = new JSONObject(current.toString());
+        JSONObject tracking = updated.optJSONObject("tracking");
+        JSONObject aprs = tracking == null ? null : tracking.optJSONObject("aprs");
+        if (aprs == null) {
+            throw new JSONException("APRS config is missing");
+        }
+        if (normalized.equals(aprs.optString("objectName", ""))) {
+            return updated;
+        }
+        int version = updated.optInt("configVersion", 0);
+        if (version < 1 || version == Integer.MAX_VALUE) {
+            throw new JSONException("config version cannot be advanced");
+        }
+        aprs.put("objectName", normalized);
+        updated.put("configVersion", version + 1);
+        validateConfig(updated, expectedDeviceId);
+        return updated;
     }
 
     /** Rejects a candidate that would replace a newer Last Known Good configuration. */
@@ -256,29 +359,35 @@ public final class RadioConfigRepository {
     public static void validateConfig(JSONObject config, String expectedDeviceId)
             throws JSONException {
         validateOverlay(config, expectedDeviceId);
-        JSONObject mumble = config.optJSONObject("mumble");
+        JSONObject radio = config.optJSONObject("radio");
         JSONObject ptt = config.optJSONObject("ptt");
-        if (mumble == null || mumble.optString("serverId", "").isEmpty()
-                || mumble.optString("defaultRoom", "").isEmpty()
-                || mumble.optString("username", "").isEmpty()) {
-            throw new JSONException("incomplete Mumble config");
-        }
-        RadioConnectionConfig.normalizeMumbleUsername(mumble.optString("username", ""));
-        int port = mumble.optInt("port", -1);
-        if (port < 1 || port > 65535) {
-            throw new JSONException("invalid Mumble port");
+        if (radio == null || radio.optString("defaultChannel", "").isEmpty()) {
+            throw new JSONException("incomplete radio selection config");
         }
         if (ptt == null || ptt.optInt("maximumTxSeconds", 0) < 1
                 || ptt.optInt("maximumTxSeconds", MAX_PTT_SECONDS) > MAX_PTT_SECONDS
                 || !ptt.optBoolean("releaseOnNetworkLoss", false)) {
             throw new JSONException("unsafe PTT config");
         }
-        JSONArray rooms = config.optJSONArray("rooms");
+        JSONObject connections = config.optJSONObject("connections");
+        JSONArray channels = config.optJSONArray("channels");
         JSONObject hardware = config.optJSONObject("hardware");
-        if (rooms == null || rooms.length() == 0 || hardware == null
+        if (connections == null || connections.length() == 0
+                || channels == null || channels.length() == 0 || hardware == null
                 || hardware.optString("profile", "").isEmpty()) {
             throw new JSONException("incomplete radio config");
         }
+    }
+
+    /**
+     * Validates repository invariants and the complete live radio shape before persistence.
+     * Overlay validation intentionally omits fields supplied by a base config; this additionally
+     * runs the parser's channel, connection, access-policy and path checks.
+     */
+    static void validateCompleteConfig(JSONObject config, String expectedDeviceId)
+            throws JSONException {
+        validateConfig(config, expectedDeviceId);
+        RadioConnectionConfig.fromJson(config);
     }
 
     /** Validates a complete config overlay without requiring fields supplied by the base config. */
@@ -299,28 +408,50 @@ public final class RadioConfigRepository {
                 && !expectedDeviceId.equals(configDeviceId)) {
             throw new JSONException("config is for another device");
         }
-        JSONObject mumble = config.optJSONObject("mumble");
-        if (mumble != null && mumble.has("username")
-                && !(mumble.opt("username") instanceof String)) {
-            throw new JSONException("invalid Mumble username type");
-        }
-        if (mumble != null && mumble.has("port")) {
-            int port = mumble.optInt("port", -1);
-            if (port < 1 || port > 65535) {
-                throw new JSONException("invalid Mumble port");
+        JSONObject connections = config.optJSONObject("connections");
+        if (connections != null) {
+            java.util.Iterator<String> ids = connections.keys();
+            while (ids.hasNext()) {
+                JSONObject connection = connections.optJSONObject(ids.next());
+                if (connection == null) {
+                    throw new JSONException("invalid connection overlay");
+                }
+                if (connection.has("username")) {
+                    if (!(connection.opt("username") instanceof String)) {
+                        throw new JSONException("invalid Mumble username type");
+                    }
+                    RadioConnectionConfig.normalizeMumbleUsername(
+                            connection.optString("username", ""));
+                }
+                if (connection.has("port")) {
+                    int port = connection.optInt("port", -1);
+                    if (port < 1 || port > 65535) {
+                        throw new JSONException("invalid Mumble port");
+                    }
+                }
+                if (connection.has("serverCertificateSha256")) {
+                    RadioConnectionConfig.normalizeFingerprint(
+                            connection.optString("serverCertificateSha256", ""));
+                }
+                if (connection.has("autoTrustServerCertificate")
+                        && !(connection.opt("autoTrustServerCertificate") instanceof Boolean)) {
+                    throw new JSONException("invalid automatic certificate trust policy");
+                }
+                if (connection.has("password")
+                        && !(connection.opt("password") instanceof String)) {
+                    throw new JSONException("invalid server password type");
+                }
             }
         }
-        if (mumble != null && mumble.has("serverCertificateSha256")) {
-            RadioConnectionConfig.normalizeFingerprint(
-                    mumble.optString("serverCertificateSha256", ""));
-        }
-        if (mumble != null && mumble.has("autoTrustServerCertificate")
-                && !(mumble.opt("autoTrustServerCertificate") instanceof Boolean)) {
-            throw new JSONException("invalid automatic certificate trust policy");
-        }
-        if (mumble != null && mumble.has("username")) {
-            RadioConnectionConfig.normalizeMumbleUsername(
-                    mumble.optString("username", ""));
+        JSONObject radio = config.optJSONObject("radio");
+        if (radio != null) {
+            if (radio.has("autoConnect") && !(radio.opt("autoConnect") instanceof Boolean)) {
+                throw new JSONException("invalid automatic connection policy");
+            }
+            if (radio.has("autoReconnect")
+                    && !(radio.opt("autoReconnect") instanceof Boolean)) {
+                throw new JSONException("invalid automatic reconnection policy");
+            }
         }
         JSONObject ptt = config.optJSONObject("ptt");
         if (ptt != null) {
@@ -331,14 +462,37 @@ public final class RadioConfigRepository {
                 throw new JSONException("unsafe PTT overlay");
             }
         }
-        JSONArray rooms = config.optJSONArray("rooms");
-        if (rooms != null && rooms.length() == 0) {
-            throw new JSONException("empty room overlay");
+        JSONArray channels = config.optJSONArray("channels");
+        if (channels != null && channels.length() == 0) {
+            throw new JSONException("empty channel overlay");
         }
         JSONObject hardware = config.optJSONObject("hardware");
         if (hardware != null && hardware.has("profile")
                 && hardware.optString("profile", "").isEmpty()) {
             throw new JSONException("empty hardware profile");
+        }
+        if (config.has("tracking")) {
+            JSONObject tracking = config.optJSONObject("tracking");
+            if (tracking == null) {
+                throw new JSONException("invalid tracking overlay");
+            }
+            if (tracking.has("aprs")) {
+                JSONObject aprs = tracking.optJSONObject("aprs");
+                if (aprs == null) {
+                    throw new JSONException("invalid APRS overlay");
+                }
+                if (aprs.has("objectName")) {
+                    if (!(aprs.opt("objectName") instanceof String)) {
+                        throw new JSONException("invalid APRS Object name type");
+                    }
+                    try {
+                        AprsObjectName.normalizeConfiguredName(
+                                aprs.optString("objectName", ""));
+                    } catch (IllegalArgumentException exception) {
+                        throw new JSONException(exception.getMessage());
+                    }
+                }
+            }
         }
     }
 
@@ -349,11 +503,7 @@ public final class RadioConfigRepository {
     }
 
     private JSONObject fetchJson(String path) throws IOException, JSONException {
-        HttpURLConnection connection = (HttpURLConnection) new URL(baseUrl + path).openConnection();
-        connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
-        connection.setReadTimeout(READ_TIMEOUT_MS);
-        connection.setRequestMethod("GET");
-        connection.setInstanceFollowRedirects(false);
+        HttpURLConnection connection = openConnection(new URL(baseUrl + path), null);
         try {
             int status = connection.getResponseCode();
             if (status == HttpURLConnection.HTTP_NOT_FOUND) {
@@ -366,6 +516,45 @@ public final class RadioConfigRepository {
         } finally {
             connection.disconnect();
         }
+    }
+
+    private JSONObject fetchDeviceConfig(String deviceId, String authorization)
+            throws IOException, JSONException {
+        HttpURLConnection connection = openConnection(
+                new URL(deviceConfigUrl(deviceId)), authorization);
+        try {
+            int status = connection.getResponseCode();
+            if (status == HttpURLConnection.HTTP_UNAUTHORIZED
+                    || status == HttpURLConnection.HTTP_NOT_FOUND) {
+                throw new DeviceConfigUnavailableException();
+            }
+            if (status < 200 || status >= 300) {
+                throw new IOException("device config request failed");
+            }
+            return new JSONObject(readLimited(connection.getInputStream()));
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    static String deviceConfigUrl(String deviceId) {
+        if (!DeviceIdentityManager.isValidDeviceId(deviceId)) {
+            throw new IllegalArgumentException("invalid device id");
+        }
+        return DEVICE_CONFIG_BASE_URL + deviceId;
+    }
+
+    private static HttpURLConnection openConnection(URL url, String authorization)
+            throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+        connection.setReadTimeout(READ_TIMEOUT_MS);
+        connection.setRequestMethod("GET");
+        connection.setInstanceFollowRedirects(false);
+        if (authorization != null) {
+            connection.setRequestProperty("Authorization", authorization);
+        }
+        return connection;
     }
 
     private File cacheDirectory() {
@@ -434,6 +623,28 @@ public final class RadioConfigRepository {
         deleteIfPresent(previousBackup, "cannot remove previous config backup");
     }
 
+    static void installProvisionedFiles(File directory, byte[] config) throws IOException {
+        if (directory == null || config == null || config.length == 0
+                || config.length > MAX_CONFIG_BYTES) {
+            throw new IOException("invalid provisioned config");
+        }
+        if (!directory.isDirectory() && !directory.mkdirs() && !directory.isDirectory()) {
+            throw new IOException("cannot create radio config directory");
+        }
+        File temporary = new File(directory, PROVISIONED_TEMP_FILE);
+        File pending = new File(directory, PENDING_FILE);
+        deleteIfPresent(temporary, "cannot replace provisioned temporary config");
+        try (FileOutputStream output = new FileOutputStream(temporary)) {
+            output.write(config);
+            output.getFD().sync();
+        }
+        deleteIfPresent(pending, "cannot replace pending config during provisioning");
+        if (!temporary.renameTo(pending)) {
+            throw new IOException("cannot stage provisioned config");
+        }
+        promotePendingFiles(directory);
+    }
+
     static void rollbackFiles(File directory) throws IOException {
         File active = new File(directory, ACTIVE_FILE);
         File previous = new File(directory, PREVIOUS_FILE);
@@ -491,5 +702,14 @@ public final class RadioConfigRepository {
 
     private static final class NotFoundException extends IOException {
         private static final long serialVersionUID = 1L;
+    }
+
+    /** Generic hold used when a private device config is not authorized or does not exist. */
+    public static final class DeviceConfigUnavailableException extends IOException {
+        private static final long serialVersionUID = 1L;
+
+        public DeviceConfigUnavailableException() {
+            super("device config unavailable");
+        }
     }
 }

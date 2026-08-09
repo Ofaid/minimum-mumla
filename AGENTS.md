@@ -55,7 +55,7 @@ TOML and smoke-test `luna_worker`. Never rewrite agent configuration silently.
   user explicitly requests it.
 - Never commit Mumble access tokens, private certificate fingerprints, credentials or unsanitized
   device data.
-- Do not claim T99/T88 screen-off hardware PTT support without a real device trace.
+- Do not claim T99/T56 screen-off hardware PTT support without a real device trace.
 - Keep the existing Mumla/Humla protocol and service-owned PTT safety path intact unless Sol has
   explicitly approved a bounded change.
 - After completing the user's requested batch, Sol must re-check the Technical Brief gap analysis,

@@ -1,8 +1,10 @@
 {
-  "schemaVersion": 2,
-  "configVersion": 3,
+  "schemaVersion": 3,
+  "configVersion": 6,
   "deviceId": "GYZ3DE",
-  "mumble": {
-    "username": "E25FGL-T99"
+  "connections": {
+    "public-main": {
+      "username": "E25FGL-T99"
+    }
   }
 }

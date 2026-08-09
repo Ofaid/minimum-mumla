@@ -35,7 +35,7 @@ public class MumlaBootReceiver extends BroadcastReceiver {
 
         String profile = RadioDeviceProfile.detectCurrent();
         boolean radioProfile = RadioDeviceProfile.T99.equals(profile)
-                || RadioDeviceProfile.T88.equals(profile);
+                || RadioDeviceProfile.T56.equals(profile);
         if (radioProfile) {
             RadioProcessWatchdog.arm(context);
         }

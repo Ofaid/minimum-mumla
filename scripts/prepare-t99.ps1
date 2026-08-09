@@ -1,9 +1,10 @@
 <#[
 .SYNOPSIS
-    Prepares a supported T99/T88 for Minimum radio-client use.
+    Prepares a supported Minimum radio device for radio-client use.
 
 .DESCRIPTION
-    This is the canonical provisioning script. It reports the different serial identities,
+    This is the shared provisioning implementation used by the T99 and T56 wrappers. It reports
+    the different serial identities,
     removes Zello for user 0, launches Minimum once so its app Device ID can be created, verifies
     that identity, provisions the lab Wi-Fi through a temporary helper that is removed immediately,
     installs a Minimum recovery shortcut into the OEM Launcher3 workspace, verifies that the system
@@ -24,6 +25,8 @@ param(
     [switch]$SkipZello,
     [switch]$SkipMinimumHome,
     [switch]$SkipLabWifi,
+    [switch]$SkipLocation,
+    [switch]$RequestNetworkLocationConsent,
     [switch]$RefreshLabWifi,
     [switch]$ReportOnly,
     [Alias("DeviceId")]
@@ -31,7 +34,11 @@ param(
     [string]$RadioConfigPath = "",
     [string]$LabWifiSsid = "..@EmergencyTU",
     [System.Management.Automation.PSCredential]$LabWifiCredential,
-    [string]$LabWifiCredentialPath = ""
+    [string]$LabWifiCredentialPath = "",
+    [string]$TargetName = "T99",
+    [string]$ExpectedManufacturer = "Youdotech",
+    [string]$ExpectedModel = "QM011",
+    [string]$LocationProviders = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,13 +48,16 @@ $MinimumActivity = "se.lublin.mumla/.radio.RadioShellActivity"
 $MinimumHomeActivity = "se.lublin.mumla/.radio.MinimumHomeActivity"
 $MinimumHomeComponent = "se.lublin.mumla/se.lublin.mumla.radio.MinimumHomeActivity"
 $MinimumRadioComponent = "se.lublin.mumla/se.lublin.mumla.radio.RadioShellActivity"
+$LegacyT56HardwareKeyService = "se.lublin.mumla/se.lublin.mumla.radio.RadioHardwareKeyAccessibilityService"
 $ShortcutProvisionReceiver = "se.lublin.mumla/.radio.RadioProvisionReceiver"
 $ShortcutProvisionAction = "se.lublin.mumla.action.PROVISION_LAUNCHER_SHORTCUT"
 $DeviceProfileProvisionAction = "se.lublin.mumla.action.PROVISION_DEVICE_PROFILE"
+$IdentityReportAction = "se.lublin.mumla.action.PROVISION_REPORT_IDENTITY"
+$RadioConfigProvisionAction = "se.lublin.mumla.action.PROVISION_RADIO_CONFIG"
 $WifiHelperPackage = "dev.minimum.wifiprovisioner"
 $WifiHelperActivity = "dev.minimum.wifiprovisioner/.WifiProvisionActivity"
 if (-not $LabWifiCredentialPath) {
-    $LabWifiCredentialPath = Join-Path $PSScriptRoot ".secrets\t99-lab-wifi.credential.xml"
+    $LabWifiCredentialPath = Join-Path $PSScriptRoot (".secrets\{0}-lab-wifi.credential.xml" -f $TargetName.ToLowerInvariant())
 }
 
 $adbCommand = Get-Command adb -ErrorAction Stop
@@ -101,12 +111,19 @@ function Get-TargetFile {
     return ($value -join "`n")
 }
 
-function Get-MinimumPreferences {
-    $value = Invoke-TargetAdb -Arguments @(
-        "shell", "run-as", $MinimumPackage, "cat",
-        "shared_prefs/se.lublin.mumla_preferences.xml"
+function Get-MinimumDeviceId {
+    $result = Invoke-TargetAdb -Arguments @(
+        "shell", "am", "broadcast",
+        "-a", $IdentityReportAction,
+        "-n", $ShortcutProvisionReceiver
     )
-    return ($value -join "`n")
+    $match = [regex]::Match(
+            ($result -join "`n"),
+            'data="?([A-Z0-9]{6})"?')
+    if ($match.Success) {
+        return $match.Groups[1].Value
+    }
+    return ""
 }
 
 function Test-MinimumHomeFocused {
@@ -130,6 +147,165 @@ function Test-LabWifiConnected {
     $escapedSsid = [regex]::Escape($Ssid)
     return (($connectivity -join "`n") -match
             "(?s)type:\s*WIFI.*?state:\s*CONNECTED/CONNECTED.*?extra:\s*`"$escapedSsid`"")
+}
+
+function Get-LocationProvisioningState {
+    $mode = ((Invoke-TargetAdb -Arguments @(
+        "shell", "settings", "get", "secure", "location_mode"
+    )) -join "").Trim()
+    $providers = ((Invoke-TargetAdb -Arguments @(
+        "shell", "settings", "get", "secure", "location_providers_allowed"
+    )) -join "").Trim()
+    return [pscustomobject]@{
+        Mode = $mode
+        Providers = $providers
+        GpsEnabled = $providers.Split(',') -contains "gps"
+        NetworkEnabled = $providers.Split(',') -contains "network"
+    }
+}
+
+function Get-GoogleLocationServicesConsentState {
+    $result = Invoke-TargetAdb -Arguments @(
+        "shell", "content", "query", "--uri",
+        "content://com.google.settings/partner/use_location_for_services"
+    )
+    $match = [regex]::Match(
+            ($result -join "`n"),
+            'name=use_location_for_services,\s*value=(-?\d+)')
+    if (-not $match.Success) {
+        return -1
+    }
+    return [int]$match.Groups[1].Value
+}
+
+function Test-GoogleNetworkLocationConsentVisible {
+    $windowState = Invoke-TargetAdb -Arguments @("shell", "dumpsys", "window", "windows")
+    return ($windowState -join "`n").Contains(
+            "com.google.android.location.network.ConfirmAlertActivity")
+}
+
+function Set-ManagedLocationState {
+    param(
+        [Parameter(Mandatory)][string]$Providers,
+        [Parameter(Mandatory)][ValidateSet("1", "3")][string]$Mode
+    )
+
+    Invoke-TargetAdb -Arguments @(
+        "shell", "settings", "put", "secure", "location_providers_allowed", $Providers
+    ) | Out-Null
+    Invoke-TargetAdb -Arguments @(
+        "shell", "settings", "put", "secure", "location_mode", $Mode
+    ) | Out-Null
+    Invoke-TargetAdb -Arguments @(
+        "shell", "am", "broadcast", "-a", "android.location.PROVIDERS_CHANGED"
+    ) | Out-Null
+}
+
+function Enable-ManagedLocation {
+    $desiredProviders = if ($LocationProviders) {
+        $LocationProviders
+    } elseif ($TargetName -eq "T56") {
+        "gps"
+    } else {
+        "gps,network"
+    }
+    $desiredMode = if ($desiredProviders.Split(',') -contains "network") { "3" } else { "1" }
+    Set-ManagedLocationState -Providers $desiredProviders -Mode $desiredMode
+    Start-Sleep -Milliseconds 750
+
+    $state = Get-LocationProvisioningState
+    if ($state.Mode -ne $desiredMode -or -not $state.GpsEnabled) {
+        throw "Managed Location did not persist (mode=$($state.Mode), providers=$($state.Providers))."
+    }
+    if ($desiredMode -eq "3") {
+        Write-Host "Android Location enabled in high-accuracy GPS/network mode."
+    } else {
+        Write-Host "Android Location enabled in device-only GPS mode."
+    }
+}
+
+function Request-T56NetworkLocationConsent {
+    if ($TargetName -ne "T56") {
+        throw "-RequestNetworkLocationConsent is supported only by the T56 provisioning flow."
+    }
+
+    $accepted = $false
+    try {
+        Set-ManagedLocationState -Providers "gps" -Mode "1"
+        Invoke-TargetAdb -Arguments @("shell", "am", "force-stop", $MinimumPackage) | Out-Null
+        Invoke-TargetAdb -Arguments @(
+            "shell", "am", "start",
+            "-a", "com.google.android.gsf.action.SET_USE_LOCATION_FOR_SERVICES",
+            "--ez", "disable", "true"
+        ) | Out-Null
+
+        $resetDeadline = (Get-Date).AddSeconds(10)
+        while ((Get-Date) -lt $resetDeadline -and
+                (Get-GoogleLocationServicesConsentState) -ne 0) {
+            Start-Sleep -Milliseconds 250
+        }
+        if ((Get-GoogleLocationServicesConsentState) -ne 0) {
+            throw "Google location-services consent could not be reset through its system activity."
+        }
+
+        Invoke-TargetAdb -Arguments @(
+            "shell", "am", "start",
+            "-a", "com.google.android.gsf.GOOGLE_LOCATION_SETTINGS"
+        ) | Out-Null
+
+        Write-Host "T56 Google location-services consent opened."
+        Write-Host "Accept the consent dialog on the device within 120 seconds."
+        Write-Host "Minimum will remain stopped until the consent decision is complete."
+
+        $consentDeadline = (Get-Date).AddSeconds(120)
+        while ((Get-Date) -lt $consentDeadline -and
+                (Get-GoogleLocationServicesConsentState) -ne 1) {
+            Start-Sleep -Seconds 1
+        }
+        if ((Get-GoogleLocationServicesConsentState) -ne 1) {
+            throw "T56 Google location-services consent was not accepted within 120 seconds."
+        }
+
+        Invoke-TargetAdb -Arguments @(
+            "shell", "am", "broadcast",
+            "-a", "com.android.settings.location.MODE_CHANGING",
+            "--ei", "CURRENT_MODE", "1",
+            "--ei", "NEW_MODE", "3"
+        ) | Out-Null
+        Set-ManagedLocationState -Providers "gps,network" -Mode "3"
+
+        $networkDeadline = (Get-Date).AddSeconds(120)
+        $networkConsentPrompted = $false
+        $stableAcceptedSamples = 0
+        while ((Get-Date) -lt $networkDeadline) {
+            Start-Sleep -Seconds 1
+            if (Test-GoogleNetworkLocationConsentVisible) {
+                if (-not $networkConsentPrompted) {
+                    Write-Host "Google network-location consent is also waiting on the T56 display."
+                    $networkConsentPrompted = $true
+                }
+                $stableAcceptedSamples = 0
+                continue
+            }
+            $state = Get-LocationProvisioningState
+            if ($state.Mode -eq "3" -and $state.GpsEnabled -and $state.NetworkEnabled) {
+                $stableAcceptedSamples++
+                if ($stableAcceptedSamples -ge 3) {
+                    $accepted = $true
+                    Write-Host "Android Location enabled in high-accuracy GPS/network mode after operator consent."
+                    return
+                }
+            } else {
+                $stableAcceptedSamples = 0
+            }
+        }
+        throw "T56 high-accuracy Location did not stabilize after operator consent."
+    } finally {
+        if (-not $accepted) {
+            Set-ManagedLocationState -Providers "gps" -Mode "1"
+            Write-Warning "T56 Location restored to device-only GPS mode."
+        }
+    }
 }
 
 function Get-LabWifiCredential {
@@ -239,8 +415,22 @@ function Invoke-LabWifiProvisioning {
     }
 }
 
-Write-Host "Target: T99/T88 / $targetLabel"
-Write-Host "Manufacturer/model: $(Get-TargetProperty -Name ro.product.manufacturer) / $(Get-TargetProperty -Name ro.product.model)"
+$manufacturer = Get-TargetProperty -Name ro.product.manufacturer
+$model = Get-TargetProperty -Name ro.product.model
+Write-Host "Target: $TargetName / $targetLabel"
+Write-Host "Manufacturer/model: $manufacturer / $model"
+if ($ExpectedManufacturer -and $manufacturer.Trim() -ine $ExpectedManufacturer) {
+    throw "Target manufacturer '$manufacturer' does not match expected '$ExpectedManufacturer'."
+}
+if ($ExpectedModel -and $model.Trim() -ine $ExpectedModel) {
+    throw "Target model '$model' does not match expected '$ExpectedModel'."
+}
+if ($SkipLocation -and $RequestNetworkLocationConsent) {
+    throw "-SkipLocation and -RequestNetworkLocationConsent cannot be used together."
+}
+if ($RequestNetworkLocationConsent -and $TargetName -ne "T56") {
+    throw "-RequestNetworkLocationConsent is supported only by the T56 provisioning flow."
+}
 $adbSerial = (& $adbPath @targetArgs get-serialno) -join ""
 $systemSerial = Get-TargetProperty -Name ro.serialno
 $bootSerial = Get-TargetProperty -Name ro.boot.serialno
@@ -259,6 +449,55 @@ if (-not $SkipZello -and $packagePath) {
 $minimumInstalled = Invoke-TargetAdb -Arguments @("shell", "pm", "list", "packages", $MinimumPackage)
 if (-not $minimumInstalled) {
     throw "Minimum ($MinimumPackage) is not installed; install the APK before provisioning."
+}
+
+if ($TargetName -eq "T56") {
+    $enabledServices = ((Invoke-TargetAdb -Arguments @(
+        "shell", "settings", "get", "secure", "enabled_accessibility_services"
+    )) -join "").Trim()
+    $serviceList = @($enabledServices -split ":" | Where-Object {
+        $_ -and $_ -ne "null"
+    })
+    $legacyHardwareKeyServiceEnabled = $serviceList -contains $LegacyT56HardwareKeyService
+    if ($ReportOnly) {
+        Write-Host "Legacy T56 accessibility key service present=$legacyHardwareKeyServiceEnabled (report-only)."
+    } elseif ($legacyHardwareKeyServiceEnabled -and
+            $PSCmdlet.ShouldProcess($targetLabel, "remove obsolete Minimum accessibility key service")) {
+        if (-not $WhatIfPreference) {
+            $remainingServices = @($serviceList | Where-Object {
+                $_ -ne $LegacyT56HardwareKeyService
+            })
+            if ($remainingServices.Count -gt 0) {
+                Invoke-TargetAdb -Arguments @(
+                    "shell", "settings", "put", "secure", "enabled_accessibility_services",
+                    ($remainingServices -join ":")
+                ) | Out-Null
+            } else {
+                Invoke-TargetAdb -Arguments @(
+                    "shell", "settings", "delete", "secure", "enabled_accessibility_services"
+                ) | Out-Null
+                Invoke-TargetAdb -Arguments @(
+                    "shell", "settings", "put", "secure", "accessibility_enabled", "0"
+                ) | Out-Null
+            }
+            Write-Host "Obsolete Minimum accessibility key service removed; T56 uses OEM PTT broadcasts."
+        }
+    }
+}
+
+$locationState = Get-LocationProvisioningState
+if ($ReportOnly) {
+    Write-Host "Location mode=$($locationState.Mode) providers=$($locationState.Providers) (report-only)."
+} elseif ($SkipLocation) {
+    Write-Host "Location provisioning skipped by request."
+} elseif ($PSCmdlet.ShouldProcess($targetLabel, "enable managed Android Location")) {
+    if (-not $WhatIfPreference) {
+        if ($RequestNetworkLocationConsent) {
+            Request-T56NetworkLocationConsent
+        } else {
+            Enable-ManagedLocation
+        }
+    }
 }
 
 $labWifiConnected = Test-LabWifiConnected -Ssid $LabWifiSsid
@@ -323,18 +562,17 @@ if (-not $ReportOnly -and -not $WhatIfPreference) {
     Start-Sleep -Seconds 2
 }
 
-$preferences = Get-MinimumPreferences
-$identityMatch = [regex]::Match($preferences, '<string name="radio_device_id">([A-Z0-9]{6})</string>')
+$deviceId = Get-MinimumDeviceId
 if ($DeviceProfile) {
     if (($DeviceProfile -cnotmatch '^[A-Z0-9]{6}$') -or
             ($DeviceProfile -notmatch '[A-Z]') -or
             ($DeviceProfile -notmatch '\d')) {
         throw "DeviceProfile must be six uppercase A-Z/0-9 characters with a letter and digit."
     }
-    if (-not $identityMatch.Success) {
+    if (-not $deviceId) {
         throw "Minimum Device ID is not initialized; launch Minimum once before assigning a profile."
     }
-    if (($identityMatch.Groups[1].Value -cne $DeviceProfile) -and
+    if (($deviceId -cne $DeviceProfile) -and
             (-not $ReportOnly) -and
             $PSCmdlet.ShouldProcess(
                 "$targetLabel / Minimum identity",
@@ -348,21 +586,16 @@ if ($DeviceProfile) {
             "-n", $ShortcutProvisionReceiver,
             "--es", "deviceProfile", $DeviceProfile
         ) | Out-Null
-        $preferences = Get-MinimumPreferences
-        $identityMatch = [regex]::Match(
-                $preferences,
-                '<string name="radio_device_id">([A-Z0-9]{6})</string>')
-        if ((-not $identityMatch.Success) -or
-                ($identityMatch.Groups[1].Value -cne $DeviceProfile)) {
+        $deviceId = Get-MinimumDeviceId
+        if ($deviceId -cne $DeviceProfile) {
             throw "Minimum config profile/deviceId assignment did not persist."
         }
         Write-Host "Minimum config profile assigned: $DeviceProfile"
-    } elseif ($ReportOnly -and $identityMatch.Groups[1].Value -cne $DeviceProfile) {
+    } elseif ($ReportOnly -and $deviceId -cne $DeviceProfile) {
         Write-Host "Requested config profile: $DeviceProfile (report-only; not applied)"
     }
 }
-if ($identityMatch.Success) {
-    $deviceId = $identityMatch.Groups[1].Value
+if ($deviceId) {
     if ($deviceId -notmatch '[A-Z]' -or $deviceId -notmatch '\d') {
         throw "Minimum Device ID '$deviceId' does not contain both a letter and a digit"
     }
@@ -378,37 +611,50 @@ if (-not $ReportOnly -and $RadioConfigPath -and -not $WhatIfPreference) {
         throw "Radio config exceeds the 262144-byte application limit."
     }
     $configObject = Get-Content -LiteralPath $resolvedConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($configObject.schemaVersion -ne 2 -or $configObject.configVersion -lt 1) {
+    if ($configObject.schemaVersion -ne 3 -or $configObject.configVersion -lt 1) {
         throw "Radio config has an unsupported schema/config version."
     }
-    if ((-not $configObject.mumble.host) -or
-            (-not $configObject.mumble.username) -or
-            (-not $configObject.mumble.defaultRoom) -or
-            (-not $configObject.rooms) -or
-            ($configObject.rooms.Count -lt 1)) {
-        throw "Radio config is missing Mumble host/username/defaultRoom/rooms."
+    if ((-not $configObject.radio.defaultChannel) -or
+            (-not $configObject.connections) -or
+            (-not $configObject.channels) -or
+            ($configObject.channels.Count -lt 1)) {
+        throw "Radio config is missing radio/defaultChannel/connections/channels."
     }
-    if ($identityMatch.Success -and $configObject.deviceId -ne "*" -and $configObject.deviceId -ne $deviceId) {
+    $defaultChannel = $configObject.channels |
+            Where-Object { $_.id -ceq $configObject.radio.defaultChannel } |
+            Select-Object -First 1
+    if (-not $defaultChannel) {
+        throw "Radio config defaultChannel does not identify a configured channel."
+    }
+    foreach ($channel in $configObject.channels) {
+        if ((-not $channel.id) -or (-not $channel.connectionId) -or (-not $channel.path)) {
+            throw "Radio config contains an incomplete channel."
+        }
+        $connection = $configObject.connections.PSObject.Properties[$channel.connectionId].Value
+        if ((-not $connection) -or (-not $connection.host) -or
+                (-not $connection.username) -or ($connection.port -lt 1) -or
+                ($connection.port -gt 65535)) {
+            throw "Radio channel '$($channel.id)' references an incomplete connection."
+        }
+    }
+    if ($deviceId -and $configObject.deviceId -ne "*" -and $configObject.deviceId -ne $deviceId) {
         throw "Radio config deviceId does not match Minimum Device ID $deviceId."
     }
 
     $remoteTemporary = "/data/local/tmp/minimum-radio-config-$PID.json"
     Invoke-TargetAdb -Arguments @("push", $resolvedConfigPath, $remoteTemporary) | Out-Null
     try {
-        Invoke-TargetAdb -Arguments @(
-            "shell", "run-as", $MinimumPackage, "mkdir", "-p", "files/radio-config"
-        ) | Out-Null
-        Invoke-TargetAdb -Arguments @(
-            "shell", "run-as", $MinimumPackage, "chmod", "700", "files/radio-config"
-        ) | Out-Null
-        Invoke-TargetAdb -Arguments @(
-            "shell", "run-as", $MinimumPackage, "cp", $remoteTemporary,
-            "files/radio-config/active-config.json"
-        ) | Out-Null
-        Invoke-TargetAdb -Arguments @(
-            "shell", "run-as", $MinimumPackage, "chmod", "600",
-            "files/radio-config/active-config.json"
-        ) | Out-Null
+        Invoke-TargetAdb -Arguments @("shell", "chmod", "644", $remoteTemporary) | Out-Null
+        $provisionResult = Invoke-TargetAdb -Arguments @(
+            "shell", "am", "broadcast",
+            "-a", $RadioConfigProvisionAction,
+            "-n", $ShortcutProvisionReceiver,
+            "--es", "configPath", $remoteTemporary
+        )
+        if (($provisionResult -join "`n") -notmatch
+                '(?s)result=-1.*data="?installed"?') {
+            throw "Minimum rejected the private radio config."
+        }
     } finally {
         Invoke-TargetAdb -Arguments @("shell", "rm", "-f", $remoteTemporary) | Out-Null
     }

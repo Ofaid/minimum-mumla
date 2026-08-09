@@ -41,10 +41,11 @@
 | T99 process-death watchdog | PASS | Same-UID SIGKILL, no force-stop/manual relaunch/PTT; renewable 30-second lease bypassed OEM roughly 16-minute service restart backoff |
 | Reconnect full-screen UI | IMPLEMENTED / T99 VISUAL OPEN | Whole-screen connecting/reconnecting state, attempt count and no false Ready before room join |
 | PTT local-delivery warning | IMPLEMENTED / SUPERVISED TEST OPEN | Offline/no-encoded-packet tone and full-screen failure; server receipt still requires a second listener |
-| Radio audio defaults | PASS IN CODE / DEVICE AUDIO OPEN | Preprocessor, half-duplex and TTS forced for T99/T88; normal PTT confirmation click forced off while failure alert remains; VAD setter and teardown unmute corrected |
+| Radio audio defaults | PASS IN CODE / DEVICE AUDIO OPEN | Preprocessor, half-duplex and TTS forced for T99/T56; normal PTT confirmation click forced off while failure alert remains; VAD setter and teardown unmute corrected |
 | Thai TTS selection | IMPLEMENTED / DEVICE VOICE OPEN | Requests `th-TH` only when installed engine reports support; radio continues if voice data is missing |
 | RX/TX display wake | IMPLEMENTED / T99 OPEN | Five-second wake on RX/TX/disconnect edge; OEM/API-22 behavior requires physical verification |
 | Hardware-first RadioShell UI | PASS IN BUILD / T99 VISUAL OPEN | Touch PTT removed, compact 132dp layout, service-owned speaker list and TX elapsed timer |
+| Simultaneous talker display | PASS IN JVM / T56 VISUAL OPEN | Complete ordered snapshot; T99 shows 2 lines, larger displays 4; overflow uses the final line as `+N` and preserves the full list for accessibility |
 | Managed self-signed TLS auto-trust | PASS | Cleared old app trust, provisioned no-pin config, app recreated private trust and returned to the exact ready room without a dialog |
 | Optional self-signed TLS pin | PASS | Exact SHA-256 pin created app-private trust and connected; mismatch remains fail-closed |
 | Active config downgrade rejection | PASS | Repository JVM tests reject a lower version and allow same/newer versions |
@@ -53,11 +54,26 @@
 | Screen-off connection persistence | PASS | T99 display OFF/dozing for 10 seconds with `MumlaService` still started and no disconnect |
 | Multi-room preset switching | IMPLEMENTED IN CODE | One-second Up/Down hold joins directly; requires a live config with at least two rooms |
 | Dark mode default | PASS | Fresh/unset preference resolves to `forceDark`; update installed and visually checked on T99 |
-| Radio shell | PASS ON T99 | Dark ready/RX/TX/status UI, full room path, Device ID/profile and enabled touch PTT verified |
-| T88 profile | OPEN | Capture actual T88 runtime data |
+| Radio shell | PASS ON T99 / CHANNEL BADGE DEVICE VISUAL OPEN | Dark ready/RX/TX/status UI, configured Channel Alias badge, Device ID overlay and hardware-only PTT |
+| T56 profile detection | PASS | `UNIPRO/ZX` selects T56 on the connected device; PTT is keyCode 261 and F1 is explicitly rejected |
+| T56 physical input inventory | PARTIAL PASS | Side keys are Android `260`/`266` and PTT is `261`/scan `216`; physical screen-power OFF -> ON behavior passed, but its Android key mapping remains unassigned pending isolated raw capture |
+| T56 provisioning | PASS / PRIVATE CONFIG INSTALLED | Report/WhatIf/Force passed on the connected `UNIPRO/ZX`; T56 Device ID `P1L4A0` now has the two private schema-3 server/channel entries with usernames `E25FGL-T56` and `E25FGL-56`; credentials were copied only into app-private storage |
+| Small-radio Device ID view | PASS AWAKE / SCREEN-OFF OPEN | Service name and inline Device ID are invisible but retain their layout rows. T99 scan 139 toggles the full-screen overlay. A direct T56 operator hold disproved the earlier scan-63 mapping and established the one-person key as scan 64/FN2/Android `DPAD_LEFT`; awake show/hide and dedup pass, and the operator physically confirmed Device ID display after installation. Firmware exposes `unipro.hotkey.p2.long`, but an injected scan-64 hold did not wake an explicitly asleep/OFF device, so screen-off identity remains open |
+| T56 screen-off PTT | END-TO-END RAW EVENT PASS / OPERATOR RETEST | After `mWakefulness=Asleep` and `Display Power: state=OFF` were explicitly verified, scan 216/keyCode 261 woke T56, the OEM DOWN/UP receiver drove PTT and T99 observed the T56 talk state; operator physical hold remains the final acceptance check |
+| Location provisioning | PASS / T56 CONSENT PHYSICALLY VERIFIED | T99 provisions high-accuracy GPS/network; T56 defaults to GPS-only and its explicit operator flow verified Google consent before ending at mode 3 with GPS/network |
+| T56 GPS fix | PASS | Two-minute temporary probe: about 5 m accuracy, 27 satellites visible, 13 used, max SNR about 32.8 |
+| T56 network-location fix | PASS AFTER CONSENT | Redacted 30-second probe returned a network fix at about 29.21 m accuracy while GPS also fixed at about 13 m |
+| T99 GPS fix / tracking capability | UNSUPPORTED | Repeated two-minute-plus probes see almanac entries but zero SNR/ephemeris/used satellites and no fix; the app hardware capability gate denies T99 tracking |
+| T56 tracking unit policy | PASS IN JVM / DEVICE BEACON PASS | Coordinator covers jitter, movement, turns, transitions, stale fixes, PTT, concurrency, restart restore and newest-pending replacement; the T56 regular GPS request is removed after the 90-second acquisition window |
+| T99 tracking isolation | PASS IN CODE/ADB | T99 config gate returns disabled, no tracking manager is constructed, and post-install `dumpsys location` had no `se.lublin.mumla` request |
+| APRS HTTPS send-only response policy | PASS IN JVM | HTTP 204 with `X-Packetsrcvd > 0` is success; missing receipt is uncertain; auth rejection is permanent; 5xx/409 are retryable |
+| T56 live APRS Object report | PASS ON DEVICE | Open-sky T56 fix produced a `VR-` Device ID Object report and the APRS-IS endpoint returned a positive packet receipt; APRS.fi indexed the Object position |
+| T56 APRS health comment | PASS ON DEVICE / JVM | Position comment carries battery, charging, battery temperature, Wi-Fi RSSI and storage; mobile type/RSSI is included when exposed and otherwise marked `NA` |
+| Configurable APRS Object name | PASS IN JVM | Optional `tracking.aprs.objectName` is validated, uppercased and padded to nine bytes; omission retains `VR-<DeviceID>` and identity changes reset duplicate state |
+| A-GPS assistance | OPEN | Both advertise Qualcomm A-GPS capability; XTRA is disabled and T56's SUPL host is malformed, so the successful T56 GPS/network fixes do not prove assisted-GPS operation |
 
 ## Release gate
 
 Do not call the Minimum radio PoC radio-ready until screen-off PTT, network-loss TX release,
-certificate first-run, boot behavior and T88/T99 profile selection have each passed on the target
+certificate first-run, boot behavior and T56/T99 profile selection have each passed on the target
 hardware or been explicitly marked as unsupported.

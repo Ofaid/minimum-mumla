@@ -28,7 +28,7 @@ RadioConfigRepository
   └─ downgrade-protected pending/active/previous private cache
 
 AccessTokenResolver
-  ├─ reads public room tokens from a complete config
+  ├─ reads public tokens from the selected channel only
   ├─ trims and de-duplicates in first-seen order
   └─ excludes protected references until secure storage exists
 
@@ -42,7 +42,7 @@ RadioLauncherShortcutInstaller
   └── runs at app startup and through the provisioning receiver
 
 MumlaBootReceiver
-  ├── T99/T88 -> RadioShellActivity
+  ├── T99/T56 -> RadioShellActivity
   └── generic Android -> MumlaActivity
 
 RadioShellActivity (managed radio entry point)
@@ -51,7 +51,7 @@ RadioShellActivity (managed radio entry point)
 ```
 
 The component map above preserves the original Mumla entry points for diagnostics. The managed
-radio path is now `MumlaBootReceiver -> RadioShellActivity -> MumlaService`; T99/T88 no longer boot
+radio path is now `MumlaBootReceiver -> RadioShellActivity -> MumlaService`; T99/T56 no longer boot
 to the recovery dashboard. `RadioConnectionConfig` provides the typed validated subset consumed by
 the shell, and `RoomPathResolver` performs exact full-path channel lookup. `MinimumHomeActivity`
 remains a deliberate recovery route to Minimum and Android Settings.
@@ -100,7 +100,7 @@ validated Last Known Good config
 ```
 
 Publicly trusted servers continue to use normal Android trust. For a configured self-signed server,
-`autoTrustServerCertificate` defaults to true and stores the presented leaf in the existing
+connection-level `autoTrustServerCertificate` defaults to true and stores the presented leaf in the existing
 app-private BKS trust store before retrying. An optional SHA-256 pin overrides this permissive mode
 and must match exactly. Trust is scoped to the app store and configured endpoint workflow; no
 system CA store or global hostname verifier is changed.
@@ -147,14 +147,30 @@ pending-config idle checks aligned with the same service-owned snapshot.
 Room-join completion uses this same refresh path so it cannot overwrite an already-active RX state
 with Ready.
 
+The service exposes a complete ordered snapshot of all active remote talkers. `RadioTalkerDisplay`
+formats that snapshot without discarding simultaneous speakers: compact T99-class displays reserve
+two lines, while larger displays reserve four. When the snapshot exceeds the visible line budget,
+the final visible line becomes `+N` while the full ordered list remains available through the
+view's accessibility content description. Fixed line counts keep RX state changes from resizing
+the shell.
+
+RadioShell keeps connection identity separate from presentation identity. `channels[].path` remains
+the exact Mumble room target, while optional `channels[].alias` is rendered in a persistent amber
+`CHANNEL` badge below the traffic state. The badge is larger than the former path text and uses a
+monospace bold style distinct from talker names. Legacy configs fall back to `channels[].label`; a
+join callback must never replace the badge with the server's full path.
+
 ## Managed-radio reconnect lifecycle
 
 ```text
 unexpected disconnect
   -> release TX and unmute playback
   -> wake full-screen reconnect status
-  -> retry after 2/4/8/16/32/60 seconds (cap at 60 seconds)
-  -> no network: wait for connectivity event plus 60-second fallback poll
+  -> retry transport errors after 15/30/60 seconds (cap at 60 seconds)
+  -> enforce at least 15 seconds between every managed-radio connection attempt
+  -> persist the attempt guard across Android service-process restart
+  -> no network: wait for connectivity event plus 60-second fallback poll; the guard still applies
+  -> server reject/kick/ban/auth failure: stop retrying and show the failure state
   -> synchronized: reset backoff and join configured room
 ```
 
@@ -162,8 +178,15 @@ The Android service returns `START_REDELIVER_INTENT` only for the managed-radio 
 process recovery receives the same validated connection intent. Certificate policy/pin mismatch is
 the deliberate exception: it cancels retry and remains visibly fail-closed.
 
+This policy is intentionally conservative because Mumble server autoban is IP-based. Upstream
+defaults are 10 attempts in 120 seconds, a 300-second ban, and successful connections included in
+the counter; the implementation bans when the count exceeds the limit, so the default threshold is
+crossed on the 11th attempt inside the window. Server operators may configure stricter values.
+Sources: [mumble-server.ini](https://github.com/mumble-voip/mumble/blob/master/auxiliary_files/mumble-server.ini)
+and [Meta.cpp](https://github.com/mumble-voip/mumble/blob/master/src/murmur/Meta.cpp).
+
 T99 firmware can nevertheless apply an OEM service-restart backoff of roughly 16 minutes after a
-process kill. Dedicated T99/T88 profiles therefore maintain a process-independent AlarmManager
+process kill. Dedicated T99/T56 profiles therefore maintain a process-independent AlarmManager
 lease. A healthy service refreshes a 30-second lease every 10 seconds, so the alarm never fires in
 normal operation. If the process dies, the retained alarm starts
 `RadioProcessWatchdogReceiver`; it re-arms itself and opens `RadioShellActivity`. The receiver keeps
@@ -171,28 +194,61 @@ retrying if a background launch is blocked, while generic Android profiles do no
 
 ## Hardware strategy
 
-`RadioDeviceProfile` identifies T99, T88 or generic hardware. The profile only selects a config
+`RadioDeviceProfile` identifies T99, T56 or generic hardware. The profile only selects a config
 namespace. Actual keycode/scancode mappings remain data-driven because cheap radio firmware often
 exposes the same physical button through different Linux input devices.
 
 The six-character `DeviceIdentityManager` value is also the externally provisioned Config Profile
-and selects `/devices/{deviceId}.json`. It is not the Mumble login. Config schema 2 requires the
-independent `mumble.username`, which `RadioShellActivity` passes to the existing Mumla/Humla
-connection path. The current T99 mapping is Config Profile `GYZ3DE` and Mumble username
+and selects `/devices/{deviceId}.json`. It is not the Mumble login. Config schema 3 stores login and
+server policy in keyed `connections`; each selectable channel references one connection and owns
+its access tokens. The current T99 mapping is Config Profile `GYZ3DE` and connection username
 `E25FGL-T99`; the hardware profile remains `t99`/`t99-qm011`.
 
-Verified T99 input sources and mappings are in `docs/T99_DEVICE_PROFILE.md`. T88 starts from
-`docs/T88_DEVICE_PROFILE.md` and must be filled from the real device.
+Location tracking is deny-by-default at the immutable hardware layer. `AprsTrackingManager` is
+created only when `RadioDeviceProfile.supportsLocationTracking(...)` accepts T56; T99 and generic
+hardware return false regardless of remotely supplied config metadata. T56's coordinator rejects
+stale/poor fixes, suppresses GNSS jitter, and feeds SmartBeacon, PTT and retry events through one
+semantic duplicate gate. Stationary acquisition uses a short-lived regular GPS request plus a
+90-second window, then sleeps until the 30-minute poll; walking/vehicle sampling is more frequent
+but beacon cadence never falls below one minute. APRS sends a timestamped Object report using the
+optional validated config label or, by default, `VR-` plus the six-character Device ID through the
+server-advertised HTTPS send-only contract (204
+plus `X-Packetsrcvd`) with app-private credentials. The legacy Android API path uses a pinned ISRG
+Root X1 trust anchor for the APRS endpoint. Exact coordinates are persisted only long enough to
+suppress a restart duplicate and are cleared when tracking is disabled. No tracking code, location
+request or APRS network path is created for T99.
+
+Each accepted position comment carries a compact redacted T56 health snapshot: GPS accuracy,
+battery percentage and charging state, battery temperature, Wi-Fi RSSI, mobile network type/RSSI
+when available, and free app-volume storage. Unavailable radio fields are marked `NA`; no SSID,
+IMEI, phone number, serial, Device ID or coordinate is copied into the health comment.
+
+Verified input sources and mappings are in `docs/T99_DEVICE_PROFILE.md` and
+`docs/T56_DEVICE_PROFILE.md`.
 
 `RadioPttKeyManager` applies radio defaults at process startup and maps verified alternatives to the
 same service-owned PTT path. T99 capture proves F1 is the labelled PTT and F2 is EXIT, so T99 always
-resets its push preference to F1 and rejects F2 before consulting stale settings. T88 keeps both
-function keys only until its real hardware trace arrives. Media/headset keys remain the public
-MediaSession alternate path.
+resets its push preference to F1 and rejects F2 before consulting stale settings. T56 instead uses
+the captured vendor PTT keyCode 261 and explicitly rejects F1 because F1 is its Menu key.
+Media/headset keys remain the public MediaSession alternate path. T56 firmware sends keyCode 261 to
+the OEM keyguard while the display is off, so the Activity cannot receive the first press. The same
+firmware emits `unipro.hotkey.ptt.down` and `unipro.hotkey.ptt.up` broadcasts while keyguard owns the
+raw event. `RadioHardwareKeyReceiver` accepts those actions only on the T56 profile and forwards
+DOWN/UP to the same `MumlaService` readiness, release and watchdog path.
+
+T56 firmware likewise emits `unipro.hotkey.p2.long` for the one-person key even when keyguard owns
+its raw input. The same profile-gated receiver foregrounds `RadioShellActivity` with an identity
+toggle request. The Activity deduplicates that request against its normal raw long-hold handler so
+one physical hold produces exactly one full-screen Device ID transition.
+
+### Bounded local history
 
 `RadioKeyDiagnostics` stores a bounded 32 KiB app-private trace for whitelisted radio hardware keys.
-It records DOWN, the first repeat and UP with keyCode, scanCode, deviceId, source and device name;
-it never records text, configuration, credentials or audio.
+Each append keeps only complete newest records and rewrites the tail before the limit, so a record
+cannot overflow the file; an individual record larger than the limit is skipped. It records DOWN,
+the first repeat and UP with keyCode, scanCode, deviceId, source and device name; it never records
+text, configuration, credentials or audio. The service's in-memory chat/info history is likewise
+bounded to the newest 256 entries and is cleared on disconnect.
 
 ## Standard build versus radio build
 

@@ -9,6 +9,8 @@
 
 package se.lublin.mumla.radio;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /** Immutable visible RX state resolved from the service-owned talker snapshot. */
@@ -20,23 +22,27 @@ public final class RadioTrafficUiState {
     }
 
     private final Kind kind;
+    private final List<String> talkers;
     private final String talker;
 
-    private RadioTrafficUiState(Kind kind, String talker) {
+    private RadioTrafficUiState(Kind kind, List<String> talkers) {
         this.kind = kind;
-        this.talker = talker;
+        this.talkers = Collections.unmodifiableList(new ArrayList<>(talkers));
+        this.talker = this.talkers.isEmpty() ? "" : this.talkers.get(0);
     }
 
     public static RadioTrafficUiState from(List<String> activeTalkers) {
-        if (activeTalkers == null || activeTalkers.isEmpty()) {
-            return new RadioTrafficUiState(Kind.READY, "");
+        List<String> talkers = new ArrayList<>();
+        if (activeTalkers != null) {
+            for (String activeTalker : activeTalkers) {
+                talkers.add(activeTalker == null ? "" : activeTalker);
+            }
         }
-        if (activeTalkers.size() == 1) {
-            String talker = activeTalkers.get(0);
-            return new RadioTrafficUiState(Kind.SINGLE_TALKER,
-                    talker == null ? "" : talker);
+        if (talkers.isEmpty()) {
+            return new RadioTrafficUiState(Kind.READY, talkers);
         }
-        return new RadioTrafficUiState(Kind.MULTIPLE_TALKERS, "");
+        return new RadioTrafficUiState(talkers.size() == 1
+                ? Kind.SINGLE_TALKER : Kind.MULTIPLE_TALKERS, talkers);
     }
 
     public Kind getKind() {
@@ -45,5 +51,10 @@ public final class RadioTrafficUiState {
 
     public String getTalker() {
         return talker;
+    }
+
+    /** Returns the complete ordered snapshot used to render simultaneous talkers. */
+    public List<String> getTalkers() {
+        return talkers;
     }
 }

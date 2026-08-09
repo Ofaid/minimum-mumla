@@ -32,6 +32,13 @@ Every delegated task must state:
 The parent agent must inspect the returned diff and test evidence. A worker result is not evidence
 that the feature is complete until it is integrated and verified from the main working tree.
 
+Before any APRS/location change, read `PROJECT_STATUS.md` and `APRS_TRACKING.md`, then verify the
+current encoder/manager tests. In particular, preserve the T56-only hardware gate, APRS Object form,
+validated configured name with `VR-` fallback, state symbols, piggybacked Health comment and HTTPS
+receipt rule. A task must not
+silently restore callsign-owned station positions or `requestSingleUpdate()`; both were tried and
+rejected by live-device evidence.
+
 Prefer independent read-heavy delegation and non-overlapping write ownership. Sol must retain
 cross-cutting architecture, security/trust policy, hardware capability claims and final acceptance.
 After Luna returns, Sol reviews the exact diff, checks for scope drift and secrets, and reruns the

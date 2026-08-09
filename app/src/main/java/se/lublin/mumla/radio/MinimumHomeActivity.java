@@ -14,16 +14,20 @@ import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.view.GestureDetector;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
+import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -46,11 +50,25 @@ public final class MinimumHomeActivity extends Activity {
     private GestureDetector gestureDetector;
     private se.lublin.mumla.Settings settings;
     private ToneGenerator pttRecoveryTone;
+    private final Handler identityHandler = new Handler(Looper.getMainLooper());
+    private int pendingIdentityKey = KeyEvent.KEYCODE_UNKNOWN;
+    private long pendingIdentityStartedAt = -1L;
+    private boolean identityHoldCompleted;
+    private boolean identityOverlayVisible;
+    private TextView identityOverlayView;
+    private final Runnable identityToggleAction = () -> {
+        if (pendingIdentityKey == KeyEvent.KEYCODE_UNKNOWN) {
+            return;
+        }
+        identityHoldCompleted = true;
+        setIdentityOverlayVisible(!identityOverlayVisible);
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Window window = getWindow();
+        window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         window.setStatusBarColor(Color.rgb(7, 25, 43));
         window.setNavigationBarColor(Color.rgb(7, 25, 43));
         settings = se.lublin.mumla.Settings.getInstance(this);
@@ -97,6 +115,11 @@ public final class MinimumHomeActivity extends Activity {
             }
             return true;
         }
+        if (RadioKeyActionPolicy.isIdentityToggleEvent(
+                RadioDeviceProfile.detectCurrent(), event)) {
+            beginIdentityToggle(keyCode, event);
+            return true;
+        }
         if (isPreviousPageKey(keyCode)) {
             if (event.getRepeatCount() == 0) {
                 showPage(page == PAGE_MINIMUM ? PAGE_SETTINGS : page - 1);
@@ -125,6 +148,11 @@ public final class MinimumHomeActivity extends Activity {
             signalPttReleased();
             return true;
         }
+        if (RadioKeyActionPolicy.isIdentityToggleEvent(
+                RadioDeviceProfile.detectCurrent(), event)) {
+            finishIdentityToggle(keyCode, event);
+            return true;
+        }
         if (isPreviousPageKey(keyCode) || isNextPageKey(keyCode)
                 || isActivateKey(keyCode)) {
             return true;
@@ -134,6 +162,7 @@ public final class MinimumHomeActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        identityHandler.removeCallbacks(identityToggleAction);
         if (pttRecoveryTone != null) {
             pttRecoveryTone.release();
             pttRecoveryTone = null;
@@ -184,6 +213,17 @@ public final class MinimumHomeActivity extends Activity {
         pageView.addView(pageIndicator, new LinearLayout.LayoutParams(-1, dp(18)));
 
         root.addView(pageView, new FrameLayout.LayoutParams(-1, -1));
+        identityOverlayView = new TextView(this);
+        identityOverlayView.setText(new DeviceIdentityManager(
+                android.preference.PreferenceManager.getDefaultSharedPreferences(this))
+                .getOrCreateDeviceId());
+        identityOverlayView.setTextColor(Color.WHITE);
+        identityOverlayView.setTextSize(30);
+        identityOverlayView.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        identityOverlayView.setGravity(android.view.Gravity.CENTER);
+        identityOverlayView.setBackgroundColor(Color.rgb(7, 25, 43));
+        identityOverlayView.setVisibility(identityOverlayVisible ? View.VISIBLE : View.GONE);
+        root.addView(identityOverlayView, new FrameLayout.LayoutParams(-1, -1));
     }
 
     private Drawable getPageIcon() {
@@ -278,6 +318,42 @@ public final class MinimumHomeActivity extends Activity {
                 || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
                 || keyCode == KeyEvent.KEYCODE_BUTTON_SELECT
                 || keyCode == KeyEvent.KEYCODE_CALL;
+    }
+
+    private void beginIdentityToggle(int keyCode, KeyEvent event) {
+        if (event.getRepeatCount() != 0 || pendingIdentityKey == keyCode) {
+            return;
+        }
+        pendingIdentityKey = keyCode;
+        pendingIdentityStartedAt = event.getEventTime();
+        identityHoldCompleted = false;
+        identityHandler.postDelayed(identityToggleAction, RadioKeyActionPolicy.IDENTITY_HOLD_MS);
+    }
+
+    private void finishIdentityToggle(int keyCode, KeyEvent event) {
+        if (pendingIdentityKey != keyCode) {
+            return;
+        }
+        boolean completed = identityHoldCompleted;
+        if (!completed && RadioKeyActionPolicy.heldLongEnough(pendingIdentityStartedAt,
+                event.getEventTime(), RadioKeyActionPolicy.IDENTITY_HOLD_MS)) {
+            setIdentityOverlayVisible(!identityOverlayVisible);
+            completed = true;
+        }
+        pendingIdentityKey = KeyEvent.KEYCODE_UNKNOWN;
+        pendingIdentityStartedAt = -1L;
+        identityHoldCompleted = false;
+        identityHandler.removeCallbacks(identityToggleAction);
+        if (!completed && RadioDeviceProfile.T99.equals(RadioDeviceProfile.detectCurrent())) {
+            launchPageAction();
+        }
+    }
+
+    private void setIdentityOverlayVisible(boolean visible) {
+        identityOverlayVisible = visible;
+        if (identityOverlayView != null) {
+            identityOverlayView.setVisibility(visible ? View.VISIBLE : View.GONE);
+        }
     }
 
     private int dp(int value) {

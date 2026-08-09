@@ -68,8 +68,11 @@ import se.lublin.mumla.radio.RadioPttSafetyPolicy;
 import se.lublin.mumla.radio.RadioReceiveTracker;
 import se.lublin.mumla.radio.RadioDeviceProfile;
 import se.lublin.mumla.radio.RadioKeyDiagnostics;
+import se.lublin.mumla.radio.RadioNotificationPolicy;
 import se.lublin.mumla.radio.RadioProcessWatchdog;
 import se.lublin.mumla.radio.RadioShellActivity;
+import se.lublin.mumla.radio.RadioConfigRepository;
+import se.lublin.mumla.radio.tracking.AprsTrackingManager;
 
 /**
  * An extension of the Humla service with some added Mumla-exclusive non-standard Mumble features.
@@ -86,11 +89,18 @@ public class MumlaService extends HumlaService implements
             "se.lublin.mumla.action.RADIO_REQUIRE_PTT_RELEASE";
     public static final String ACTION_RADIO_PTT_RELEASED =
             "se.lublin.mumla.action.RADIO_PTT_RELEASED";
+    public static final String ACTION_RADIO_PTT_DOWN =
+            "se.lublin.mumla.action.RADIO_PTT_DOWN";
+    public static final String ACTION_RADIO_PTT_UP =
+            "se.lublin.mumla.action.RADIO_PTT_UP";
+    public static final String ACTION_RADIO_TRACKING_POLL =
+            "se.lublin.mumla.action.RADIO_TRACKING_POLL";
 
     /** Undocumented constant that permits a proximity-sensing wake lock. */
     public static final int PROXIMITY_SCREEN_OFF_WAKE_LOCK = 32;
     public static final int TTS_THRESHOLD = 250; // Maximum number of characters to read
     public static final int RECONNECT_DELAY = 10000;
+    static final int MAX_MESSAGE_LOG_ENTRIES = 256;
     private static final int MAX_PTT_SECONDS = 120;
     private static final long PTT_DELIVERY_CONFIRM_MS = 1500L;
     private static final long RADIO_WAKE_COOLDOWN_MS = 1000L;
@@ -174,6 +184,7 @@ public class MumlaService extends HumlaService implements
     private boolean mErrorShown;
     private List<IChatMessage> mMessageLog;
     private boolean mSuppressNotifications;
+    private AprsTrackingManager mAprsTrackingManager;
 
     private TextToSpeech mTTS;
     private TextToSpeech.OnInitListener mTTSInitListener = new TextToSpeech.OnInitListener() {
@@ -338,26 +349,30 @@ public class MumlaService extends HumlaService implements
             }
 
             // TODO: create a customizable notification sieve
-            if (mSettings.isChatNotifyEnabled()) {
+            if (RadioNotificationPolicy.shouldShowChatNotification(
+                    mSettings.isChatNotifyEnabled(), isManagedRadioDevice())) {
                 mMessageNotification.show(message);
             }
 
-            mMessageLog.add(new IChatMessage.TextMessage(message));
+            appendMessageLog(new IChatMessage.TextMessage(message));
         }
 
         @Override
         public void onLogInfo(String message) {
-            mMessageLog.add(new IChatMessage.InfoMessage(IChatMessage.InfoMessage.Type.INFO, message));
+            appendMessageLog(new IChatMessage.InfoMessage(IChatMessage.InfoMessage.Type.INFO,
+                    message));
         }
 
         @Override
         public void onLogWarning(String message) {
-            mMessageLog.add(new IChatMessage.InfoMessage(IChatMessage.InfoMessage.Type.WARNING, message));
+            appendMessageLog(new IChatMessage.InfoMessage(IChatMessage.InfoMessage.Type.WARNING,
+                    message));
         }
 
         @Override
         public void onLogError(String message) {
-            mMessageLog.add(new IChatMessage.InfoMessage(IChatMessage.InfoMessage.Type.ERROR, message));
+            appendMessageLog(new IChatMessage.InfoMessage(IChatMessage.InfoMessage.Type.ERROR,
+                    message));
         }
 
         @Override
@@ -418,15 +433,20 @@ public class MumlaService extends HumlaService implements
         // XML <application> theme does NOT do this!
         setTheme(R.style.Theme_Mumla);
 
-        mMessageLog = new ArrayList<>();
+        mMessageLog = new ArrayList<>(MAX_MESSAGE_LOG_ENTRIES);
         mMessageNotification = new MumlaMessageNotification(MumlaService.this);
 
         initializePttMediaSession();
         updatePttMediaSessionState();
         if (isManagedRadioDevice()) {
+            mMessageNotification.dismiss();
             RadioProcessWatchdog.arm(this);
             mPttWatchdogHandler.postDelayed(mRadioProcessWatchdogHeartbeat,
                     RadioProcessWatchdog.HEARTBEAT_INTERVAL_MS);
+        }
+        if (RadioDeviceProfile.T56.equals(RadioDeviceProfile.detectCurrent())) {
+            mAprsTrackingManager = new AprsTrackingManager(this);
+            reloadTrackingConfig();
         }
 
         // Instantiate overlay view
@@ -452,6 +472,14 @@ public class MumlaService extends HumlaService implements
                 requirePttRelease();
             } else if (ACTION_RADIO_PTT_RELEASED.equals(intent.getAction())) {
                 onTalkKeyUp();
+            } else if (ACTION_RADIO_PTT_DOWN.equals(intent.getAction())) {
+                wakeRadioDisplay(false);
+                onTalkKeyDown();
+            } else if (ACTION_RADIO_PTT_UP.equals(intent.getAction())) {
+                onTalkKeyUp();
+            } else if (ACTION_RADIO_TRACKING_POLL.equals(intent.getAction())
+                    && mAprsTrackingManager != null) {
+                mAprsTrackingManager.onPoll();
             }
         }
         return super.onStartCommand(intent, flags, startId);
@@ -459,6 +487,10 @@ public class MumlaService extends HumlaService implements
 
     @Override
     public void onDestroy() {
+        if (mAprsTrackingManager != null) {
+            mAprsTrackingManager.stop();
+            mAprsTrackingManager = null;
+        }
         mPttWatchdogHandler.removeCallbacks(mRadioProcessWatchdogHeartbeat);
         mRadioReceiveTracker.clear();
         releasePttForSafety(true);
@@ -920,6 +952,9 @@ public class MumlaService extends HumlaService implements
         if (mPttInputDown || mPttWatchdogLockout) {
             return;
         }
+        if (mAprsTrackingManager != null) {
+            mAprsTrackingManager.onPttPressed();
+        }
         boolean synchronizedSession = isSynchronized();
         boolean managedRadio = isManagedRadioDevice();
         boolean pttMode = Settings.ARRAY_INPUT_METHOD_PTT.equals(mSettings.getInputMethod());
@@ -1006,6 +1041,39 @@ public class MumlaService extends HumlaService implements
         }
     }
 
+    private void appendMessageLog(IChatMessage message) {
+        appendMessageLog(mMessageLog, message);
+    }
+
+    static void appendMessageLog(List<IChatMessage> messageLog, IChatMessage message) {
+        if (messageLog == null || message == null) {
+            return;
+        }
+        int overflow = messageLog.size() - MAX_MESSAGE_LOG_ENTRIES + 1;
+        if (overflow > 0) {
+            messageLog.subList(0, overflow).clear();
+        }
+        messageLog.add(message);
+    }
+
+    @Override
+    public void reloadTrackingConfig() {
+        if (mAprsTrackingManager == null
+                || !RadioDeviceProfile.T56.equals(RadioDeviceProfile.detectCurrent())) {
+            return;
+        }
+        final AprsTrackingManager manager = mAprsTrackingManager;
+        new Thread(() -> {
+            try {
+                manager.reloadConfig(new RadioConfigRepository(MumlaService.this)
+                        .loadActiveOrDefault());
+            } catch (Exception exception) {
+                Log.w(TAG, "T56 tracking config reload skipped: "
+                        + exception.getClass().getSimpleName());
+            }
+        }, "minimum-t56-tracking-config").start();
+    }
+
     /**
      * Sets whether or not notifications should be suppressed.
      *
@@ -1038,7 +1106,7 @@ public class MumlaService extends HumlaService implements
     public Message sendUserTextMessage(int session, String message) {
         Message msg = super.sendUserTextMessage(session, message);
 
-        mMessageLog.add(new IChatMessage.TextMessage(msg));
+        appendMessageLog(new IChatMessage.TextMessage(msg));
         return msg;
     }
 
@@ -1046,7 +1114,7 @@ public class MumlaService extends HumlaService implements
     public Message sendChannelTextMessage(int channel, String message, boolean tree) {
         Message msg = super.sendChannelTextMessage(channel, message, tree);
 
-        mMessageLog.add(new IChatMessage.TextMessage(msg));
+        appendMessageLog(new IChatMessage.TextMessage(msg));
         return msg;
     }
 }

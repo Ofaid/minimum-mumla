@@ -35,8 +35,10 @@ public final class RadioPttKeyManager {
                 .putBoolean(Settings.PREF_USE_TTS, true)
                 .putBoolean(Settings.PREF_PTT_SOUND, false);
         if (RadioDeviceProfile.T99.equals(profile)
+                || RadioDeviceProfile.T56.equals(profile)
                 || !preferences.contains(Settings.PREF_PUSH_KEY)) {
-            editor.putInt(Settings.PREF_PUSH_KEY, KeyEvent.KEYCODE_F1);
+            editor.putInt(Settings.PREF_PUSH_KEY, RadioDeviceProfile.T56.equals(profile)
+                    ? RadioDeviceProfile.T56_PTT_KEY_CODE : KeyEvent.KEYCODE_F1);
         }
         editor.apply();
     }
@@ -49,6 +51,10 @@ public final class RadioPttKeyManager {
             // preference to turn EXIT into PTT.
             return isProfileDefaultPttKey(profile, keyCode);
         }
+        if (RadioDeviceProfile.T56.equals(profile)) {
+            // T56 Menu is F1. Only the captured vendor DTT_PTT code may be the hardware PTT.
+            return isProfileDefaultPttKey(profile, keyCode);
+        }
         if (settings != null && keyCode == settings.getPushToTalkKey()) {
             return true;
         }
@@ -59,9 +65,8 @@ public final class RadioPttKeyManager {
         if (RadioDeviceProfile.T99.equals(profile)) {
             return keyCode == KeyEvent.KEYCODE_F1 || isMediaStyleKey(keyCode);
         }
-        if (RadioDeviceProfile.T88.equals(profile)) {
-            return keyCode == KeyEvent.KEYCODE_F1
-                    || keyCode == KeyEvent.KEYCODE_F2
+        if (RadioDeviceProfile.T56.equals(profile)) {
+            return keyCode == RadioDeviceProfile.T56_PTT_KEY_CODE
                     || isMediaStyleKey(keyCode);
         }
         return false;
@@ -78,7 +83,7 @@ public final class RadioPttKeyManager {
     }
 
     public static boolean isRadioProfile(String profile) {
-        return RadioDeviceProfile.T99.equals(profile) || RadioDeviceProfile.T88.equals(profile);
+        return RadioDeviceProfile.T99.equals(profile) || RadioDeviceProfile.T56.equals(profile);
     }
 
     public static boolean shouldEnablePttConfirmationSound(String profile,
@@ -98,6 +103,15 @@ public final class RadioPttKeyManager {
                 || keyCode == KeyEvent.KEYCODE_DPAD_UP
                 || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
                 || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
+                || keyCode == KeyEvent.KEYCODE_F11
+                || keyCode == KeyEvent.KEYCODE_F12
+                || keyCode == KeyEvent.KEYCODE_NAVIGATE_NEXT
+                || keyCode == KeyEvent.KEYCODE_NAVIGATE_PREVIOUS
+                || keyCode == KeyEvent.KEYCODE_NAVIGATE_IN
+                || keyCode == KeyEvent.KEYCODE_STEM_PRIMARY
+                || keyCode == KeyEvent.KEYCODE_STEM_1
+                || keyCode == KeyEvent.KEYCODE_STEM_2
+                || keyCode == KeyEvent.KEYCODE_STEM_3
                 || isMediaStyleKey(keyCode);
     }
 }

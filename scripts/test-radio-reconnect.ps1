@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Exercises Minimum network-loss recovery on a connected T99/T88 without pressing PTT.
+    Exercises Minimum network-loss recovery on a connected T99/T56 without pressing PTT.
 
 .DESCRIPTION
     Records Wi-Fi/mobile-data state, opens RadioShell, disables both transports for a bounded

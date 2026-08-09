@@ -19,15 +19,18 @@ import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -67,6 +70,8 @@ import se.lublin.mumla.util.MumlaTrustStore;
 public final class RadioShellActivity extends AppCompatActivity {
     public static final String EXTRA_CONNECT_ON_PTT =
             "se.lublin.mumla.extra.CONNECT_ON_PTT";
+    public static final String EXTRA_TOGGLE_IDENTITY =
+            "se.lublin.mumla.extra.TOGGLE_IDENTITY";
     private static final int MICROPHONE_PERMISSION_REQUEST = 73;
     private static final int COLOR_READY = Color.rgb(5, 48, 38);
     private static final int COLOR_RX = Color.rgb(0, 60, 68);
@@ -74,7 +79,10 @@ public final class RadioShellActivity extends AppCompatActivity {
     private static final int COLOR_TX = Color.rgb(92, 7, 20);
     private static final int COLOR_OFFLINE = Color.rgb(25, 28, 33);
     private static final int COLOR_ERROR = Color.rgb(82, 8, 18);
+    private static final int COLOR_CHANNEL_BADGE = Color.rgb(244, 194, 64);
+    private static final int COLOR_CHANNEL_TEXT = Color.rgb(25, 28, 33);
     private static final String AUTOMATION_STATE_READY = "minimum-state-ready";
+    private static final String PREF_SELECTED_CHANNEL_ID = "radio_selected_channel_id";
 
     private IMumlaService service;
     private MumlaDatabase database;
@@ -98,6 +106,12 @@ public final class RadioShellActivity extends AppCompatActivity {
     private int pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
     private long pendingExitStartedAt = -1L;
     private long pendingRoomStartedAt = -1L;
+    private int pendingIdentityKey = KeyEvent.KEYCODE_UNKNOWN;
+    private long pendingIdentityStartedAt = -1L;
+    private boolean identityHoldCompleted;
+    private boolean identityOverlayVisible;
+    private long lastIdentityToggleElapsedRealtime;
+    private int currentStatusColor = COLOR_OFFLINE;
 
     private final Runnable protectedExitAction = () -> {
         pendingExitKey = KeyEvent.KEYCODE_UNKNOWN;
@@ -121,8 +135,14 @@ public final class RadioShellActivity extends AppCompatActivity {
         int direction = RadioKeyActionPolicy.roomDirection(keyCode);
         if (direction != 0) {
             selectRelativeRoom(direction);
-            joinSelectedRoom();
         }
+    };
+    private final Runnable identityToggleAction = () -> {
+        if (pendingIdentityKey == KeyEvent.KEYCODE_UNKNOWN || destroyed) {
+            return;
+        }
+        identityHoldCompleted = true;
+        toggleIdentityOverlay();
     };
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
@@ -156,7 +176,9 @@ public final class RadioShellActivity extends AppCompatActivity {
     private TextView txTimerView;
     private TextView roomView;
     private TextView identityView;
+    private TextView identityOverlayView;
     private ProgressBar connectionProgress;
+    private boolean compactLayout;
 
     private final BroadcastReceiver configReceiver = new BroadcastReceiver() {
         @Override
@@ -240,7 +262,7 @@ public final class RadioShellActivity extends AppCompatActivity {
         @Override
         public void onUserJoinedChannel(IUser user, IChannel newChannel, IChannel oldChannel) {
             if (isSelf(user)) {
-                roomView.setText(RoomPathResolver.fullPath(newChannel));
+                updateChannelAliasView();
                 joinedConfiguredRoom = isSelectedRoom(newChannel);
                 updateServiceRoomReady(joinedConfiguredRoom);
                 scheduleRadioTrafficRefresh();
@@ -286,7 +308,8 @@ public final class RadioShellActivity extends AppCompatActivity {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
             service = ((MumlaService.MumlaBinder) binder).getService();
-            service.setRadioRoomReady(false);
+            // Service-owned room readiness survives Activity stop/start (including screen-off).
+            // Connection and channel observers still clear it when the actual radio state changes.
             service.registerObserver(observer);
             updateFromService();
             maybeApplyPendingConfiguration();
@@ -309,6 +332,7 @@ public final class RadioShellActivity extends AppCompatActivity {
         database = new MumlaSQLiteDatabase(this);
         database.open();
         buildUi();
+        acceptIdentityToggleIntent(getIntent());
         acceptPttRecoveryIntent(getIntent());
         loadConfiguration();
     }
@@ -317,6 +341,7 @@ public final class RadioShellActivity extends AppCompatActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        acceptIdentityToggleIntent(intent);
         acceptPttRecoveryIntent(intent);
         maybeConnect();
     }
@@ -381,6 +406,15 @@ public final class RadioShellActivity extends AppCompatActivity {
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         RadioKeyDiagnostics.record(this, "activity", event);
+        if (event != null && isIdentityToggleEvent(event)) {
+            RadioKeyDiagnostics.record(this, "identity-toggle", event);
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                beginIdentityToggle(event.getKeyCode(), event);
+            } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                finishIdentityToggle(event.getKeyCode(), event);
+            }
+            return true;
+        }
         if (event != null && isProtectedExitKey(event.getKeyCode())) {
             RadioKeyDiagnostics.record(this, "protected-exit", event);
             if (event.getAction() == KeyEvent.ACTION_DOWN) {
@@ -416,6 +450,10 @@ public final class RadioShellActivity extends AppCompatActivity {
             beginRoomChange(keyCode, event);
             return true;
         }
+        if (isIdentityToggleKey(keyCode)) {
+            beginIdentityToggle(keyCode, event);
+            return true;
+        }
         if (isConfirmKey(keyCode)) {
             if (event.getRepeatCount() == 0) {
                 joinSelectedRoom();
@@ -424,8 +462,10 @@ public final class RadioShellActivity extends AppCompatActivity {
         }
         if (keyCode == KeyEvent.KEYCODE_ENDCALL) {
             if (event.getRepeatCount() == 0 && config != null) {
-                selectedRoomIndex = config.getDefaultRoomIndex();
-                joinSelectedRoom();
+                RadioConnectionConfig.Channel previous = getSelectedChannel();
+                selectedRoomIndex = config.getDefaultChannelIndex();
+                persistSelectedChannel();
+                activateSelectedChannel(previous);
             }
             return true;
         }
@@ -442,6 +482,10 @@ public final class RadioShellActivity extends AppCompatActivity {
         }
         if (RadioKeyActionPolicy.isRoomChangeKey(keyCode)) {
             finishRoomChange(keyCode, event);
+            return true;
+        }
+        if (isIdentityToggleKey(keyCode)) {
+            finishIdentityToggle(keyCode, event);
             return true;
         }
         if (isNavigationKey(keyCode)) {
@@ -465,12 +509,15 @@ public final class RadioShellActivity extends AppCompatActivity {
 
     @SuppressWarnings("deprecation")
     private void buildUi() {
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN
-                | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
                 | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+        getWindow().setStatusBarColor(COLOR_OFFLINE);
+        getWindow().setNavigationBarColor(COLOR_OFFLINE);
 
         boolean compact = getResources().getConfiguration().screenHeightDp <= 160
                 || getResources().getConfiguration().screenWidthDp <= 160;
+        compactLayout = compact;
         rootView = new LinearLayout(this);
         rootView.setOrientation(LinearLayout.VERTICAL);
         rootView.setGravity(Gravity.CENTER);
@@ -478,7 +525,7 @@ public final class RadioShellActivity extends AppCompatActivity {
 
         serviceNameView = textView(compact ? 8 : 11, Color.LTGRAY);
         serviceNameView.setGravity(Gravity.CENTER);
-        serviceNameView.setVisibility(compact ? View.GONE : View.VISIBLE);
+        serviceNameView.setVisibility(View.INVISIBLE);
         rootView.addView(serviceNameView, new LinearLayout.LayoutParams(-1, -2));
 
         connectionProgress = new ProgressBar(this);
@@ -491,7 +538,9 @@ public final class RadioShellActivity extends AppCompatActivity {
         statusView.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         statusView.setGravity(Gravity.CENTER);
         statusView.setSingleLine(false);
-        statusView.setMaxLines(2);
+        statusView.setMaxLines(compact ? 2 : 4);
+        statusView.setEllipsize(TextUtils.TruncateAt.END);
+        statusView.setIncludeFontPadding(false);
         rootView.addView(statusView, new LinearLayout.LayoutParams(-1, 0, 1));
 
         txTimerView = textView(compact ? 21 : 30, Color.WHITE);
@@ -506,19 +555,40 @@ public final class RadioShellActivity extends AppCompatActivity {
         detailView.setMaxLines(2);
         rootView.addView(detailView, new LinearLayout.LayoutParams(-1, -2));
 
-        roomView = textView(compact ? 9 : 13, Color.WHITE);
+        roomView = textView(compact ? 16 : 20, COLOR_CHANNEL_TEXT);
+        roomView.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         roomView.setGravity(Gravity.CENTER);
-        rootView.addView(roomView, new LinearLayout.LayoutParams(-1, -2));
+        roomView.setSingleLine(true);
+        roomView.setEllipsize(TextUtils.TruncateAt.END);
+        roomView.setPadding(dp(compact ? 4 : 8), dp(compact ? 2 : 4),
+                dp(compact ? 4 : 8), dp(compact ? 2 : 4));
+        GradientDrawable channelBadge = new GradientDrawable();
+        channelBadge.setColor(COLOR_CHANNEL_BADGE);
+        channelBadge.setCornerRadius(dp(4));
+        roomView.setBackground(channelBadge);
+        LinearLayout.LayoutParams roomParams = new LinearLayout.LayoutParams(-1, -2);
+        roomParams.setMargins(0, dp(1), 0, dp(1));
+        rootView.addView(roomView, roomParams);
 
         identityView = textView(8, Color.GRAY);
         identityView.setGravity(Gravity.CENTER);
         String deviceId = new DeviceIdentityManager(
                 PreferenceManager.getDefaultSharedPreferences(this)).getOrCreateDeviceId();
         identityView.setText(deviceId + " · " + RadioDeviceProfile.detectCurrent());
-        identityView.setVisibility(compact ? View.GONE : View.VISIBLE);
+        identityView.setVisibility(View.INVISIBLE);
         rootView.addView(identityView, new LinearLayout.LayoutParams(-1, -2));
 
-        setContentView(rootView);
+        identityOverlayView = textView(compact ? 30 : 48, Color.WHITE);
+        identityOverlayView.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        identityOverlayView.setGravity(Gravity.CENTER);
+        identityOverlayView.setText(deviceId);
+        identityOverlayView.setContentDescription(deviceId);
+        identityOverlayView.setVisibility(View.GONE);
+
+        FrameLayout shell = new FrameLayout(this);
+        shell.addView(rootView, new FrameLayout.LayoutParams(-1, -1));
+        shell.addView(identityOverlayView, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(shell);
         setStatus(COLOR_OFFLINE, getString(R.string.radio_loading_config));
     }
 
@@ -555,9 +625,17 @@ public final class RadioShellActivity extends AppCompatActivity {
         connectionRetrySuspended = false;
         joinedConfiguredRoom = false;
         updateServiceRoomReady(false);
-        selectedRoomIndex = loaded.getDefaultRoomIndex();
+        String savedChannelId = PreferenceManager.getDefaultSharedPreferences(this)
+                .getString(PREF_SELECTED_CHANNEL_ID, null);
+        selectedRoomIndex = loaded.findChannelIndex(savedChannelId);
+        if (selectedRoomIndex < 0) {
+            selectedRoomIndex = loaded.getDefaultChannelIndex();
+            if (!pendingConfigTrial) {
+                persistSelectedChannel();
+            }
+        }
         serviceNameView.setText(loaded.getServiceName());
-        roomView.setText(loaded.getDefaultRoom().getLabel());
+        updateChannelAliasView();
         if (!loaded.isAutoConnect()) {
             setStatus(COLOR_OFFLINE, getString(R.string.radio_not_provisioned));
         }
@@ -660,6 +738,7 @@ public final class RadioShellActivity extends AppCompatActivity {
                     if (destroyed) {
                         return;
                     }
+                    persistSelectedChannel();
                     if (!config.isAutoConnect() && service != null && service.isConnected()) {
                         reconnectAfterDisconnect = false;
                         service.disconnect();
@@ -704,13 +783,21 @@ public final class RadioShellActivity extends AppCompatActivity {
                 }
                 applyConfigurationToUi(finalRestored);
                 setStatus(COLOR_ERROR, getString(R.string.radio_config_rolled_back));
-                if (service != null && (service.isConnected() || service.isReconnecting()
-                        || service.getConnectionState() == HumlaService.ConnectionState.CONNECTING)) {
-                    reconnectAfterDisconnect = finalRestored.isAutoConnect();
-                    service.disconnect();
-                } else {
-                    maybeConnect();
+                if (service != null) {
+                    HumlaService.ConnectionState state = service.getConnectionState();
+                    if (service.isConnected()
+                            || state == HumlaService.ConnectionState.CONNECTING) {
+                        reconnectAfterDisconnect = finalRestored.isAutoConnect();
+                        service.disconnect();
+                        return;
+                    }
+                    if (service.isReconnecting()
+                            || state == HumlaService.ConnectionState.CONNECTION_LOST) {
+                        reconnectAfterDisconnect = false;
+                        service.cancelReconnect();
+                    }
                 }
+                maybeConnect();
             });
         }, "minimum-radio-config-rollback").start();
     }
@@ -755,8 +842,8 @@ public final class RadioShellActivity extends AppCompatActivity {
         if (service.isConnected()) {
             connectOnPttRequest = false;
             Server target = service.getTargetServer();
-            if (target != null && config.getHost().equalsIgnoreCase(target.getHost())
-                    && config.getPort() == target.getPort()) {
+            RadioConnectionConfig.Connection connection = getSelectedChannel().getConnection();
+            if (connection.matches(target)) {
                 joinSelectedRoom();
                 updateFromService();
                 return;
@@ -780,9 +867,11 @@ public final class RadioShellActivity extends AppCompatActivity {
                 setStatus(COLOR_ERROR, getString(R.string.radio_certificate_failed));
                 return;
             }
-            Server server = new Server(-1, config.getServiceName(), config.getHost(),
-                    config.getPort(), config.getUsername(), "");
-            new ServerConnectTask(this, database, config.getAccessTokens(),
+            RadioConnectionConfig.Channel channel = getSelectedChannel();
+            RadioConnectionConfig.Connection connection = channel.getConnection();
+            Server server = new Server(-1, connection.getName(), connection.getHost(),
+                    connection.getPort(), connection.getUsername(), connection.getPassword());
+            new ServerConnectTask(this, database, channel.getAccessTokens(),
                     config.isAutoReconnect()).execute(server);
         });
     }
@@ -795,7 +884,7 @@ public final class RadioShellActivity extends AppCompatActivity {
             case CONNECTED:
                 IChannel channel = getSessionChannelSafely();
                 if (channel != null) {
-                    roomView.setText(RoomPathResolver.fullPath(channel));
+                    updateChannelAliasView();
                 }
                 showTrafficOrReady();
                 break;
@@ -826,10 +915,11 @@ public final class RadioShellActivity extends AppCompatActivity {
             return;
         }
         try {
+            RadioConnectionConfig.Connection connection = getSelectedChannel().getConnection();
             String actual = toHex(MessageDigest.getInstance("SHA-256")
                     .digest(chain[0].getEncoded()));
-            if (!config.acceptsServerCertificate(actual)) {
-                if (config.getServerCertificateSha256() == null) {
+            if (!connection.acceptsServerCertificate(actual)) {
+                if (connection.getServerCertificateSha256() == null) {
                     connectionRetrySuspended = true;
                     setStatus(COLOR_ERROR, getString(R.string.radio_certificate_untrusted));
                     if (pendingConfigTrial) {
@@ -845,7 +935,7 @@ public final class RadioShellActivity extends AppCompatActivity {
                 return;
             }
             KeyStore trustStore = MumlaTrustStore.getTrustStore(this);
-            String alias = "minimum-" + config.getHost() + ":" + config.getPort();
+            String alias = "minimum-" + connection.getHost() + ":" + connection.getPort();
             trustStore.setCertificateEntry(alias, chain[0]);
             MumlaTrustStore.saveTrustStore(this, trustStore);
             connectionRetrySuspended = false;
@@ -869,14 +959,69 @@ public final class RadioShellActivity extends AppCompatActivity {
     }
 
     private void selectRelativeRoom(int direction) {
-        if (config == null || config.getRooms().isEmpty()) {
+        if (config == null || config.getChannels().isEmpty()) {
             return;
         }
-        int count = config.getRooms().size();
+        if (service != null && service.isConnected()) {
+            try {
+                if (service.HumlaSession().isTalking()) {
+                    setStatus(COLOR_BUSY, getString(R.string.radio_waiting_for_idle));
+                    return;
+                }
+            } catch (IllegalStateException ignored) {
+                return;
+            }
+        }
+        RadioConnectionConfig.Channel previous = getSelectedChannel();
+        int count = config.getChannels().size();
         selectedRoomIndex = (selectedRoomIndex + direction + count) % count;
-        RadioConnectionConfig.Room room = config.getRooms().get(selectedRoomIndex);
-        roomView.setText(room.getLabel());
+        RadioConnectionConfig.Channel channel = getSelectedChannel();
+        persistSelectedChannel();
+        updateChannelAliasView();
         setStatus(COLOR_BUSY, getString(R.string.radio_joining_room));
+        activateSelectedChannel(previous);
+    }
+
+    private void activateSelectedChannel(RadioConnectionConfig.Channel previous) {
+        if (config == null || service == null) {
+            return;
+        }
+        RadioConnectionConfig.Channel selected = getSelectedChannel();
+        boolean sessionCredentialsChanged = previous != null
+                && previous.requiresReconnectTo(selected);
+        HumlaService.ConnectionState state = service.getConnectionState();
+        if (sessionCredentialsChanged
+                && state == HumlaService.ConnectionState.CONNECTING) {
+            reconnectAfterDisconnect = true;
+            service.cancelReconnect();
+            service.disconnect();
+            return;
+        }
+        if (sessionCredentialsChanged
+                && state == HumlaService.ConnectionState.CONNECTION_LOST) {
+            reconnectAfterDisconnect = false;
+            service.cancelReconnect();
+            maybeConnect();
+            return;
+        }
+        if (service.isConnected()) {
+            IHumlaSession session = service.HumlaSession();
+            if (session.isTalking()) {
+                setStatus(COLOR_BUSY, getString(R.string.radio_waiting_for_idle));
+                return;
+            }
+            if (sessionCredentialsChanged
+                    || !selected.getConnection().matches(service.getTargetServer())) {
+                joinedConfiguredRoom = false;
+                updateServiceRoomReady(false);
+                reconnectAfterDisconnect = true;
+                service.disconnect();
+                return;
+            }
+            joinSelectedRoom();
+            return;
+        }
+        maybeConnect();
     }
 
     private void joinSelectedRoom() {
@@ -888,8 +1033,8 @@ public final class RadioShellActivity extends AppCompatActivity {
             setStatus(COLOR_BUSY, getString(R.string.radio_waiting_for_idle));
             return;
         }
-        RadioConnectionConfig.Room room = config.getRooms().get(selectedRoomIndex);
-        IChannel target = RoomPathResolver.resolve(session.getRootChannel(), room.getPath());
+        RadioConnectionConfig.Channel channel = getSelectedChannel();
+        IChannel target = RoomPathResolver.resolve(session.getRootChannel(), channel.getPath());
         if (target == null) {
             setStatus(COLOR_ERROR, getString(R.string.radio_room_missing));
             if (pendingConfigTrial) {
@@ -897,7 +1042,7 @@ public final class RadioShellActivity extends AppCompatActivity {
             }
             return;
         }
-        roomView.setText(room.getLabel());
+        updateChannelAliasView();
         if (!target.equals(session.getSessionChannel())) {
             joinedConfiguredRoom = false;
             updateServiceRoomReady(false);
@@ -917,8 +1062,33 @@ public final class RadioShellActivity extends AppCompatActivity {
         if (config == null || channel == null) {
             return false;
         }
-        return config.getRooms().get(selectedRoomIndex).getPath()
+        return getSelectedChannel().getPath()
                 .equals(RoomPathResolver.fullPath(channel));
+    }
+
+    private RadioConnectionConfig.Channel getSelectedChannel() {
+        return config.getChannels().get(selectedRoomIndex);
+    }
+
+    private void updateChannelAliasView() {
+        if (roomView == null || config == null || config.getChannels().isEmpty()
+                || selectedRoomIndex < 0 || selectedRoomIndex >= config.getChannels().size()) {
+            return;
+        }
+        String alias = getSelectedChannel().getAlias();
+        roomView.setText(getString(R.string.radio_channel_alias, alias));
+        roomView.setContentDescription(
+                getString(R.string.radio_channel_alias_accessibility, alias));
+    }
+
+    private void persistSelectedChannel() {
+        if (config == null || selectedRoomIndex < 0
+                || selectedRoomIndex >= config.getChannels().size()) {
+            return;
+        }
+        PreferenceManager.getDefaultSharedPreferences(this).edit()
+                .putString(PREF_SELECTED_CHANNEL_ID, getSelectedChannel().getId())
+                .apply();
     }
 
     private void showTrafficOrReady() {
@@ -930,10 +1100,18 @@ public final class RadioShellActivity extends AppCompatActivity {
                 String talker = traffic.getTalker();
                 setStatus(COLOR_RX,
                         talker.isEmpty() ? getString(R.string.radio_receiving) : talker);
+                statusView.setContentDescription(talker.isEmpty()
+                        ? getString(R.string.radio_receiving) : talker);
                 detailView.setText(R.string.radio_receiving);
                 break;
             case MULTIPLE_TALKERS:
-                setStatus(COLOR_RX, getString(R.string.radio_multiple_talkers));
+                int maxLines = compactLayout ? 2 : 4;
+                int hiddenCount = Math.max(0, traffic.getTalkers().size() - maxLines);
+                RadioTalkerDisplay.Display display = RadioTalkerDisplay.format(
+                        traffic.getTalkers(), maxLines,
+                        getString(R.string.radio_more_talkers, hiddenCount));
+                setStatus(COLOR_RX, display.getText());
+                statusView.setContentDescription(display.getAccessibilityText());
                 detailView.setText(R.string.radio_receiving);
                 break;
             case READY:
@@ -1010,12 +1188,17 @@ public final class RadioShellActivity extends AppCompatActivity {
     }
 
     private void setStatus(int color, String text) {
+        currentStatusColor = color;
         rootView.setBackgroundColor(color);
+        getWindow().setStatusBarColor(color);
         statusView.setBackgroundColor(Color.TRANSPARENT);
         statusView.setContentDescription(null);
         statusView.setText(text);
         detailView.setText("");
         connectionProgress.setVisibility(color == COLOR_BUSY ? View.VISIBLE : View.GONE);
+        if (identityOverlayView != null) {
+            identityOverlayView.setBackgroundColor(color);
+        }
     }
 
     private boolean isConfirmKey(int keyCode) {
@@ -1036,7 +1219,18 @@ public final class RadioShellActivity extends AppCompatActivity {
                 || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
                 || keyCode == KeyEvent.KEYCODE_ENDCALL
                 || isProtectedExitKey(keyCode)
+                || isIdentityToggleKey(keyCode)
                 || isConfirmKey(keyCode);
+    }
+
+    private boolean isIdentityToggleKey(int keyCode) {
+        return RadioKeyActionPolicy.isIdentityToggleKey(
+                RadioDeviceProfile.detectCurrent(), keyCode);
+    }
+
+    private boolean isIdentityToggleEvent(KeyEvent event) {
+        return RadioKeyActionPolicy.isIdentityToggleEvent(
+                RadioDeviceProfile.detectCurrent(), event);
     }
 
     private boolean isProtectedExitKey(int keyCode) {
@@ -1119,16 +1313,75 @@ public final class RadioShellActivity extends AppCompatActivity {
         }
     }
 
+    private void beginIdentityToggle(int keyCode, KeyEvent event) {
+        if (event.getRepeatCount() != 0 || pendingIdentityKey == keyCode) {
+            return;
+        }
+        cancelPendingHardwareActions(false);
+        pendingIdentityKey = keyCode;
+        pendingIdentityStartedAt = event.getEventTime();
+        identityHoldCompleted = false;
+        uiHandler.postDelayed(identityToggleAction, RadioKeyActionPolicy.IDENTITY_HOLD_MS);
+    }
+
+    private void finishIdentityToggle(int keyCode, KeyEvent event) {
+        if (pendingIdentityKey != keyCode) {
+            return;
+        }
+        boolean completed = identityHoldCompleted;
+        if (!completed && RadioKeyActionPolicy.heldLongEnough(pendingIdentityStartedAt,
+                event.getEventTime(), RadioKeyActionPolicy.IDENTITY_HOLD_MS)) {
+            toggleIdentityOverlay();
+            completed = true;
+        }
+        pendingIdentityKey = KeyEvent.KEYCODE_UNKNOWN;
+        pendingIdentityStartedAt = -1L;
+        identityHoldCompleted = false;
+        uiHandler.removeCallbacks(identityToggleAction);
+        if (!completed && RadioDeviceProfile.T99.equals(RadioDeviceProfile.detectCurrent())) {
+            joinSelectedRoom();
+        }
+    }
+
+    private void setIdentityOverlayVisible(boolean visible) {
+        identityOverlayVisible = visible;
+        if (identityOverlayView != null) {
+            identityOverlayView.setBackgroundColor(currentStatusColor);
+            identityOverlayView.setVisibility(visible ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private void toggleIdentityOverlay() {
+        lastIdentityToggleElapsedRealtime = SystemClock.elapsedRealtime();
+        setIdentityOverlayVisible(!identityOverlayVisible);
+    }
+
+    private void acceptIdentityToggleIntent(Intent intent) {
+        if (intent == null || !intent.getBooleanExtra(EXTRA_TOGGLE_IDENTITY, false)) {
+            return;
+        }
+        intent.removeExtra(EXTRA_TOGGLE_IDENTITY);
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastIdentityToggleElapsedRealtime > 750L) {
+            toggleIdentityOverlay();
+        }
+    }
+
     private void cancelPendingHardwareActions(boolean restoreStatus) {
         boolean hadPendingAction = pendingExitKey != KeyEvent.KEYCODE_UNKNOWN
-                || pendingRoomKey != KeyEvent.KEYCODE_UNKNOWN;
+                || pendingRoomKey != KeyEvent.KEYCODE_UNKNOWN
+                || pendingIdentityKey != KeyEvent.KEYCODE_UNKNOWN;
         pendingExitKey = KeyEvent.KEYCODE_UNKNOWN;
         pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
         pendingExitStartedAt = -1L;
         pendingRoomStartedAt = -1L;
+        pendingIdentityKey = KeyEvent.KEYCODE_UNKNOWN;
+        pendingIdentityStartedAt = -1L;
+        identityHoldCompleted = false;
         uiHandler.removeCallbacks(protectedExitAction);
         uiHandler.removeCallbacks(protectedExitPromptTick);
         uiHandler.removeCallbacks(roomChangeAction);
+        uiHandler.removeCallbacks(identityToggleAction);
         if (restoreStatus && hadPendingAction) {
             updateFromService();
         }

@@ -36,5 +36,7 @@ public interface IMumlaService extends IHumlaService {
 
     void clearMessageLog();
 
+    void reloadTrackingConfig();
+
     void setSuppressNotifications(boolean suppressNotifications);
 }

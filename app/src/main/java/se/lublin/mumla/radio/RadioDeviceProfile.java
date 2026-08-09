@@ -16,8 +16,11 @@ import java.util.Locale;
 /** Identifies supported radio hardware without coupling the app to one handset model. */
 public final class RadioDeviceProfile {
     public static final String T99 = "t99";
-    public static final String T88 = "t88";
+    public static final String T56 = "t56";
     public static final String GENERIC = "generic-radio";
+
+    /** Vendor DTT_PTT from the T56 OEM keylayout is delivered to apps as keyCode 261. */
+    public static final int T56_PTT_KEY_CODE = 261;
 
     private RadioDeviceProfile() {
     }
@@ -37,10 +40,18 @@ public final class RadioDeviceProfile {
         if ("youdotech".equals(normalizedManufacturer) && "qm011".equals(normalizedModel)) {
             return T99;
         }
-        if (normalizedModel.contains("t88") || normalizedManufacturer.contains("t88")) {
-            return T88;
+        if ("unipro".equals(normalizedManufacturer) && "zx".equals(normalizedModel)) {
+            return T56;
         }
         return GENERIC;
+    }
+
+    /**
+     * Returns whether this hardware profile has passed real-device location acceptance for future
+     * tracking. This gate is intentionally independent of remotely supplied configuration.
+     */
+    public static boolean supportsLocationTracking(String profile) {
+        return T56.equals(profile);
     }
 
     private static String normalize(String value) {

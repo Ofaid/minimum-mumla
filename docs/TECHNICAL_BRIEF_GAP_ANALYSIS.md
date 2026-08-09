@@ -1,6 +1,6 @@
 # Technical Brief gap analysis
 
-Last reviewed: 2026-08-05
+Last reviewed: 2026-08-08
 
 This document maps the supplied Public PoC Radio Client Technical Brief to the code that actually
 exists. `PROJECT_STATUS.md` remains the short hand-off source of truth; this file is the detailed
@@ -25,8 +25,14 @@ active radio config
 ```
 
 The remaining MVP risk is hardware and lifecycle acceptance rather than basic connection wiring:
-T88 evidence, multi-room traffic tests, extended lifecycle/audio evidence and
+T56 supervised hardware/PTT evidence, multi-room traffic tests, extended lifecycle/audio evidence and
 release hardening.
+
+The post-brief T56 tracking extension is operational: immutable T56-only capability gating,
+bounded GPS acquisition, configurable APRS Object identity with `VR-<DeviceID>` fallback, state
+symbols, compact Health comment
+and acknowledged HTTPS send-only transport have passed a live open-sky/APRS.fi check. Its canonical
+contract is [APRS_TRACKING.md](APRS_TRACKING.md); T99 tracking remains deliberately unsupported.
 
 T99 physical screen-off PTT has passed an operator test. Physical capture now identifies the
 labelled PTT as raw gpio-keys `KEYCODE_F1` 131 / scan 59 / source 0x101 and identifies F2 as EXIT;
@@ -37,13 +43,18 @@ T99 rejects F2 as PTT. MediaSession remains an alternate headset/media path.
 | Brief phase | Status | Evidence already present | Remaining work |
 | --- | --- | --- | --- |
 | 0 — Baseline | Partial | Upstream/Humla retained; FOSS debug tests and APK build; Minimum name/icon | Record a clean upstream voice/PTT baseline; choose a distinct application ID; decide radio/diagnostic flavor structure |
-| 1 — Radio Shell | Mostly complete | Dark `RadioShellActivity` loads LKG config, auto-connects/reconnects, joins the full-path default room, shows connection/RX/TX/access state and supports touch/physical PTT; real T99 boot-to-ready passed | Exercise multiple room presets and decide dedicated radio application ID/flavor |
+| 1 — Radio Shell | Mostly complete | Dark `RadioShellActivity` loads LKG config, restores the selected full-path channel, auto-connects/reconnects, keeps the Android status bar visible, shows connection/RX/TX/access state and supports touch/physical PTT; real T99 boot-to-ready passed | Exercise multiple channel presets and decide dedicated radio application ID/flavor |
 | 2 — Device Identity | Mostly complete | Six-character `SecureRandom` identity, persistence, validation, tests and ADB/system-shell-protected Config Profile assignment | Add protected on-device admin UI/gesture for regeneration and acceptance tests across update/reboot/clear-data |
-| 3 — Remote Configuration | Mostly complete | Schema 2 with independent `mumble.username`, embedded fallback, HTTPS fetch, default/model/device merge, limits, validation, active/previous/pending cache, downgrade rejection, six-hour plus network-return refresh, service-owned RX/TX idle candidate trial, commit after room join, explicit rollback and JVM tests | Config signature verification and physical success/failure candidate acceptance |
-| 4 — Rooms and Tokens | Mostly complete | Resolved public tokens feed existing Humla authentication without DB/log persistence; typed presets, exact full-path lookup, default join and one-second Up/Down hold-to-join; live nested-room T99 test passed | Multi-room live test, idle reconnect on token change and permission-denied/default-room fallback evidence |
-| 5 — Hardware PTT | T99 core pass / T88 open | T99 ten-button kernel map, F1 Android metadata, F2 EXIT isolation, private bounded diagnostics, dashboard PTT recovery, immediate reconnect request, five-second accidental-exit guard, Activity/MediaSession paths, local warning, screen wake, TX timer, release paths and 120 s watchdog | T88 capture, physical dashboard-F1 acceptance, complete foreground/background/screen-off matrix and OEM/vendor/global path only if a target requires it |
-| 6 — Hardening | Mostly implemented, acceptance incomplete | Automatic certificate/boot, indefinite capped reconnect, guarded T99 network-loss PASS, process watchdog SIGKILL PASS, automatic preprocessor/half-duplex/TTS, teardown unmute, config rollback/downgrade and managed self-signed trust with optional pin | Long-outage/server/audio/wake evidence, battery optimization, bundled voice prompts, protected-token store, config signatures and sanitized diagnostics/security review |
+| 3 — Remote Configuration | Mostly complete | Schema 3 keyed connections and per-channel auth, selected-channel persistence, embedded fallback, HTTPS fetch, default/model/device merge, limits, validation, active/previous/pending cache, downgrade rejection, six-hour plus network-return refresh, service-owned RX/TX idle candidate trial, commit after channel join, explicit rollback and JVM tests | Config signature verification and physical success/failure candidate acceptance |
+| 4 — Rooms and Tokens | Mostly complete | Selected-channel public tokens feed Humla authentication without DB/preference/log persistence; channels can cross server/password/token boundaries and reconnect as needed; typed presets, exact full-path lookup, restored selection and one-second Up/Down hold; one live nested-channel T99 test passed | Multi-server live test, permission-denied/default-channel fallback evidence |
+| 5 — Hardware PTT | T99 core pass / T56 provisioned, PTT acceptance open | T99 ten-button map and T56 eleven-control input capture; T56 guarded provisioning and reboot-to-RadioShell pass; profile-specific PTT rules; private bounded diagnostics; dashboard recovery; throttled reconnect; deliberate exit; Activity/MediaSession paths; local warning; screen wake; TX timer; release paths and 120 s watchdog | T56 app-level side/power trace and physical foreground/screen-off PTT matrix, T99 dashboard-F1 acceptance, and OEM/vendor/global path only if a target requires it |
+| 6 — Hardening | Mostly implemented, acceptance incomplete | Automatic certificate/boot, transport-only 15/30/60-second reconnect with persisted 15-second attempt guard and rejection hold, guarded T99 network-loss PASS, process watchdog SIGKILL PASS, managed chat heads-up suppression, automatic preprocessor/half-duplex/TTS, teardown unmute, config rollback/downgrade and managed self-signed trust with optional pin | Long-outage/server/audio/wake evidence, battery optimization, bundled voice prompts, protected-token store, config signatures and sanitized diagnostics/security review |
 | 7 — Release | Early | Public GitHub repo, draft PR, GPLv3 source base, architecture/runbook/hardware docs, Pages deployment workflow | Android CI, signed APK, release notes, known-limitations report, instrumentation tests, device video and LTE/Wi-Fi/screen-off/reconnect report |
+
+The post-brief T56 Location/APRS extension is a live pass: quality/stale-fix filtering, a bounded
+stationary GPS window, adaptive movement states, `VR-` Object identity, state icons, Health comment,
+HTTPS receipt and APRS.fi indexing are verified. A-GPS attribution, endpoint certificate-rotation
+integration coverage and continued public-location privacy review remain open.
 
 ## Acceptance-test coverage
 
@@ -54,18 +65,21 @@ T99 rejects F2 as PTT. MediaSession remains an alternate headset/media path.
   denied-room behavior remain unproven.
 - PTT: T99 physical screen-off PTT passed; the labelled button is captured as F1/scan 59/gpio-keys,
   F2 is EXIT and private key diagnostics are installed. Short accidental exits, five-second F2 hold
-  and one-second Up hold passed without TX. Physical F1-from-dashboard and T88 remain open.
+  and one-second Up hold passed without TX. Physical F1-from-dashboard and T56 device acceptance
+  remain open; T56's primary PTT is vendor keyCode 261 and F1 is explicitly reserved for Menu.
 - Audio: no maintained LTE/Wi-Fi/Bluetooth/manual test report yet.
 - Lifecycle: actual T99 reboot-to-ready-room, short display-off persistence, 30-second network loss
   and process-death watchdog recovery are verified; long outage and newer Android boot restrictions
   remain open.
+- Location/APRS: T56 live Object/Health/receipt passed and T99 isolation passed. Historical
+  callsign-owned test packets cannot be deleted from APRS.fi; only the `VR-` Object format is current.
 
 ## Implementation order from here
 
 1. Continue `RECONNECT_TEST_PLAN.md` with server restart, long outage, reconnect visual, wake,
    half-duplex and supervised PTT-failure evidence; network and process-death cases already pass.
-2. Capture the incoming T88 hardware profile and repeat provisioning, boot, room and PTT tests; do
-   not copy T99 F1/F2 assumptions.
+2. Complete T56 app-private side/power capture, live-room and supervised PTT tests; do not copy T99
+   F1/F2 assumptions. Provisioning and reboot-to-RadioShell already pass.
 4. Exercise multiple room presets, denied-room fallback and watchdog release with an operator present.
 5. Complete pending-config physical acceptance, then add signed config and hidden diagnostics.
 6. Complete the hardware/lifecycle/security acceptance matrix, then introduce the dedicated application

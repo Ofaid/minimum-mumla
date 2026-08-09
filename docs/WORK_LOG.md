@@ -3,6 +3,104 @@
 This short log records meaningful project milestones. Detailed code truth remains in
 `PROJECT_STATUS.md` and the source files.
 
+## 2026-08-09 - Production admin portal handoff
+
+- Documented the deployed `web/` Next.js portal at `https://minimum.vra.or.th/`, using Vercel's
+  Next.js framework preset and Cloudflare KV REST storage. Production requires server-only KV and
+  HMAC/session secrets; no values were added to Git.
+- Recorded the first-run handoff: create the administrator in the portal, register a device, copy
+  its one-time bearer token into device-private provisioning, and rotate immediately if it is lost.
+  Credential material is persisted only as scrypt/password and device-token hashes; device metadata
+  and schema-3 config remain the stored device record.
+- Verified the live custom domain and security boundary without credentials: `/api/session` returned
+  `200` with `configured:false`; `/api/device-config/{deviceId}` and the legacy
+  `/api/device/{deviceId}/config` returned generic `401 Unauthorized`.
+- Verified the web project locally from `D:\mumla-dev\web`: `pnpm test` (8 tests),
+  `pnpm exec tsc --noEmit`, and `pnpm build` all passed. The live admin/device handoff remains
+  intentionally pending.
+
+## 2026-08-08 - APRS Object identity, health and live receipt
+
+- Added optional `channels[].alias` (1-32 visible characters) without changing schema version.
+  RadioShell displays it as a large amber `CHANNEL` badge that remains visually separate from the
+  active-talker area; full Mumble paths remain connection-only and are no longer written to the UI
+  after join. Configs without an alias remain compatible through the existing `label` fallback.
+  The public config family advanced to config version 6 for this effective default change.
+- Extended schema 3 with optional `tracking.aprs.objectName`. Safe ASCII labels of 1-9 characters
+  are uppercased and padded to APRS' fixed Object field; omission remains backward compatible and
+  derives `VR-<DeviceID>`. Runtime identity changes clear duplicate/in-flight state so the next
+  accepted fix is published under the new name. The current implementation does not send a kill
+  packet for the old Object name, so its APRS.fi history may remain visible.
+- Added a DUMP-protected in-app update path and guarded T56 PowerShell command that change only the
+  Object label, advance `configVersion` and preserve credentials without exporting the private
+  active config from firmware that lacks `run-as`.
+- Provisioned the connected UNIPRO/ZX T56 (ADB serial `81e36aae`) with `tracking.aprs.objectName`
+  set to `HS3HP`; the update was applied in place, the app was restarted once to load the new
+  tracking identity, and RadioShell was reopened. This assignment
+  is device-local and intentionally is not copied into the public backend device manifest.
+- Replaced the temporary callsign-owned APRS position experiment with the final APRS Object
+  contract. The default T56 identity is an Object (`;`) named `VR-` plus the six-character Minimum
+  Device ID, exactly nine characters, so APRS.fi wildcard search can use `VR-*`.
+- Added state-specific primary-table symbols: house/home (`-`) while stationary, person/jogger (`[`)
+  while walking, and car (`>`) while in a vehicle. The symbol is part of the wire contract and is
+  selected by `AprsTrackingManager`, not by the UI.
+- Added a compact Health comment to the existing position beacon: fix accuracy, battery percent and
+  charging/full state, battery temperature, Wi-Fi RSSI, mobile type/RSSI when available, and free
+  app-volume storage. Unavailable radio values are `NA`; SSID, IMEI, phone number, serial, Device
+  ID, credentials, tokens and duplicate coordinates are excluded.
+- Confirmed the production send-only path requires HTTPS `204` plus `X-Packetsrcvd > 0`; only then
+  does the app persist the last successful fix. API-22 needed the pinned ISRG Root X1 trust anchor.
+- Removed `requestSingleUpdate()` after the T56 firmware failed to deliver its callback; stationary
+  acquisition now uses regular GPS updates for a bounded 90-second window and polls every 30 minutes.
+- Hardened beacon cadence and duplicate handling: no mobile interval below 60 seconds, one in-flight
+  plus one newest pending beacon, and long backoff after post-write receipt uncertainty.
+- Live open-sky T56 acceptance produced a GPS fix, a positive APRS-IS receipt and an APRS.fi-indexed
+  `VR-` Object with Health fields. T99 remained isolated with no tracking manager/location request.
+- An earlier callsign-owned packet may remain in APRS.fi history because APRS-IS does not delete
+  accepted packets. The Object is the only current source of truth.
+- Documentation source of truth is now `docs/APRS_TRACKING.md`; the full JVM suite is now 93 tests
+  passing and the FOSS debug APK build succeeds from `D:\mumla-dev`.
+
+## 2026-08-07 — T56 profile and simultaneous talker UI
+
+- Completed T56 PC commissioning: side keys delivered Android keyCode 260/scan 138 and
+  keyCode 266/scan 59; physical screen-power OFF -> ON behavior was observed; screen-off PTT
+  delivered keyCode 261/scan 216 and Minimum intentionally woke its status surface. Android Power
+  mapping remains open because the observed scan 63/keyCode 264 is also the one-person-key path.
+- Installed a private schema-3 T56 config cloned from the existing private endpoint set, changing
+  only the T56 Device ID and requested usernames; secrets were never printed or committed.
+- Removed the visible service-name and inline Device ID text without collapsing their layout rows.
+  A one-second hold on T99 green or T56 one-person now toggles a full-screen Device ID overlay;
+  T99 green short press retains its existing room-confirm behavior.
+- Enabled high-accuracy Location on T99 and device-only GPS on T56, and added a temporary redacted
+  location probe. T56 passed a real GPS fix at about 5 m accuracy with 13 satellites used; T99 repeated its
+  zero-SNR/no-fix result. Qualcomm A-GPS flags exist, but assisted operation remains unaccepted.
+- Corrected the T56 network-location conclusion after confirming Google's consent activity was
+  launched and then covered by Minimum. Added an explicit operator consent wait with GPS-only
+  rollback, plus a deny-by-default tracking capability that accepts T56 and rejects T99/generic
+  hardware until each model has real-device location evidence.
+- Decompiled the T56 Google Services Framework path with the firmware's own `oatdump`, identified
+  the supported `disable` extra and `use_location_for_services` state, and physically completed a
+  positive consent run. T56 finished at high-accuracy `gps,network` and Minimum was restored;
+  provisioning now verifies stored consent before enabling that mode.
+- A redacted 30-second post-consent probe returned both a roughly 13 m GPS fix and a roughly
+  29.21 m network fix on T56. Network location is accepted; A-GPS remains open because the probe
+  cannot attribute the GPS fix to SUPL/XTRA assistance.
+
+- Replaced the provisional model name with the verified T56 profile after capturing the connected
+  `UNIPRO/ZX/L809` Android 5.1.1 radio. The public profile records no unique serial or secret.
+- Captured the physical navigation, person, side, PTT and volume-knob inputs. T56 PTT is vendor
+  keyCode 261; F1 is its Menu key and is explicitly excluded from PTT.
+- Added a T56 provisioning wrapper that auto-detects exactly one authorized `UNIPRO/ZX` device and
+  delegates to the shared guarded provisioning flow with manufacturer/model verification.
+- Provisioned the connected T56 with the guarded flow: removed Zello for user 0, created its Minimum
+  Device ID, installed the Launcher3 recovery shortcut, verified no HOME chooser, imported the
+  non-secret embedded config through a protected receiver fallback (the firmware has no
+  `/system/bin/run-as`), and confirmed a real reboot returns to RadioShell.
+- Changed RX rendering to retain every simultaneous remote talker. Compact T99 displays reserve
+  two lines, larger displays reserve four, and overflow replaces the final visible line with `+N`
+  while accessibility retains the full ordered list.
+
 ## 2026-08-05 — PTT recovery and deliberate hardware actions
 
 - Added fail-safe PTT recovery from MinimumHome and disconnected RadioShell: alert, foreground
@@ -65,7 +163,7 @@ This short log records meaningful project milestones. Detailed code truth remain
 - Applied the user-provided Minimum logo to the Android adaptive icon and added an API 21+
   legacy launcher resource for T99. Changed the launcher label to `Minimum` and retained the
   editable SVG source at `docs/Minimum-app-icon-foreground.svg`.
-- Added `MinimumHomeActivity` for T99/T88 with one large icon per swipe page for Minimum and
+- Added `MinimumHomeActivity` for T99/T56 with one large icon per swipe page for Minimum and
   Settings. A reboot test exposed an unacceptable Android HOME chooser while Launcher3 remained
   enabled. T99 rejected both a third-party HOME priority and package-disable takeover as reliable
   production solutions. The final design removes Minimum from the HOME resolver, launches the radio
@@ -154,6 +252,13 @@ This short log records meaningful project milestones. Detailed code truth remain
   MENU/EXIT/green/red according to their physically captured events, and keeps media keys only as
   alternate PTT inputs. Added a bounded app-private hardware-key diagnostic log with no text,
   config, token or audio content.
+- Verified Mumble's upstream IP autoban defaults and hardened every managed-radio connection path:
+  transport-only 15/30/60-second retry, a persisted 15-second global attempt guard, and fail-closed
+  handling for reject/kick/ban/auth errors. Routine server chat remains logged and available to TTS
+  but no longer creates Mumla's priority-high heads-up notification on T99/T56. All 42 JVM tests and
+  the FOSS debug APK build pass. Windows currently sees the T99 WinUSB ADB interface but ADB does
+  not enumerate serial `12344321`, so installation and live notification/reconnect timing remain
+  pending; restarting the exact device interface was denied without administrator access.
 
 ## Prior milestones
 

@@ -32,9 +32,13 @@ satellites from almanac data, but every reported SNR remained `0.0`, ephemeris c
 count remained zero, and no GPS location was delivered. The only cached fused location had roughly
 440 km accuracy and is not GPS evidence. The temporary probe was removed after the test.
 
-Result: GPS hardware/framework presence is confirmed, but real positioning is **not accepted as
-working**. Repeat under unobstructed open sky before relying on it. `prepare-t99.ps1` deliberately
-does not alter Location settings until a real fix with meaningful accuracy passes.
+On 2026-08-07 a new two-minute probe after enabling high-accuracy Location again saw eight almanac
+entries, zero SNR, zero ephemeris, zero satellites used and no GPS or network fix. GPS framework and
+A-GPS capability flags are present, but real positioning remains **not accepted as working** on
+this unit. `prepare-t99.ps1` now enables high-accuracy Location as requested, while deployment must
+still treat T99 tracking as unavailable until an unobstructed open-sky fix passes. This is enforced
+as a deny-by-default hardware capability in `RadioDeviceProfile.supportsLocationTracking(...)` and
+recorded as `hardware.locationTrackingSupported=false` in the public T99 model profile.
 
 ## Lab Wi-Fi provisioning
 
@@ -99,7 +103,7 @@ The T99 application defaults overwrite the managed push key with F1 at every pro
 | EXIT | `KEY_F2` | `KEYCODE_F2` 132 / scan 60 | `gpio-keys` | Hold 5 s for dashboard; never PTT |
 | Up | `KEY_UP` | `KEYCODE_DPAD_UP` 19 / scan 103 | `matrix_keypad.71` | Hold 1 s: previous room and join |
 | Down | `KEY_DOWN` | `KEYCODE_DPAD_DOWN` 20 / scan 108 | `matrix_keypad.71` | Hold 1 s: next room and join |
-| Green | `KEY_MENU` | `KEYCODE_MENU` 82 / scan 139 | `matrix_keypad.71` | Confirm/join selected room |
+| Green | `KEY_MENU` | `KEYCODE_MENU` 82 / scan 139 | `matrix_keypad.71` | Short press confirms room; hold 1 s toggles full-screen Device ID |
 | Red | `KEY_BACK`, scan 2 | vendor-remapped `KEYCODE_DPAD_RIGHT` 22 | `matrix_keypad.71` | Hold 5 s for recovery dashboard |
 
 Activity diagnostics physically confirmed PTT, volume, direction and MENU metadata. EXIT/green
@@ -157,4 +161,4 @@ retained because it signals an operational fault.
 - โปรเจคมี path build-safe `D:\mumla-dev` ซึ่งเป็น junction ไปยัง `D:\VR Android App\mumla` เดียวกัน
 - Full FOSS debug build และติดตั้ง APK บน T99 สำเร็จแล้ว
 - T99 `keyCode`, `scanCode`, action, repeat count and source-device capture is complete. Repeat the
-  same capture for T88 rather than copying the T99 mapping.
+  same capture for every new model rather than copying the T99 mapping. T56 has its own profile.

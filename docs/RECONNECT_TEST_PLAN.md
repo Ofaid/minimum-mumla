@@ -1,34 +1,36 @@
 # Minimum reconnect and TX-failure acceptance plan
 
-Last reviewed: 2026-08-05
+Last reviewed: 2026-08-07
 
 ## Required behavior
 
-For a provisioned managed radio, every unexpected disconnect enters an indefinite retry loop. The
-delay starts at 2 seconds, doubles with repeated failures and caps at 60 seconds. Network return
-triggers an immediate attempt; a 60-second timer is the fallback for OEM firmware that misses the
-connectivity broadcast. Successful Mumble synchronization resets the backoff. Android process
-recovery uses redelivery of the validated connection intent.
+For a provisioned managed radio, transport disconnects enter an indefinite retry loop. The delay
+starts at 15 seconds, doubles to 30 seconds and caps at 60 seconds. Every connection path also
+shares a persisted 15-second minimum interval, so network return, channel/server switching and
+Android process recovery cannot bypass the throttle. A 60-second timer is the fallback for OEM
+firmware that misses the connectivity broadcast. Successful Mumble synchronization resets the
+backoff. Android process recovery uses redelivery of the validated connection intent.
 
-The only deliberate retry hold is a certificate-policy failure such as a configured SHA-256 pin
-mismatch. Retrying an unchanged unsafe certificate forever would weaken the fail-closed boundary;
-the full-screen UI instead states that connection is blocked for certificate safety.
+Server reject, kick, ban, authentication failure and certificate-policy failure do not retry. The
+full-screen UI remains in an error state until configuration, server policy or certificate trust is
+corrected. This prevents invalid credentials from repeatedly consuming the Mumble IP autoban
+budget.
 
 ## Acceptance scenarios
 
 | Scenario | Injection | Expected evidence |
 | --- | --- | --- |
-| Wi-Fi/LTE loss | Disable every active transport for 20–60 seconds | Full-screen reconnecting state; no TX; immediate retry after transport returns; Ready after room join |
-| Server TCP close/restart | Stop the disposable test listener or reject the client socket | Repeated attempts continue through 2/4/8/16/32/60-second backoff and recover without operator input |
+| Wi-Fi/LTE loss | Disable every active transport for 20–60 seconds | Full-screen reconnecting state; no TX; throttled retry after transport returns; Ready after room join |
+| Server TCP close/restart | Stop the disposable test listener or close the client socket | Repeated attempts continue through 15/30/60-second backoff and recover without operator input |
 | DNS failure | Point a disposable candidate config at an unresolvable test name | Candidate fails and Last Known Good reconnects; active config is not replaced |
 | Port closed | Use a disposable candidate with an unused port | Same Last Known Good rollback behavior; no false Ready state |
-| Server reject/kick | Use a disposable test account/server policy | Full-screen retry state and continuing capped retry; record server reason without credentials |
+| Server reject/kick | Use a disposable test account/server policy | Full-screen error state; no automatic retry; record server reason without credentials |
 | Network absent for hours | Leave transports unavailable for at least two hours | Service remains safe, fallback polling continues, and return to Ready requires no app restart |
 | Android kills process | Kill the process without force-stopping the package | Watchdog lease opens RadioShell, a new PID appears and the radio reconnects/joins the configured room |
 | Certificate changes | Present a certificate that mismatches the configured pin | No auto-trust, no retry storm, full-screen certificate safety hold |
 | PTT while offline | Press the certified hardware PTT path while reconnecting | Failure tone once per press, no TX state and no stuck input |
 | PTT from Minimum dashboard | Leave RadioShell through a deliberate five-second exit, then press physical PTT | Failure tone, RadioShell opens, connection starts immediately, current press is not queued, next press after Ready transmits |
-| Accidental exit key | Tap T99 MENU, EXIT and red; then hold each for five seconds in separate runs | Taps remain in RadioShell; each deliberate hold opens MinimumHome exactly once |
+| Accidental exit key | Tap the profile's protected exit keys, then hold each for five seconds in separate runs | Taps remain in RadioShell; each deliberate hold opens MinimumHome exactly once |
 | Room hold action | Tap then hold Up/Down for one second with at least two configured rooms | Tap does nothing; hold changes and joins exactly one adjacent room without green confirmation |
 | Encoder produces no packet | Deny/break audio only in a disposable test environment | Failure tone if no encoded packet is handed to the synchronized connection within 1.5 seconds |
 | Disconnect during TX | Remove network while a supervised test transmission is active | TX releases immediately, watchdog work clears, playback unmutes and reconnect starts |

@@ -18,7 +18,7 @@ public class RadioPttKeyManagerTest {
     @Test
     public void recognizesRadioProfilesForAutomaticDefaults() {
         assertTrue(RadioPttKeyManager.isRadioProfile(RadioDeviceProfile.T99));
-        assertTrue(RadioPttKeyManager.isRadioProfile(RadioDeviceProfile.T88));
+        assertTrue(RadioPttKeyManager.isRadioProfile(RadioDeviceProfile.T56));
         assertFalse(RadioPttKeyManager.isRadioProfile(RadioDeviceProfile.GENERIC));
     }
 
@@ -33,11 +33,11 @@ public class RadioPttKeyManagerTest {
     }
 
     @Test
-    public void t88KeepsBothFunctionKeysUntilPhysicalCapture() {
+    public void t56UsesCapturedVendorPttAndRejectsMenuF1() {
         assertTrue(RadioPttKeyManager.isProfileDefaultPttKey(
-                RadioDeviceProfile.T88, KeyEvent.KEYCODE_F1));
-        assertTrue(RadioPttKeyManager.isProfileDefaultPttKey(
-                RadioDeviceProfile.T88, KeyEvent.KEYCODE_F2));
+                RadioDeviceProfile.T56, RadioDeviceProfile.T56_PTT_KEY_CODE));
+        assertFalse(RadioPttKeyManager.isProfileDefaultPttKey(
+                RadioDeviceProfile.T56, KeyEvent.KEYCODE_F1));
     }
 
     @Test
@@ -45,7 +45,7 @@ public class RadioPttKeyManagerTest {
         assertFalse(RadioPttKeyManager.shouldEnablePttConfirmationSound(
                 RadioDeviceProfile.T99, true));
         assertFalse(RadioPttKeyManager.shouldEnablePttConfirmationSound(
-                RadioDeviceProfile.T88, true));
+                RadioDeviceProfile.T56, true));
         assertTrue(RadioPttKeyManager.shouldEnablePttConfirmationSound(
                 RadioDeviceProfile.GENERIC, true));
         assertFalse(RadioPttKeyManager.shouldEnablePttConfirmationSound(
@@ -53,7 +53,8 @@ public class RadioPttKeyManagerTest {
     }
 
     @Test
-    public void diagnosticsIncludeVendorRemappedT99RedKey() {
+    public void diagnosticsIncludeCapturedVendorKeys() {
         assertTrue(RadioPttKeyManager.isDiagnosticHardwareKey(KeyEvent.KEYCODE_DPAD_RIGHT));
+        assertTrue(RadioPttKeyManager.isDiagnosticHardwareKey(KeyEvent.KEYCODE_NAVIGATE_PREVIOUS));
     }
 }

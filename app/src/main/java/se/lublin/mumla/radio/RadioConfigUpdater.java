@@ -53,6 +53,11 @@ public final class RadioConfigUpdater {
         schedule(context, false);
     }
 
+    /** Forces a refresh after a protected device credential is installed or rotated. */
+    static void scheduleNow(Context context) {
+        schedule(context, true);
+    }
+
     static boolean shouldRefresh(long now, long lastSuccess, boolean force) {
         return force || lastSuccess <= 0L || now - lastSuccess >= REFRESH_INTERVAL_MS;
     }
@@ -80,6 +85,10 @@ public final class RadioConfigUpdater {
                             .setPackage(applicationContext.getPackageName());
                     applicationContext.sendBroadcast(available);
                 }
+            } catch (RadioConfigRepository.DeviceConfigUnavailableException exception) {
+                // A missing, revoked, or unknown device credential is deliberately indistinguishable
+                // to logs and leaves the current Last Known Good config untouched.
+                Log.w(TAG, "Radio config refresh skipped; device configuration unavailable");
             } catch (IOException | JSONException | RuntimeException exception) {
                 // Remote config is optional. The repository's embedded/cache fallback remains the
                 // source of truth when the network is unavailable or the response is unsafe.

@@ -26,6 +26,55 @@ D:\mumla-dev\app\build\outputs\apk\foss\debug\mumla-foss-debug.apk
 Do not stage the pre-existing untracked `DEV_ENVIRONMENT_REQUIREMENTS.md` unless the user asks for
 that separate file to be included.
 
+## Admin portal development and handoff
+
+The portal source is `web/`, a Next.js application deployed at
+`https://minimum.vra.or.th/` with Vercel's **Next.js framework preset**. Keep the deployment on the
+normal Next.js build output; do not add a standalone trace workaround for the Windows junction.
+
+Run the web checks from the build-safe junction:
+
+```powershell
+Set-Location D:\mumla-dev\web
+pnpm install --frozen-lockfile
+pnpm test
+pnpm exec tsc --noEmit
+pnpm build
+```
+
+For local UI work, `pnpm dev --hostname 127.0.0.1 --port 3010` may use the development-only memory
+store. Production must fail closed unless Cloudflare KV is configured. Set these Vercel environment
+variables server-side and never paste their values into a shell transcript or tracked file:
+`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_KV_NAMESPACE_ID`, optional
+`CLOUDFLARE_KV_API_BASE`, `SESSION_SECRET` (32+ characters), and
+`DEVICE_TOKEN_HASH_SECRET` (32+ characters). BotID protection is enabled for production browser
+mutations; do not disable it as a deployment workaround.
+
+First-run production handoff:
+
+1. Open `https://minimum.vra.or.th/` and create the administrator account when the `FIRST-RUN
+   SETUP` screen appears. The password is stored as a one-way hash and the browser receives an
+   eight-hour, HttpOnly, same-site admin session.
+2. Register each device in **Devices**, then copy the one-time bearer token into the device-private
+   config/provisioning path. The portal persists only its token hash; use **Rotate token** to revoke
+   a lost token before issuing a replacement.
+3. Verify the Android client can fetch `GET /api/device-config/{deviceId}` with
+   `Authorization: Bearer <device token>`. The legacy `/api/device/{deviceId}/config` path remains
+   available for compatibility. Never put the bearer token in `backend/`, GitHub Pages, logs or this
+   documentation.
+
+Read-only production smoke checks (no credentials required):
+
+```powershell
+curl.exe -sS https://minimum.vra.or.th/api/session
+curl.exe -I https://minimum.vra.or.th/api/device-config/AB12C3
+curl.exe -I https://minimum.vra.or.th/api/device/AB12C3/config
+```
+
+The expected pre-handoff state is `/api/session` `200` with `configured:false` and generic `401`
+responses from both bearer-protected device routes. A `200` from a device route requires a valid
+device token and must return only that device's schema-3 config.
+
 ## T99 ADB session
 
 The current workstation ADB server uses port `5041` and the authorized T99 serial is `12344321`.
@@ -59,7 +108,7 @@ original settings, and never presses PTT:
 The full fault matrix and the distinction between local audio handoff and server receipt are in
 `docs/RECONNECT_TEST_PLAN.md`.
 
-T99/T88 builds keep a bounded app-private hardware trace. It contains key metadata only and can be
+T99/T56 builds keep a bounded app-private hardware trace. It contains key metadata only and can be
 read without exposing radio config or tokens:
 
 ```powershell
@@ -98,7 +147,7 @@ The receiver is enabled by default through `Settings.PREF_AUTO_START`. A valid s
 1. Launch the app once so Android has started the package normally.
 2. Kill the app process without stopping the package.
 3. Send `android.intent.action.BOOT_COMPLETED`.
-4. On T99/T88, check `dumpsys activity activities` for
+4. On T99/T56, check `dumpsys activity activities` for
    `se.lublin.mumla/.radio.RadioShellActivity`; generic Android retains
    `se.lublin.mumla/.app.MumlaActivity`.
 
@@ -141,9 +190,20 @@ replace/recheck an existing profile or `-SkipLabWifi` to omit the step. The PSK 
 committed. T99 physically passed profile refresh and automatic reconnection after a Wi-Fi radio
 off/on cycle.
 
-Provisioning does not currently change Android Location settings. The framework/GPS HAL exists,
-but a window-side live test produced no satellite fix, no ephemeris and zero SNR; require an
-open-sky fix before enabling Location as a fleet default.
+Provisioning enables Android Location by default: T99 uses high-accuracy GPS/network mode, while
+T56 defaults to device-only GPS. To request T56 network location, run its provisioner with
+`-RequestNetworkLocationConsent`; the script stops Minimum, resets consent through Google Services
+Framework's own activity, opens its consent dialog and waits up to 120 seconds until the stored
+`use_location_for_services` value changes from `0` to `1` after the operator accepts. Only then does
+it request high-accuracy mode and wait for any additional Google network-location dialog to close.
+It never presses or bypasses consent automatically, and restores GPS-only mode if consent is not
+completed. Pass `-SkipLocation`
+only for an explicit exception. Re-run the temporary redacted acceptance probe
+with `scripts/test-radio-location.ps1 -Serial <adb-serial>`; coordinates are hidden unless
+`-ShowCoordinates` is explicitly supplied. T56 has passed a roughly 5 m GPS fix, while T99 still
+reports zero SNR/ephemeris and no fix. After operator consent, T56 also passed a redacted network
+fix at roughly 29.21 m accuracy. Future tracking code must use
+`RadioDeviceProfile.supportsLocationTracking(...)`; T99 and unverified generic hardware are denied.
 
 If local PowerShell policy blocks scripts, run the same file with
 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File`. Keep the supplied JSON outside the
@@ -154,8 +214,8 @@ does not display token values and removes the temporary ADB copy.
 
 `-DeviceProfile` is the operator-facing name for the Technical Brief's six-character Device ID.
 It assigns the stable `/devices/{deviceId}.json` lookup key after validating the same six-character
-rules. It does not change the USB/ADB serial, hardware model profile or `mumble.username`. Config
-schema 2 requires the latter explicitly; the current T99 uses Config Profile `GYZ3DE` and Mumble
+rules. It does not change the USB/ADB serial, hardware model profile or connection username. Config
+schema 3 requires the latter explicitly per connection; the current T99 uses Config Profile `GYZ3DE` and Mumble
 username `E25FGL-T99`.
 
 This removes Zello for Android user 0. It does not erase the system APK from the read-only system
@@ -172,25 +232,84 @@ provides two swipe pages: the large Minimum icon and Android Settings. With a co
 not accept the data-installed Minimum
 activity as a usable default HOME choice, so the app deliberately does not register as HOME. The
 script requests a legacy Minimum shortcut in Launcher3, launches a real system HOME intent and
-fails if ResolverActivity appears. At boot, T99/T88 profiles launch the radio client directly;
+fails if ResolverActivity appears. At boot, T99/T56 profiles launch the radio client directly;
 generic Android continues to launch MumlaActivity. Back from the radio client opens the recovery
 dashboard instead of exiting to an uncertain launcher state.
 
 `-SkipMinimumHome` skips shortcut/dashboard provisioning. Launcher3 is retained as an emergency
 fallback and should show both Minimum and Settings after preparation.
 
-## T88 capture procedure
+## T56 preparation and capture procedure
 
-When T88 arrives, connect it without changing the T99 ADB server assumptions. Record:
+T56 uses the default ADB port 5037 and must be selected by its verified `UNIPRO` manufacturer and
+`ZX` model rather than by a committed serial. The wrapper delegates to the shared guarded T99
+implementation after applying those identity checks:
 
-- `getprop`, `wm size`, `wm density`, RAM/ABI and Android API level
-- `getevent -il` before and during every physical key press
-- `/proc/bus/input/devices`, `/proc/tty/driver/*` and `getprop sys.usb.config`
-- `pm list packages`, audio devices and network interfaces
-- whether the PTT event remains visible with the display off
+```powershell
+.\scripts\prepare-t56.ps1 -ReportOnly
+.\scripts\prepare-t56.ps1 -WhatIf
+.\scripts\prepare-t56.ps1 -Force
+```
 
-Copy sanitized output to `docs/T88_DEVICE_PROFILE.md`. Never commit serials, certificates, tokens
-or personal Wi-Fi details.
+If this workstation currently owns both radios through the existing ADB daemon on port 5041, pass
+`-AdbPort 5041`. T56 firmware does not include `/system/bin/run-as`; provisioning therefore uses
+the app's `android.permission.DUMP`-protected receiver to report Device ID and import a validated
+temporary config. The receiver accepts only `/data/local/tmp/minimum-radio-config-*.json`, and the
+script removes that file immediately after the result is returned.
+
+The captured T56 profile is `UNIPRO/ZX/L809`, Android 5.1.1/API 22, 160x128. Its PTT is vendor
+keyCode 261; F1 is Menu and must never be copied from T99's PTT rule. The OEM keyguard consumes the
+first raw event during display wake but simultaneously broadcasts `unipro.hotkey.ptt.down` and
+`unipro.hotkey.ptt.up`. Minimum's manifest receiver forwards those T56-only actions to
+`MumlaService`. Verify the receiver and the screen-off firmware actions with:
+
+```powershell
+adb -P 5041 -s <t56> shell dumpsys package se.lublin.mumla
+adb -P 5041 -s <t56> logcat -d | Select-String 'unipro.hotkey.ptt'
+```
+
+The provisioner removes the obsolete experimental AccessibilityService component if an earlier lab
+build left it enabled, while preserving unrelated accessibility services. Commissioning still
+needs an operator physical retest of screen-off PTT after the OEM receiver build is installed. The
+app-private trace remains useful for the two side keys and screen-power event; read
+it with `run-as` as described for T99 when the target image provides that tool, sanitize it, and
+update `docs/T56_DEVICE_PROFILE.md`. Never commit serials, certificates, tokens or personal Wi-Fi
+details.
+
+## APRS tracking verification
+
+The complete packet and privacy contract is [APRS_TRACKING.md](APRS_TRACKING.md). Use this bounded
+procedure for a live check:
+
+1. Build from `D:\mumla-dev` and install the FOSS debug APK. Do not build from
+   `D:\VR Android App\mumla`; the current NDK is path-sensitive.
+2. Confirm the target is the verified T56 profile, location consent is complete, and the device has
+   an unobstructed sky view. Never enable tracking on T99; its immutable gate must remain disabled.
+3. Clear only the `MinimumAprs` log buffer (`adb logcat -c`), start Minimum and wait for a quality-
+   passing fix. PTT may evaluate a cached fix but must not be used to force GPS acquisition.
+4. Inspect `adb logcat -d -s MinimumAprs:I MinimumAprs:W` for
+   `APRS position accepted by send-only server`. A local write or a `204` without
+   `X-Packetsrcvd > 0` is not acceptance.
+5. On APRS.fi search `VR-*` and verify the new item is an Object, not a callsign station position;
+   verify the state icon and compact Health fields. Use only redacted screenshots/log excerpts.
+6. For isolation, check T99 with `dumpsys location` and `MinimumAprs` logs: no app location request,
+   tracking manager or APRS send should exist.
+
+Do not print or paste APRS passcodes, Mumble tokens, serials, Device IDs, SSIDs or exact coordinates.
+Previously accepted callsign-owned packets cannot be removed from APRS-IS/APRS.fi history; they are
+historical artifacts and must not be treated as the current implementation. HTTPS uses the pinned
+ISRG Root X1 CA on API-22 and must retain normal hostname verification.
+
+To change only a T56 APRS Object label without exporting its private config, install a build that
+contains the protected provisioning action, then run:
+
+```powershell
+.\scripts\set-t56-aprs-object-name.ps1 -ObjectName T56-ROOF -StartRadioShell
+```
+
+The script verifies the `UNIPRO/ZX` target. The app validates/normalizes the label, increments
+`configVersion` only when it changes, preserves credentials in app-private storage and keeps the old
+active config as `previous-config.json`.
 
 ## Git workflow
 

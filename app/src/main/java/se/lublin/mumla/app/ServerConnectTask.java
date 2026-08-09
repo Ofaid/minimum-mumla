@@ -40,6 +40,8 @@ import se.lublin.mumla.util.MumlaTrustStore;
  * Created by andrew on 20/08/14.
  */
 public class ServerConnectTask extends AsyncTask<Server, Void, Intent> {
+    private static final long MANAGED_RADIO_CONNECTION_INTERVAL_MS = 15000L;
+
     private Context mContext;
     private MumlaDatabase mDatabase;
     private Settings mSettings;
@@ -76,6 +78,7 @@ public class ServerConnectTask extends AsyncTask<Server, Void, Intent> {
                 AudioManager.STREAM_VOICE_CALL : AudioManager.STREAM_MUSIC;
 
         Intent connectIntent = new Intent(mContext, MumlaService.class);
+        boolean managedRadioConnection = mAutoReconnect != null;
         connectIntent.putExtra(HumlaService.EXTRAS_SERVER, server);
         connectIntent.putExtra(HumlaService.EXTRAS_CLIENT_NAME, mContext.getString(R.string.app_name)+" "+ BuildConfig.VERSION_NAME);
         connectIntent.putExtra(HumlaService.EXTRAS_TRANSMIT_MODE, inputMethod);
@@ -84,9 +87,14 @@ public class ServerConnectTask extends AsyncTask<Server, Void, Intent> {
         connectIntent.putExtra(HumlaService.EXTRAS_AUTO_RECONNECT,
                 mAutoReconnect == null ? mSettings.isAutoReconnectEnabled() : mAutoReconnect);
         connectIntent.putExtra(HumlaService.EXTRAS_AUTO_RECONNECT_DELAY,
-                mAutoReconnect == null ? MumlaService.RECONNECT_DELAY : 2000);
+                mAutoReconnect == null ? MumlaService.RECONNECT_DELAY
+                        : (int) MANAGED_RADIO_CONNECTION_INTERVAL_MS);
         connectIntent.putExtra(HumlaService.EXTRAS_RECONNECT_ON_ALL_ERRORS,
-                mAutoReconnect != null && mAutoReconnect);
+                false);
+        connectIntent.putExtra(HumlaService.EXTRAS_REDELIVER_CONNECT_INTENT,
+                managedRadioConnection && Boolean.TRUE.equals(mAutoReconnect));
+        connectIntent.putExtra(HumlaService.EXTRAS_MIN_CONNECTION_ATTEMPT_INTERVAL,
+                managedRadioConnection ? MANAGED_RADIO_CONNECTION_INTERVAL_MS : 0L);
         connectIntent.putExtra(HumlaService.EXTRAS_USE_OPUS, !mSettings.isOpusDisabled());
         connectIntent.putExtra(HumlaService.EXTRAS_INPUT_RATE, mSettings.getInputSampleRate());
         connectIntent.putExtra(HumlaService.EXTRAS_INPUT_QUALITY, mSettings.getInputQuality());

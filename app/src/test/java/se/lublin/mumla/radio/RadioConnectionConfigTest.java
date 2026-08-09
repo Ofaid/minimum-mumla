@@ -13,59 +13,111 @@ import java.util.Arrays;
 
 public class RadioConnectionConfigTest {
     @Test
-    public void parsesConnectionRoomsAndPublicTokens() throws JSONException {
+    public void parsesPerChannelConnectionsPasswordsAndTokens() throws JSONException {
         RadioConnectionConfig config = RadioConnectionConfig.fromJson(new JSONObject(validConfig()));
 
         assertEquals(7, config.getConfigVersion());
         assertEquals("Minimum Test", config.getServiceName());
-        assertEquals("voice.example.org", config.getHost());
-        assertEquals(64738, config.getPort());
-        assertEquals("E25FGL-T99", config.getUsername());
-        assertEquals("AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00112233445566778899",
-                config.getServerCertificateSha256());
-        assertTrue(config.isAutoTrustServerCertificate());
-        assertTrue(config.acceptsServerCertificate(
-                "AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00112233445566778899"));
-        assertFalse(config.acceptsServerCertificate(
-                "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"));
         assertTrue(config.isAutoConnect());
         assertFalse(config.isAutoReconnect());
-        assertEquals(Arrays.asList("PUBLIC-A", "PUBLIC-B"), config.getAccessTokens());
-        assertEquals(2, config.getRooms().size());
-        assertEquals("main", config.getDefaultRoom().getId());
-        assertEquals("/PUBLIC/MAIN", config.getDefaultRoom().getPath());
+        assertEquals(2, config.getChannels().size());
+
+        RadioConnectionConfig.Channel main = config.getDefaultChannel();
+        assertEquals("main", main.getId());
+        assertEquals("Ops Main", main.getAlias());
+        assertEquals("/PUBLIC/MAIN", main.getPath());
+        assertEquals("voice-a.example.org", main.getConnection().getHost());
+        assertEquals("server-a-password", main.getConnection().getPassword());
+        assertEquals(Arrays.asList("PUBLIC-A", "SHARED"), main.getAccessTokens());
+        assertTrue(main.getConnection().acceptsServerCertificate(
+                "AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00112233445566778899"));
+
+        RadioConnectionConfig.Channel other = config.getChannels().get(1);
+        assertEquals("Other", other.getAlias());
+        assertEquals("voice-b.example.org", other.getConnection().getHost());
+        assertEquals("server-b-password", other.getConnection().getPassword());
+        assertEquals(Arrays.asList("PUBLIC-B"), other.getAccessTokens());
+        assertTrue(main.requiresReconnectTo(other));
     }
 
     @Test
-    public void rejectsUnsafeHostAndMissingDefaultRoom() throws JSONException {
+    public void sameConnectionAndTokensCanReuseSession() throws JSONException {
+        JSONObject json = new JSONObject(validConfig());
+        JSONObject second = json.getJSONArray("channels").getJSONObject(1);
+        second.put("connectionId", "server-a");
+        second.put("access", json.getJSONArray("channels").getJSONObject(0).getJSONObject("access"));
+        RadioConnectionConfig config = RadioConnectionConfig.fromJson(json);
+
+        assertFalse(config.getChannels().get(0).requiresReconnectTo(config.getChannels().get(1)));
+    }
+
+    @Test
+    public void sameConnectionWithDifferentChannelTokenRequiresReconnect() throws JSONException {
+        JSONObject json = new JSONObject(validConfig());
+        json.getJSONArray("channels").getJSONObject(1).put("connectionId", "server-a");
+        RadioConnectionConfig config = RadioConnectionConfig.fromJson(json);
+
+        assertTrue(config.getChannels().get(0).requiresReconnectTo(config.getChannels().get(1)));
+    }
+
+    @Test
+    public void certificateTrustPolicyIsConnectionScoped() throws JSONException {
+        JSONObject json = new JSONObject(validConfig());
+        JSONObject connection = json.getJSONObject("connections").getJSONObject("server-a");
+        connection.remove("serverCertificateSha256");
+        connection.put("autoTrustServerCertificate", false);
+        RadioConnectionConfig config = RadioConnectionConfig.fromJson(json);
+
+        assertFalse(config.getDefaultChannel().getConnection().acceptsServerCertificate(
+                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"));
+
+        connection.put("autoTrustServerCertificate", "yes");
+        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(json));
+    }
+
+    @Test
+    public void restoresChannelByStableIdAndFallsBackWhenMissing() throws JSONException {
+        RadioConnectionConfig config = RadioConnectionConfig.fromJson(new JSONObject(validConfig()));
+
+        assertEquals(1, config.findChannelIndex("other"));
+        assertEquals(-1, config.findChannelIndex("removed"));
+        assertEquals(-1, config.findChannelIndex(null));
+    }
+
+    @Test
+    public void rejectsUnsafeConnectionAndMissingDefaultChannel() throws JSONException {
         JSONObject unsafeHost = new JSONObject(validConfig());
-        unsafeHost.getJSONObject("mumble").put("host", "https://voice.example.org/path");
+        unsafeHost.getJSONObject("connections").getJSONObject("server-a")
+                .put("host", "https://voice.example.org/path");
         assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(unsafeHost));
 
         JSONObject missingDefault = new JSONObject(validConfig());
-        missingDefault.getJSONObject("mumble").put("defaultRoom", "missing");
+        missingDefault.getJSONObject("radio").put("defaultChannel", "missing");
         assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(missingDefault));
 
-        JSONObject missingUsername = new JSONObject(validConfig());
-        missingUsername.getJSONObject("mumble").remove("username");
-        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(missingUsername));
+        JSONObject missingConnection = new JSONObject(validConfig());
+        missingConnection.getJSONArray("channels").getJSONObject(0)
+                .put("connectionId", "missing");
+        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(missingConnection));
 
         JSONObject controlCharacterUsername = new JSONObject(validConfig());
-        controlCharacterUsername.getJSONObject("mumble").put("username", "BAD\nNAME");
+        controlCharacterUsername.getJSONObject("connections").getJSONObject("server-a")
+                .put("username", "BAD\nNAME");
         assertThrows(JSONException.class,
                 () -> RadioConnectionConfig.fromJson(controlCharacterUsername));
 
-        JSONObject nonStringUsername = new JSONObject(validConfig());
-        nonStringUsername.getJSONObject("mumble").put("username", 25);
-        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(nonStringUsername));
+        JSONObject nonStringPassword = new JSONObject(validConfig());
+        nonStringPassword.getJSONObject("connections").getJSONObject("server-a")
+                .put("password", 25);
+        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(nonStringPassword));
 
         JSONObject legacySchema = new JSONObject(validConfig());
-        legacySchema.put("schemaVersion", 1);
+        legacySchema.put("schemaVersion", 2);
         assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(legacySchema));
     }
 
     @Test
-    public void normalizesOnlySafeAbsoluteRoomPaths() throws JSONException {
+    public void normalizesOnlySafeAbsoluteChannelPaths() throws JSONException {
         assertEquals("/PUBLIC/MAIN", RadioConnectionConfig.normalizePath(" /PUBLIC/MAIN/ "));
         assertThrows(JSONException.class, () -> RadioConnectionConfig.normalizePath("PUBLIC/MAIN"));
         assertThrows(JSONException.class, () -> RadioConnectionConfig.normalizePath("/PUBLIC//MAIN"));
@@ -78,44 +130,55 @@ public class RadioConnectionConfigTest {
     }
 
     @Test
-    public void automaticCertificateTrustDefaultsOnAndCanBeDisabled() throws JSONException {
-        JSONObject automatic = new JSONObject(validConfig());
-        automatic.getJSONObject("mumble").remove("serverCertificateSha256");
-        RadioConnectionConfig automaticConfig = RadioConnectionConfig.fromJson(automatic);
-        assertTrue(automaticConfig.isAutoTrustServerCertificate());
-        assertTrue(automaticConfig.acceptsServerCertificate(
-                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"));
+    public void validatesOptionalChannelAlias() throws JSONException {
+        JSONObject json = new JSONObject(validConfig());
+        JSONObject channel = json.getJSONArray("channels").getJSONObject(0);
 
-        automatic.getJSONObject("mumble").put("autoTrustServerCertificate", false);
-        RadioConnectionConfig disabledConfig = RadioConnectionConfig.fromJson(automatic);
-        assertFalse(disabledConfig.isAutoTrustServerCertificate());
-        assertFalse(disabledConfig.acceptsServerCertificate(
-                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"));
+        channel.put("alias", "Dispatch");
+        assertEquals("Dispatch", RadioConnectionConfig.fromJson(json)
+                .getDefaultChannel().getAlias());
 
-        automatic.getJSONObject("mumble").put("autoTrustServerCertificate", "yes");
-        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(automatic));
+        channel.put("alias", " Dispatch " );
+        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(json));
+
+        channel.put("alias", "");
+        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(json));
+
+        channel.put("alias", 25);
+        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(json));
+
+        channel.put("alias", "123456789012345678901234567890123");
+        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(json));
+
+        channel.put("alias", "OPS\nMAIN");
+        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(json));
     }
 
     private static String validConfig() {
         return "{"
-                + "\"schemaVersion\":2,\"configVersion\":7,\"deviceId\":\"*\","
+                + "\"schemaVersion\":3,\"configVersion\":7,\"deviceId\":\"*\","
                 + "\"service\":{\"name\":\"Minimum Test\"},"
-                + "\"mumble\":{\"serverId\":\"test\",\"host\":\"voice.example.org\","
-                + "\"port\":64738,\"username\":\"E25FGL-T99\",\"defaultRoom\":\"main\","
-                + "\"serverCertificateSha256\":"
-                + "\"AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
-                + "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99\","
-                + "\"autoConnect\":true,"
+                + "\"radio\":{\"defaultChannel\":\"main\",\"autoConnect\":true,"
                 + "\"autoReconnect\":false},"
+                + "\"connections\":{"
+                + "\"server-a\":{\"name\":\"Server A\",\"host\":\"voice-a.example.org\","
+                + "\"port\":64738,\"username\":\"E25FGL-T99\","
+                + "\"password\":\"server-a-password\",\"serverCertificateSha256\":"
+                + "\"AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
+                + "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99\"},"
+                + "\"server-b\":{\"name\":\"Server B\",\"host\":\"voice-b.example.org\","
+                + "\"port\":64739,\"username\":\"OTHER\","
+                + "\"password\":\"server-b-password\"}},"
+                + "\"channels\":["
+                + "{\"id\":\"main\",\"label\":\"Main\",\"alias\":\"Ops Main\","
+                + "\"connectionId\":\"server-a\","
+                + "\"path\":\"/PUBLIC/MAIN\",\"presetKey\":\"P1\","
+                + "\"access\":{\"mode\":\"public\",\"tokens\":[\" PUBLIC-A \",\"SHARED\"]}},"
+                + "{\"id\":\"other\",\"label\":\"Other\",\"connectionId\":\"server-b\","
+                + "\"path\":\"/PUBLIC/OTHER\",\"presetKey\":\"P2\","
+                + "\"access\":{\"mode\":\"public\",\"token\":\"PUBLIC-B\"}}],"
                 + "\"ui\":{\"profile\":\"small-radio\"},"
                 + "\"ptt\":{\"maximumTxSeconds\":120,\"releaseOnNetworkLoss\":true},"
-                + "\"rooms\":["
-                + "{\"id\":\"main\",\"label\":\"Main\",\"path\":\"/PUBLIC/MAIN\","
-                + "\"presetKey\":\"P1\",\"access\":{\"mode\":\"public\","
-                + "\"token\":\" PUBLIC-A \"}},"
-                + "{\"id\":\"other\",\"label\":\"Other\",\"path\":\"/PUBLIC/OTHER\","
-                + "\"presetKey\":\"P2\",\"access\":{\"mode\":\"public\","
-                + "\"token\":\"PUBLIC-B\"}}],"
                 + "\"hardware\":{\"profile\":\"generic-radio\"}"
                 + "}";
     }

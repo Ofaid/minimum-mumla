@@ -23,9 +23,17 @@ public class DeviceIdentityManagerTest {
     public void detectsKnownAndFutureRadioProfiles() {
         org.junit.Assert.assertEquals(RadioDeviceProfile.T99,
                 RadioDeviceProfile.detect("Youdotech", "QM011"));
-        org.junit.Assert.assertEquals(RadioDeviceProfile.T88,
-                RadioDeviceProfile.detect("OEM", "T88"));
+        org.junit.Assert.assertEquals(RadioDeviceProfile.T56,
+                RadioDeviceProfile.detect("UNIPRO", "ZX"));
         org.junit.Assert.assertEquals(RadioDeviceProfile.GENERIC,
                 RadioDeviceProfile.detect("unknown", "phone"));
+    }
+
+    @Test
+    public void locationTrackingIsAllowedOnlyOnAcceptedHardware() {
+        assertTrue(RadioDeviceProfile.supportsLocationTracking(RadioDeviceProfile.T56));
+        assertFalse(RadioDeviceProfile.supportsLocationTracking(RadioDeviceProfile.T99));
+        assertFalse(RadioDeviceProfile.supportsLocationTracking(RadioDeviceProfile.GENERIC));
+        assertFalse(RadioDeviceProfile.supportsLocationTracking(null));
     }
 }

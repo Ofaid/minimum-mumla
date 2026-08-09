@@ -12,6 +12,7 @@ import type { ModelProfile } from './model-profiles';
 import { validModelProfile } from './model-profiles';
 import type { MinimumConfig } from './types';
 import { validDeviceId } from './security';
+import { calculateAprsPasscode, normalizeAprsCallsign } from './aprs';
 export { applyModelProfile, changeModel, emptyConfig, createConfigTemplate } from './default-config';
 
 const validator = new Ajv2020({ allErrors: true, strict: false });
@@ -195,6 +196,16 @@ export function repairConfig(value: unknown, deviceId?: string, model?: ModelPro
     if (firstChannelId) radio.defaultChannel = firstChannelId;
   }
   merged.radio = radio;
+  const tracking = isRecord(merged.tracking) ? merged.tracking : {};
+  const aprs = isRecord(tracking.aprs) ? tracking.aprs : {};
+  if (typeof aprs.sourceCallsign === 'string') {
+    const sourceCallsign = normalizeAprsCallsign(aprs.sourceCallsign);
+    const passcode = calculateAprsPasscode(sourceCallsign);
+    aprs.sourceCallsign = sourceCallsign;
+    if (passcode) aprs.passcode = passcode;
+  }
+  tracking.aprs = aprs;
+  merged.tracking = tracking;
   merged.schemaVersion = 3;
   merged.deviceId = resolvedDeviceId;
   merged.configVersion = positiveConfigVersion(source.configVersion);
@@ -224,7 +235,12 @@ export function prepareConfigForSave(
   if (baselineVersion >= Number.MAX_SAFE_INTEGER) {
     throw new Error('config version cannot be advanced');
   }
-  return { ...prepared, configVersion: baselineVersion + 1 };
+  // Imported physical configs may already be ahead of the portal record; never turn them
+  // into an Android-visible downgrade while still advancing ordinary UI edits automatically.
+  return {
+    ...prepared,
+    configVersion: Math.max(baselineVersion + 1, positiveConfigVersion(source.configVersion))
+  };
 }
 
 export function assertDeviceConfig(value: unknown, deviceId: string) {
