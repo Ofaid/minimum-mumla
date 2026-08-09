@@ -53,7 +53,14 @@ $IdentityReportAction = "se.lublin.mumla.action.PROVISION_REPORT_IDENTITY"
 $ProvisionStatusAction = "se.lublin.mumla.action.PROVISION_REPORT_STATUS"
 $CredentialProvisionAction = "se.lublin.mumla.action.PROVISION_DEVICE_CONFIG_CREDENTIAL"
 $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$DefaultApkPath = Join-Path $RepositoryRoot "app\build\outputs\apk\foss\debug\mumla-foss-debug.apk"
+$BundledApkPath = Join-Path $RepositoryRoot "minimum-foss.apk"
+$SourceBuildApkPath = Join-Path $RepositoryRoot "app\build\outputs\apk\foss\debug\mumla-foss-debug.apk"
+$SourceBuildAvailable = Test-Path -LiteralPath (Join-Path $RepositoryRoot "gradlew.bat") -PathType Leaf
+$DefaultApkPath = if (Test-Path -LiteralPath $BundledApkPath -PathType Leaf) {
+    $BundledApkPath
+} else {
+    $SourceBuildApkPath
+}
 try {
     $adbPath = (Get-Command adb -ErrorAction Stop).Source
 } catch {
@@ -149,7 +156,11 @@ function Show-GuidedSetupMenu {
 
     Write-Host ""
     Write-Host "Recommended setup will:"
-    Write-Host "  - build and install the latest Minimum test APK"
+    if ($SourceBuildAvailable) {
+        Write-Host "  - build and install the latest Minimum test APK"
+    } else {
+        Write-Host "  - install the signed Minimum APK included in this Release bundle"
+    }
     Write-Host "  - configure lab Wi-Fi and managed Location"
     Write-Host "  - remove Zello for Android user 0"
     Write-Host "  - open the Portal for registration and a hidden token prompt"
@@ -164,13 +175,17 @@ function Show-GuidedSetupMenu {
         Write-Host "Cancelled. No APK was installed and no provisioning change was made."
         exit 0
     }
-    $script:BuildApk = $true
+    $script:BuildApk = $SourceBuildAvailable
     if (-not $mode) {
         return
     }
 
-    $answer = (Read-Host "Build the latest APK? [Y/n]").Trim()
-    if ($answer -ieq "N") { $script:BuildApk = $false }
+    if ($SourceBuildAvailable) {
+        $answer = (Read-Host "Build the latest APK? [Y/n]").Trim()
+        if ($answer -ieq "N") { $script:BuildApk = $false }
+    } else {
+        Write-Host "Source build tools are not included; the bundled signed APK will be used."
+    }
 
     $answer = (Read-Host "Configure/verify lab Wi-Fi? [Y/n]").Trim()
     if ($answer -ieq "N") { $script:SkipLabWifi = $true }
@@ -441,6 +456,42 @@ function Build-MinimumApk {
     }
 }
 
+function Test-TargetLabWifiConnected {
+    $connectivity = (Invoke-TargetAdb -Arguments @("shell", "dumpsys", "connectivity")) -join "`n"
+    $escapedSsid = [regex]::Escape($LabWifiSsid)
+    return $connectivity -match
+        "(?s)type:\s*WIFI.*?state:\s*CONNECTED/CONNECTED.*?extra:\s*`"$escapedSsid`""
+}
+
+function Ensure-LabWifiCredential {
+    param([Parameter(Mandatory)][string]$Profile)
+    if ($SkipLabWifi -or (Test-TargetLabWifiConnected)) {
+        return
+    }
+    if (-not $LabWifiCredentialPath) {
+        $credentialName = "{0}-lab-wifi.credential.xml" -f $Profile.ToLowerInvariant()
+        $script:LabWifiCredentialPath = Join-Path $PSScriptRoot ".secrets\$credentialName"
+    }
+    if (Test-Path -LiteralPath $LabWifiCredentialPath) {
+        return
+    }
+    if ($NonInteractive) {
+        throw "Lab Wi-Fi is not connected. Create the DPAPI credential or pass -SkipLabWifi."
+    }
+
+    Write-Host "Lab Wi-Fi '$LabWifiSsid' is not connected. Windows will request its password."
+    $credential = Get-Credential -UserName $LabWifiSsid `
+        -Message "Enter the Minimum lab Wi-Fi password"
+    if (-not $credential) {
+        throw "Lab Wi-Fi credential entry was cancelled."
+    }
+    $credentialDirectory = Split-Path -Parent $LabWifiCredentialPath
+    New-Item -ItemType Directory -Path $credentialDirectory -Force | Out-Null
+    $credential | Export-Clixml -LiteralPath $LabWifiCredentialPath
+    $credential = $null
+    Write-Host "Lab Wi-Fi credential saved with Windows DPAPI for this account."
+}
+
 function Invoke-ModelPreparation {
     param([Parameter(Mandatory)][string]$Profile)
     $prepareScript = if ($Profile -eq "T56") {
@@ -667,6 +718,7 @@ if (-not $installed) {
     throw "Minimum package verification failed after APK installation."
 }
 
+Ensure-LabWifiCredential -Profile $target.Profile
 Invoke-ModelPreparation -Profile $target.Profile
 $deviceId = Get-MinimumDeviceId
 Write-Host "Minimum Device ID: $deviceId"

@@ -170,6 +170,11 @@ guided flow detects the active ADB port, explains how to authorize USB debugging
 device menu when several radios are attached, and shows recommended/custom setup choices. It keeps
 the window open on PASS or failure so the result is not lost.
 
+For a field workstation without a source checkout, download
+`minimum-provisioning-<tag>.zip` from the GitHub Release, verify its `.sha256`, extract the complete
+folder and double-click the launcher there. That bundle includes the signed APK and temporary Wi-Fi
+helper, so Gradle and the project source are not required on the operator workstation.
+
 Connect only one unit of a given model for the final reboot check. The workflow verifies the exact hardware,
 builds the FOSS debug APK when requested or when the default APK is missing, installs it without
 clearing app data, runs the guarded model preparation, opens the Portal, installs the one-time device

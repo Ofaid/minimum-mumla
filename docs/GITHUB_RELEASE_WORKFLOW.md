@@ -107,7 +107,11 @@ APRS passcodes and cached positions.
 
 The manual `.github/workflows/release-apk.yml` workflow checks out an existing numeric `x.y.z...`
 tag, requires the reviewed Android `versionCode`, builds `:app:assembleFossRelease`, verifies the
-package/version/signature, creates a SHA-256 file and publishes the tagged GitHub Release. Its
+package/version/signature, creates SHA-256 files and publishes the tagged GitHub Release. The same
+release also contains `minimum-provisioning-<tag>.zip`, a standalone Windows bundle with the signed
+APK, double-click launcher, guarded T99/T56 scripts, prebuilt temporary Wi-Fi helper and operator
+README. The bundle uses the included APK/helper and does not require a source checkout or Gradle on
+the field workstation. Its
 protected `release` environment must provide:
 
 - `MINIMUM_RELEASE_KEYSTORE_BASE64`

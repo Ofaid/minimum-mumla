@@ -328,16 +328,22 @@ function Invoke-LabWifiProvisioning {
         [Parameter(Mandatory)][System.Management.Automation.PSCredential]$Credential
     )
 
-    $helperRoot = Join-Path $PSScriptRoot "..\tools\t99-wifi-provisioner"
-    $gradleWrapper = Join-Path $PSScriptRoot "..\gradlew.bat"
-    $helperApk = Join-Path $helperRoot "app\build\outputs\apk\debug\app-debug.apk"
-    if (-not (Test-Path -LiteralPath $gradleWrapper)) {
-        throw "Gradle wrapper is missing; cannot build the temporary Wi-Fi provisioner."
-    }
+    $bundledHelperApk = Join-Path $PSScriptRoot "..\assets\t99-wifi-provisioner.apk"
+    if (Test-Path -LiteralPath $bundledHelperApk -PathType Leaf) {
+        $helperApk = $bundledHelperApk
+        Write-Host "Using the Wi-Fi provisioner included in the Release bundle."
+    } else {
+        $helperRoot = Join-Path $PSScriptRoot "..\tools\t99-wifi-provisioner"
+        $gradleWrapper = Join-Path $PSScriptRoot "..\gradlew.bat"
+        $helperApk = Join-Path $helperRoot "app\build\outputs\apk\debug\app-debug.apk"
+        if (-not (Test-Path -LiteralPath $gradleWrapper)) {
+            throw "Neither the bundled Wi-Fi provisioner nor the Gradle wrapper is available."
+        }
 
-    & $gradleWrapper -p $helperRoot :app:assembleDebug
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $helperApk)) {
-        throw "Temporary Wi-Fi provisioner build failed."
+        & $gradleWrapper -p $helperRoot :app:assembleDebug
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $helperApk)) {
+            throw "Temporary Wi-Fi provisioner build failed."
+        }
     }
 
     $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) (
