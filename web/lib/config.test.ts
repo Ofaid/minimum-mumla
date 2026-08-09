@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { configsEqual, emptyConfig, validateConfig } from './config';
 import type { MinimumConfig } from './types';
+import { validModelProfile } from './model-profiles';
 
 describe('Minimum config validation', () => {
   it('accepts the schema 3 device baseline', () => {
@@ -33,5 +34,14 @@ describe('Minimum config validation', () => {
     expect(result.valid).toBe(false);
     expect(result.errors.join(' ')).toContain('connectionId');
     expect(result.errors.join(' ')).toContain('defaultChannel');
+  });
+
+  it('builds model-specific hardware baselines from supported profile choices', () => {
+    const t56 = emptyConfig('AB12C3', 't56');
+    const t99 = emptyConfig('ZX98Y7', 't99');
+    expect((t56.hardware as { profile: string }).profile).toBe('t56-unipro-zx-l809');
+    expect((t99.hardware as { profile: string }).profile).toBe('t99-qm011');
+    expect(validModelProfile('t56')).toBe(true);
+    expect(validModelProfile('T-56 typo')).toBe(false);
   });
 });

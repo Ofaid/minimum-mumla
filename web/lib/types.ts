@@ -15,7 +15,7 @@ export type StoredAdmin = {
 export type StoredDevice = {
   deviceId: string;
   label: string;
-  model: string;
+  model: ModelProfile;
   config: MinimumConfig;
   tokenHash: string;
   tokenCreatedAt: string;
@@ -36,3 +36,4 @@ export type PendingDeviceRequest = {
 };
 
 export type PendingDeviceRequestSummary = PendingDeviceRequest;
+import type { ModelProfile } from './model-profiles';

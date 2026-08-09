@@ -1,6 +1,7 @@
 import { errorResponse, jsonResponse, readJson, requireAdmin, requireAdminMutation } from '@/lib/api';
 import { assertDeviceConfig, configsEqual } from '@/lib/config';
 import { validDeviceId } from '@/lib/security';
+import { validModelProfile } from '@/lib/model-profiles';
 import { deleteDevice, getDevice, putDevice } from '@/lib/storage';
 import type { MinimumConfig } from '@/lib/types';
 
@@ -29,7 +30,7 @@ export async function PATCH(request: Request, context: Context) {
   const body = await readJson(request);
   const label = typeof body?.label === 'string' ? body.label.trim() : device.label;
   const model = typeof body?.model === 'string' ? body.model.trim() : device.model;
-  if (!label || label.length > 128 || !model || model.length > 64) return errorResponse('Label and model are required');
+  if (!label || label.length > 128 || !validModelProfile(model)) return errorResponse('Label and a supported model profile are required');
   let config: MinimumConfig;
   try {
     config = assertDeviceConfig(body?.config, deviceId);
