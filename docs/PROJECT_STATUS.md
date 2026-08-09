@@ -21,9 +21,11 @@ document disagrees with this file, verify the code and update this file first.
   release until the application ID/signing identity, protected GitHub environment, tagged workflow
   and remaining hardware limitations are accepted.
 - GitHub now has structured Bug/Device acceptance/Feature request forms, a PR safety checklist,
-  Android/Web CI definitions and a manual signed-release workflow. These files prepare the process;
-  they do not prove release readiness until required checks and signing secrets are configured and
-  the integrated commit passes them. See [GITHUB_RELEASE_WORKFLOW.md](GITHUB_RELEASE_WORKFLOW.md).
+  Android/Web CI and a manual signed-release workflow. CI run `31306714812` passed on integrated
+  commit `6ee5c5e6`: portal tests/type-check/production build and Android unit tests/debug APK/
+  unsigned release assembly all completed successfully. This proves the integrated build, but not
+  public release readiness until required checks, signing identity/secrets and remaining hardware
+  limitations are accepted. See [GITHUB_RELEASE_WORKFLOW.md](GITHUB_RELEASE_WORKFLOW.md).
 
 ## Production admin portal status
 

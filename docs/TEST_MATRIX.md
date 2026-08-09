@@ -5,6 +5,7 @@
 | FOSS debug unit tests | PASS | `:app:testFossDebugUnitTest` |
 | FOSS debug APK build | PASS | `:app:assembleFossDebug` |
 | FOSS release APK assembly | PASS LOCALLY / UNSIGNED | `:app:assembleFossRelease`; release-only Lint passes after removing invalid redundant `noBackup` XML domains. Signing and tagged GitHub provenance remain open. |
+| GitHub Actions integrated CI | PASS | Run `31306714812` on commit `6ee5c5e6`: Android unit tests/debug APK/unsigned release assembly and Portal tests/type-check/production build all passed. |
 | T99 ADB install | PASS | T99 serial `12344321` |
 | T99 Device ID format/persistence | PASS | `DeviceIdentityManagerTest`; startup integration added |
 | Automatic certificate generation | IMPLEMENTED | Must rerun only on a disposable fresh app-data test |

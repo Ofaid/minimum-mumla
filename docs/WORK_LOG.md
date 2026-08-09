@@ -21,6 +21,9 @@ This short log records meaningful project milestones. Detailed code truth remain
   redundant entries were removed because `getNoBackupFilesDir()` is already excluded by Android;
   FOSS unit tests, debug APK and release APK assembly then passed together. CI now runs the same
   release target so a release-only Lint regression blocks merge.
+- GitHub Actions run `31306714812` then passed on integrated commit `6ee5c5e6`. Both the Android job
+  (unit tests, debug APK and unsigned release assembly) and Portal job (tests, TypeScript and
+  production build) completed successfully. Signing and physical acceptance remain separate gates.
 
 ## 2026-08-09 - Managed credential provisioning and v1101 physical acceptance
 
