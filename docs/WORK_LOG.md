@@ -3,6 +3,21 @@
 This short log records meaningful project milestones. Detailed code truth remains in
 `PROJECT_STATUS.md` and the source files.
 
+## 2026-08-09 - Direct managed config refresh on API 22
+
+- Live T99/T56 testing after a PC restart showed that the old Android trust store rejected the
+  production Config endpoint, and that the client still required obsolete GitHub Pages
+  `default.json`/model files before requesting its private record.
+- Added a Config-only TLS socket factory that combines platform trust with bundled ISRG Root X1,
+  enables TLS 1.2 and retains normal hostname verification. Trust setup fails closed.
+- Managed devices now download the complete Schema-3 record directly from
+  `/api/device-config/{deviceId}`. The embedded active/previous config remains the Last Known Good
+  fallback; the public backend remains a non-secret reference artifact.
+- Live verification reached the private endpoint on both API-22 radios without
+  `SSLHandshakeException` or public-file `NotFoundException`. The expected remaining response was
+  generic device-config unavailable because the prior one-time tokens had been rotated and still
+  needed reprovisioning.
+
 ## 2026-08-09 - Production admin portal handoff
 
 - Documented the deployed `web/` Next.js portal at `https://minimum.vra.or.th/`, using Vercel's

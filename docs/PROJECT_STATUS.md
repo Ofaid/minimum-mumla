@@ -72,8 +72,11 @@ document disagrees with this file, verify the code and update this file first.
   a compatibility wrapper.
 - Added a public static GitHub Pages backend under `backend/`, with schema, defaults, model files and
   a Pages workflow. No user token is committed.
-- Added Android-side `RadioConfigRepository`: embedded safe default, HTTPS-only remote fetch,
-  default/model/device merge, validation, size limits and active/previous cache files.
+- Added Android-side `RadioConfigRepository`: embedded safe default, bearer-authenticated complete
+  device config from the Vercel control plane, validation, size limits and active/previous cache
+  files. Managed refresh no longer depends on the GitHub Pages default/model files. API-22 devices
+  combine platform trust with the bundled ISRG Root X1, force TLS 1.2, retain hostname verification
+  and fail closed if trust initialization fails.
 - Added `AccessTokenResolver` with JVM tests for per-channel public-token trimming, ordering,
   deduplication and safe exclusion of none/protected entries. The radio connection passes only the
   selected channel's values through Humla authentication without writing them to the server

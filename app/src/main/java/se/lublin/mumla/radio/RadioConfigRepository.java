@@ -25,10 +25,13 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLSocketFactory;
+
 import se.lublin.mumla.radio.tracking.AprsObjectName;
 
 /**
- * Loads the radio configuration from the embedded safe default and optional GitHub Pages data.
+ * Loads the radio configuration from the embedded safe default and private control plane.
  * Network refresh must be called from a worker thread. Device credentials are read from the
  * app-private credential store, applied only to the private device request, and never logged.
  */
@@ -36,7 +39,6 @@ public final class RadioConfigRepository {
     public static final int SCHEMA_VERSION = 3;
     public static final int MAX_CONFIG_BYTES = 262144;
     public static final int MAX_PTT_SECONDS = 120;
-    public static final String DEFAULT_BASE_URL = "https://awatchar.github.io/minimum/";
     public static final String DEVICE_CONFIG_BASE_URL =
             "https://minimum.vra.or.th/api/device-config/";
 
@@ -53,30 +55,21 @@ public final class RadioConfigRepository {
     private static final Object CACHE_LOCK = new Object();
 
     private final Context context;
-    private final String baseUrl;
     private final DeviceConfigCredentialStore credentialStore;
+    private volatile SSLSocketFactory configSslSocketFactory;
 
     public RadioConfigRepository(Context context) {
-        this(context, DEFAULT_BASE_URL, new DeviceConfigCredentialStore(context));
+        this(context, new DeviceConfigCredentialStore(context));
     }
 
-    public RadioConfigRepository(Context context, String baseUrl) {
-        this(context, baseUrl, new DeviceConfigCredentialStore(context));
-    }
-
-    RadioConfigRepository(Context context, String baseUrl,
-                          DeviceConfigCredentialStore credentialStore) {
+    RadioConfigRepository(Context context, DeviceConfigCredentialStore credentialStore) {
         if (context == null) {
             throw new IllegalArgumentException("context must not be null");
-        }
-        if (baseUrl == null || !baseUrl.startsWith("https://") || !baseUrl.endsWith("/")) {
-            throw new IllegalArgumentException("config base URL must be HTTPS and end with '/'");
         }
         if (credentialStore == null) {
             throw new IllegalArgumentException("credential store must not be null");
         }
         this.context = context.getApplicationContext();
-        this.baseUrl = baseUrl;
         this.credentialStore = credentialStore;
     }
 
@@ -123,15 +116,6 @@ public final class RadioConfigRepository {
         if (!isSafePathPart(modelProfile)) {
             throw new IllegalArgumentException("invalid model profile");
         }
-        JSONObject merged = readEmbeddedDefault();
-        JSONObject remoteDefault = fetchJson("default.json");
-        validateConfig(remoteDefault, null);
-        merged = merge(merged, remoteDefault);
-
-        JSONObject model = fetchJson("models/" + modelProfile + ".json");
-        validateOverlay(model, null);
-        merged = merge(merged, model);
-
         final String authorization;
         try {
             authorization = credentialStore.getAuthorizationHeader();
@@ -141,10 +125,7 @@ public final class RadioConfigRepository {
         if (authorization == null) {
             throw new DeviceConfigUnavailableException();
         }
-        JSONObject device = fetchDeviceConfig(deviceId, authorization);
-        validateOverlay(device, deviceId);
-        merged = merge(merged, device);
-
+        JSONObject merged = fetchDeviceConfig(deviceId, authorization);
         validateCompleteConfig(merged, deviceId);
         synchronized (CACHE_LOCK) {
             File active = new File(cacheDirectory(), ACTIVE_FILE);
@@ -502,22 +483,6 @@ public final class RadioConfigRepository {
         }
     }
 
-    private JSONObject fetchJson(String path) throws IOException, JSONException {
-        HttpURLConnection connection = openConnection(new URL(baseUrl + path), null);
-        try {
-            int status = connection.getResponseCode();
-            if (status == HttpURLConnection.HTTP_NOT_FOUND) {
-                throw new NotFoundException();
-            }
-            if (status < 200 || status >= 300) {
-                throw new IOException("config HTTP status " + status);
-            }
-            return new JSONObject(readLimited(connection.getInputStream()));
-        } finally {
-            connection.disconnect();
-        }
-    }
-
     private JSONObject fetchDeviceConfig(String deviceId, String authorization)
             throws IOException, JSONException {
         HttpURLConnection connection = openConnection(
@@ -544,9 +509,12 @@ public final class RadioConfigRepository {
         return DEVICE_CONFIG_BASE_URL + deviceId;
     }
 
-    private static HttpURLConnection openConnection(URL url, String authorization)
+    private HttpURLConnection openConnection(URL url, String authorization)
             throws IOException {
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        if (connection instanceof HttpsURLConnection) {
+            ((HttpsURLConnection) connection).setSSLSocketFactory(configSslSocketFactory());
+        }
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
         connection.setReadTimeout(READ_TIMEOUT_MS);
         connection.setRequestMethod("GET");
@@ -555,6 +523,19 @@ public final class RadioConfigRepository {
             connection.setRequestProperty("Authorization", authorization);
         }
         return connection;
+    }
+
+    private SSLSocketFactory configSslSocketFactory() throws IOException {
+        SSLSocketFactory existing = configSslSocketFactory;
+        if (existing != null) {
+            return existing;
+        }
+        synchronized (this) {
+            if (configSslSocketFactory == null) {
+                configSslSocketFactory = ConfigTlsSocketFactory.create(context);
+            }
+            return configSslSocketFactory;
+        }
     }
 
     private File cacheDirectory() {
@@ -698,10 +679,6 @@ public final class RadioConfigRepository {
 
     private static boolean isSafePathPart(String value) {
         return value != null && value.matches("[a-z0-9-]{1,64}");
-    }
-
-    private static final class NotFoundException extends IOException {
-        private static final long serialVersionUID = 1L;
     }
 
     /** Generic hold used when a private device config is not authorized or does not exist. */

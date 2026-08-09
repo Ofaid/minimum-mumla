@@ -35,8 +35,9 @@ remain outside this documentation.
 
 ## Public files
 
-The checked-in public distribution is under `backend/` and is published by GitHub Pages for the
-non-secret baseline. Device-specific private configuration is served by the production portal above:
+The checked-in public distribution under `backend/` remains a non-secret reference and recovery
+artifact. Managed Android devices no longer depend on GitHub Pages during refresh; their complete
+device-specific Schema-3 configuration is served by the production portal above:
 
 ```text
 /manifest.json
@@ -53,8 +54,10 @@ requires `Authorization: Bearer <device token>`. The legacy equivalent
 tokens return the same generic `401 Unauthorized` response; device IDs are never authentication.
 
 The Android implementation is `RadioConfigRepository`. It exposes `loadActiveOrDefault()` and a
-worker-thread `refresh(deviceId, modelProfile)` method. The user-facing device "Config Profile" is
-the same six-character `deviceId` lookup key used by `/devices/{deviceId}.json`; it is independent
+worker-thread `refresh(deviceId, modelProfile)` method. A provisioned managed device downloads the
+complete config directly from `/api/device-config/{deviceId}` instead of fetching and merging the
+GitHub default/model files first. The user-facing device "Config Profile" is the same six-character
+`deviceId` lookup key; it is independent
 from both the hardware model profile and the Mumble login name. `RadioConfigUpdater` schedules a best-effort
 refresh every six hours and whenever the network returns, without delaying startup. `RadioShellActivity`
 loads the Last Known Good result immediately, restores the last selected channel ID, connects
@@ -68,14 +71,14 @@ the APRS passcode, private endpoint overrides and last successful position remai
 `tracking.aprs.objectName` may optionally provide a public operator-selected label; when absent the
 client derives `VR-` plus the six-character Device ID locally.
 
-The T99 is Android 5.1/API 22 and its bundled CA store currently rejects the GitHub Pages
-certificate in the live-device test. This is handled as an ordinary refresh failure: no insecure
-TLS fallback is allowed, and the embedded/cache configuration remains in use. Re-test on T56 and a
-modern Android device before choosing whether a reviewed CA-store update is needed.
+T99 and T56 use Android 5.1/API 22 era trust stores. The Config transport combines the platform
+trust manager with the bundled ISRG Root X1 and enables TLS 1.2 while preserving the default
+`HttpsURLConnection` hostname verifier. Trust initialization fails closed; there is no trust-all or
+hostname-verification bypass. The embedded/cache configuration remains the Last Known Good fallback.
 
 ## Validation and rollback rules
 
-- Base URL must be HTTPS and end in `/`; redirects are not followed.
+- The private endpoint is fixed to HTTPS and redirects are not followed.
 - Each response is limited to 262,144 bytes.
 - Schema version must be 3 and config version must be positive.
 - `connections` is an object keyed by stable connection ID. Each complete connection has host,
