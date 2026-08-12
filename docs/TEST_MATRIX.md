@@ -36,7 +36,7 @@
 | Vercel/Cloudflare admin portal | PASS IN WEB / PRODUCTION SMOKE | First-run admin, pending-device queue, device CRUD, Schema-3 structured editor, Device-ID lookup endpoint and KV persistence; admin/Cloudflare secrets stay server-side |
 | Web `radio.defaultChannel` editor | PASS IN WEB | **Channels & default** selector and per-channel **Set default** persist `radio.defaultChannel` and advance `configVersion`; handset Last Selected Channel still wins when valid |
 | Android config embedded fallback | PASS | Asset + validation in repository |
-| Android remote config fetch/cache | PASS IN JVM / DEVICE ACCEPTANCE OPEN | Six-hour and network-return refresh, in-flight guard, pending staging and LKG fallback |
+| Android remote config fetch/cache | PASS IN JVM / RYKS PHYSICAL | Startup/six-hour/network-return refresh, in-flight guard, pending staging and LKG fallback; RYKS tokenless OTA activated portal v12 and a real reboot returned Ready with v12 active and `pending=false` |
 | Public access-token resolver | PASS | JVM tests cover trimming, case, ordering, duplicates and malformed/protected entries |
 | Remote room path selection | PASS | Exact full-path resolver JVM tests plus live T99 join to the supplied nested room |
 | Connection-time token integration | PASS | Live T99 authentication through existing Humla extras; token remained local and was not logged |

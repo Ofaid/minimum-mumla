@@ -69,6 +69,16 @@ The one-shot provisioner performs and verifies this step only after detecting `E
 read-only system APK, requests the Minimum recovery shortcut and verifies that Android HOME does
 not show a chooser. The property resets with a reboot and is not written to the system partition.
 
+The portal registration is Device-ID-only. After the Device Profile exists, Android fetches at
+every process start plus the normal six-hour/network-return triggers; no bearer token is issued or
+copied to the radio. Physical acceptance on 2026-08-12 installed the tokenless APK, activated portal
+Config v12 and rebooted successfully back to RadioShell Ready with saved Wi-Fi reconnected and
+`pending=false`.
+
+Android High Accuracy (`gps,network`) was enabled and survived reboot. A 120-second redacted probe
+detected 15 satellites but no ephemeris/SNR/used-in-fix and no GPS/network fix, so outdoor location
+fix acceptance remains open.
+
 ## Web configuration
 
 The portal model value is `ryks`. Its model-owned hardware data includes vendor PTT keyCode 285,
@@ -86,4 +96,3 @@ disabling tracking/APRS.
 - Reconfirm green and rotary volume. The corrected build has physically received repeated
   three-line F2 DOWN/UP events through the Device ID toggle path without leaving RadioShell; the
   operator-approved red long press remains the native Power menu.
-- Reboot after portal provisioning and verify unattended return to the selected Ready room.

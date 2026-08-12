@@ -187,6 +187,12 @@ document disagrees with this file, verify the code and update this file first.
   those RYKS-only actions into the service-owned PTT path. The debug APK was installed through the
   verified per-boot `ro.build.install=1` policy, Zello was removed for user 0, recovery/HOME checks
   passed and injected vendor-key DOWN/UP produced both OEM broadcasts without a crash.
+- Deployed tokenless Device-ID config lookup and installed the matching APK on the physical RYKS.
+  A fresh process downloaded portal Config v12, completed the pending Last Known Good trial and
+  reached Ready. A real reboot then reconnected the saved lab Wi-Fi, preserved Android High
+  Accuracy mode, fetched/retained v12 with `pending=false`, returned RadioShell to foreground and
+  exposed the Ready automation marker without any credential copy or rotation. The retired Android
+  token file was absent after migration.
 - Added a protected receiver provisioning fallback for Android builds without `/system/bin/run-as`.
   It reports the non-secret Device ID and validates/installs a temporary ADB config through the
   `android.permission.DUMP`-protected receiver, preserving active/previous config semantics.
@@ -209,6 +215,9 @@ document disagrees with this file, verify the code and update this file first.
   and live multi-room acceptance remain open; injected keyCode 285 is not a physical screen-off pass.
   After installing the corrected APK, repeated physical F2 DOWN/UP events reached the identity-toggle
   path and RadioShell remained foreground instead of opening Settings.
+  Android High Accuracy (`gps,network`) survives reboot, but the 120-second redacted location probe
+  saw 15 satellites with zero ephemeris/SNR/used-in-fix and produced neither GPS nor network fix;
+  a real outdoor fix remains open.
 
 - Physical PTT while the T99 display is off has passed an operator test. A subsequent physical trace
   classified the labelled control as `KEYCODE_F1` 131 / scan 59 / deviceId 4 / source `0x101` /

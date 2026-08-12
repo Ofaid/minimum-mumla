@@ -16,6 +16,11 @@ This short log records meaningful project milestones. Detailed code truth remain
   physically reprovisioning the radio.
 - Made repeated model preparation tolerate Zello already being absent instead of treating the
   expected `pm path` miss as an ADB failure.
+- Deployed the production endpoint, installed the tokenless APK with `adb install -r`, observed
+  portal Config v12 become active/Ready, then rebooted the physical RYKS. Saved lab Wi-Fi,
+  High Accuracy mode, RadioShell foreground, v12, `pending=false` and the Ready marker all survived;
+  the retired token file was absent. The RYKS OEM install-policy property reset after reboot as
+  expected and is unrelated to ongoing server configuration refresh.
 
 ## 2026-08-12 - RYKS Android and Web profile
 
