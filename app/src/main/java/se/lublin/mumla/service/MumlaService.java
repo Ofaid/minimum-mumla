@@ -108,6 +108,31 @@ public class MumlaService extends HumlaService implements
     private static final Locale THAI_LOCALE = new Locale("th", "TH");
     private static volatile MumlaService sRunningService;
 
+    /**
+     * Delivers an OEM hardware PTT edge directly when this process already owns the service.
+     *
+     * <p>Android 8+ may reject a receiver's background {@code startService()} even though the
+     * radio service is already alive. The direct path avoids that race and does not retain an edge
+     * for later: a false return means no service was running and the caller may attempt a normal
+     * service start, still subject to the service-owned readiness gate.</p>
+     */
+    public static boolean dispatchRadioPttAction(String action) {
+        MumlaService service = sRunningService;
+        if (service == null) {
+            return false;
+        }
+        if (ACTION_RADIO_PTT_DOWN.equals(action)) {
+            service.wakeRadioDisplay(false);
+            service.onTalkKeyDown();
+            return true;
+        }
+        if (ACTION_RADIO_PTT_UP.equals(action)) {
+            service.onTalkKeyUp();
+            return true;
+        }
+        return false;
+    }
+
     private Settings mSettings;
     private MumlaConnectionNotification mNotification;
     private MumlaMessageNotification mMessageNotification;

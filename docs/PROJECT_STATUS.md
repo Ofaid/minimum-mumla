@@ -211,8 +211,11 @@ document disagrees with this file, verify the code and update this file first.
 - RYKS operator capture corrected the initial conservative front-key assumptions: the three-line
   key is F2/scan 60 and now toggles Device ID on a single press; green is DPAD_CENTER/scan 353; red
   is native POWER/scan 116 and deliberately retains Android's Power off / Reboot menu. The two keys
-  below PTT are F8/scan 66 and F7/scan 65 for previous/next room selection. Real display-off PTT
-  and live multi-room acceptance remain open; injected keyCode 285 is not a physical screen-off pass.
+  below PTT are F8/scan 66 and F7/scan 65 for previous/next room selection. A physical hold from a
+  verified display-OFF state now proves the OEM DOWN/UP edges and wake path. The receiver dispatches
+  those edges directly into the already-running foreground service instead of relying on Android 8
+  background `startService`; it does not queue a rejected/not-ready press. Live TX visual capture
+  and live multi-room acceptance remain open.
   After installing the corrected APK, repeated physical F2 DOWN/UP events reached the identity-toggle
   path and RadioShell remained foreground instead of opening Settings.
   Android High Accuracy (`gps,network`) survives reboot, but the 120-second redacted location probe

@@ -51,6 +51,11 @@ public final class RadioHardwareKeyReceiver extends BroadcastReceiver {
         } else {
             return;
         }
+        // Prefer the already-running service. On Android 8+ a background receiver can be
+        // rejected by startService even though the managed radio service is alive and foreground.
+        if (MumlaService.dispatchRadioPttAction(serviceAction)) {
+            return;
+        }
         try {
             context.startService(new Intent(context, MumlaService.class).setAction(serviceAction));
         } catch (RuntimeException ignored) {

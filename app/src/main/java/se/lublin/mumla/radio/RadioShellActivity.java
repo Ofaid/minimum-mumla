@@ -1107,6 +1107,13 @@ public final class RadioShellActivity extends AppCompatActivity {
     }
 
     private void showTrafficOrReady() {
+        // A screen-off OEM DOWN can start TX before Android resumes this Activity. In that case
+        // the Activity was not observing the initial self-talk edge, so recover the service-owned
+        // state before rendering Ready/RX.
+        if (isLocalTalkingSafely()) {
+            startTxTimer();
+            return;
+        }
         List<String> activeTalkers = service == null
                 ? java.util.Collections.emptyList() : service.getRadioTalkers();
         RadioTrafficUiState traffic = RadioTrafficUiState.from(activeTalkers);
@@ -1133,6 +1140,17 @@ public final class RadioShellActivity extends AppCompatActivity {
             default:
                 showReadyState();
                 break;
+        }
+    }
+
+    private boolean isLocalTalkingSafely() {
+        if (service == null || !service.isConnected()) {
+            return false;
+        }
+        try {
+            return service.HumlaSession().isTalking();
+        } catch (IllegalStateException ignored) {
+            return false;
         }
     }
 

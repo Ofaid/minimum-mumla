@@ -58,6 +58,6 @@
     <string name="notification_message">%1$s: %2$s</string>
     <string name="certificate_export_format">mumla_%s.p12</string>
     <string name="radio_more_talkers">+%1$d คน</string>
-    <string name="radio_channel_alias">CHANNEL  %1$s</string>
+    <string name="radio_channel_alias">%1$s</string>
     <string name="radio_channel_alias_accessibility">Channel %1$s</string>
 </resources>
