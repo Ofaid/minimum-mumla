@@ -31,9 +31,9 @@ import javax.net.ssl.SSLSocketFactory;
 import se.lublin.mumla.radio.tracking.AprsObjectName;
 
 /**
- * Loads the radio configuration from the embedded safe default and private control plane.
- * Network refresh must be called from a worker thread. Device credentials are read from the
- * app-private credential store, applied only to the private device request, and never logged.
+ * Loads the radio configuration from the embedded safe default and managed control plane.
+ * Network refresh must be called from a worker thread. Registered radios use their stable
+ * six-character Device ID as the lookup key and do not require a second provisioning secret.
  */
 public final class RadioConfigRepository {
     public static final int SCHEMA_VERSION = 3;
@@ -55,22 +55,13 @@ public final class RadioConfigRepository {
     private static final Object CACHE_LOCK = new Object();
 
     private final Context context;
-    private final DeviceConfigCredentialStore credentialStore;
     private volatile SSLSocketFactory configSslSocketFactory;
 
     public RadioConfigRepository(Context context) {
-        this(context, new DeviceConfigCredentialStore(context));
-    }
-
-    RadioConfigRepository(Context context, DeviceConfigCredentialStore credentialStore) {
         if (context == null) {
             throw new IllegalArgumentException("context must not be null");
         }
-        if (credentialStore == null) {
-            throw new IllegalArgumentException("credential store must not be null");
-        }
         this.context = context.getApplicationContext();
-        this.credentialStore = credentialStore;
     }
 
     /** Returns the validated active cache, or the embedded default if the cache is absent/bad. */
@@ -116,16 +107,7 @@ public final class RadioConfigRepository {
         if (!isSafePathPart(modelProfile)) {
             throw new IllegalArgumentException("invalid model profile");
         }
-        final String authorization;
-        try {
-            authorization = credentialStore.getAuthorizationHeader();
-        } catch (IllegalArgumentException exception) {
-            throw new DeviceConfigUnavailableException();
-        }
-        if (authorization == null) {
-            throw new DeviceConfigUnavailableException();
-        }
-        JSONObject merged = fetchDeviceConfig(deviceId, authorization);
+        JSONObject merged = fetchDeviceConfig(deviceId);
         validateCompleteConfig(merged, deviceId);
         synchronized (CACHE_LOCK) {
             File active = new File(cacheDirectory(), ACTIVE_FILE);
@@ -220,16 +202,6 @@ public final class RadioConfigRepository {
         synchronized (CACHE_LOCK) {
             discardPendingLocked();
         }
-    }
-
-    /** Installs or rotates the per-device bearer credential without changing radio config files. */
-    public void setDeviceConfigCredential(String credential) throws IOException {
-        credentialStore.setCredential(credential);
-    }
-
-    /** Removes the per-device bearer credential without changing radio config files. */
-    public void clearDeviceConfigCredential() throws IOException {
-        credentialStore.clearCredential();
     }
 
     /** Installs an explicitly provisioned Last Known Good config from the protected ADB path. */
@@ -483,10 +455,9 @@ public final class RadioConfigRepository {
         }
     }
 
-    private JSONObject fetchDeviceConfig(String deviceId, String authorization)
+    private JSONObject fetchDeviceConfig(String deviceId)
             throws IOException, JSONException {
-        HttpURLConnection connection = openConnection(
-                new URL(deviceConfigUrl(deviceId)), authorization);
+        HttpURLConnection connection = openConnection(new URL(deviceConfigUrl(deviceId)));
         try {
             int status = connection.getResponseCode();
             if (status == HttpURLConnection.HTTP_UNAUTHORIZED
@@ -509,8 +480,7 @@ public final class RadioConfigRepository {
         return DEVICE_CONFIG_BASE_URL + deviceId;
     }
 
-    private HttpURLConnection openConnection(URL url, String authorization)
-            throws IOException {
+    private HttpURLConnection openConnection(URL url) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         if (connection instanceof HttpsURLConnection) {
             ((HttpsURLConnection) connection).setSSLSocketFactory(configSslSocketFactory());
@@ -519,9 +489,6 @@ public final class RadioConfigRepository {
         connection.setReadTimeout(READ_TIMEOUT_MS);
         connection.setRequestMethod("GET");
         connection.setInstanceFollowRedirects(false);
-        if (authorization != null) {
-            connection.setRequestProperty("Authorization", authorization);
-        }
         return connection;
     }
 
@@ -681,7 +648,7 @@ public final class RadioConfigRepository {
         return value != null && value.matches("[a-z0-9-]{1,64}");
     }
 
-    /** Generic hold used when a private device config is not authorized or does not exist. */
+    /** Generic hold used when a registered device config does not exist. */
     public static final class DeviceConfigUnavailableException extends IOException {
         private static final long serialVersionUID = 1L;
 

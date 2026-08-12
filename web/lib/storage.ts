@@ -116,7 +116,14 @@ export async function putAdmin(admin: StoredAdmin) {
 }
 
 export async function getDevice(deviceId: string) {
-  return kvGet<StoredDevice>(`device:${deviceId}`);
+  const key = `device:${deviceId}`;
+  const stored = await kvGet<StoredDevice & { tokenHash?: string; tokenCreatedAt?: string }>(key);
+  if (!stored) return null;
+  const { tokenHash, tokenCreatedAt, ...device } = stored;
+  if (tokenHash !== undefined || tokenCreatedAt !== undefined) {
+    await kvPut(key, device);
+  }
+  return device;
 }
 
 export async function putDevice(device: StoredDevice) {
@@ -129,7 +136,7 @@ export async function deleteDevice(deviceId: string) {
 
 export async function listDevices() {
   const keys = await kvList('device:');
-  const devices = await Promise.all(keys.map((key) => kvGet<StoredDevice>(key)));
+  const devices = await Promise.all(keys.map((key) => getDevice(key.slice('device:'.length))));
   return devices.filter((device): device is StoredDevice => Boolean(device));
 }
 

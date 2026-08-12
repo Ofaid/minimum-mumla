@@ -15,9 +15,8 @@ describe('BotID client route protection', () => {
     expect(isProtected('/api/devices/ABC123', 'PATCH')).toBe(true);
   });
 
-  it('protects delete and token rotation without using Next.js parameter syntax', () => {
+  it('protects delete without using Next.js parameter syntax', () => {
     expect(isProtected('/api/devices/ABC123', 'DELETE')).toBe(true);
-    expect(isProtected('/api/devices/ABC123/token', 'POST')).toBe(true);
     expect(BOT_ID_PROTECTED_ROUTES.some((route) => route.path.includes(':'))).toBe(false);
   });
 

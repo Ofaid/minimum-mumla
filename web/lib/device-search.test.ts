@@ -8,8 +8,6 @@ function device(deviceId: string, label: string): DeviceSummary {
     label,
     model: 't99',
     configVersion: 1,
-    tokenHint: 'token',
-    tokenCreatedAt: '2026-08-10T00:00:00.000Z',
     createdAt: '2026-08-10T00:00:00.000Z',
     updatedAt: '2026-08-10T00:00:00.000Z'
   };

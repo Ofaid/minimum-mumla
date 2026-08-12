@@ -33,7 +33,7 @@
 | Zello repeat script dry run | PASS | `remove-zello-t99.ps1 -WhatIf` |
 | Static backend JSON | PASS | Parsed with PowerShell `ConvertFrom-Json` |
 | GitHub Pages workflow | CONFIGURED / RECOVERY ONLY | Deploy occurs after workflow reaches `main`; managed devices use the Vercel device endpoint |
-| Vercel/Cloudflare admin portal | PASS IN WEB / PRODUCTION SMOKE | First-run admin, pending-device queue, device CRUD, Schema-3 structured editor, bearer endpoint and KV persistence; production secrets stay server-side |
+| Vercel/Cloudflare admin portal | PASS IN WEB / PRODUCTION SMOKE | First-run admin, pending-device queue, device CRUD, Schema-3 structured editor, Device-ID lookup endpoint and KV persistence; admin/Cloudflare secrets stay server-side |
 | Web `radio.defaultChannel` editor | PASS IN WEB | **Channels & default** selector and per-channel **Set default** persist `radio.defaultChannel` and advance `configVersion`; handset Last Selected Channel still wins when valid |
 | Android config embedded fallback | PASS | Asset + validation in repository |
 | Android remote config fetch/cache | PASS IN JVM / DEVICE ACCEPTANCE OPEN | Six-hour and network-return refresh, in-flight guard, pending staging and LKG fallback |

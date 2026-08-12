@@ -143,10 +143,18 @@ silently begin public tracking if remote configuration changes.
 ## D-019: Managed configuration is served by the private portal
 
 The Vercel portal at `minimum.vra.or.th` is the authoritative control plane for registered device
-records and complete private Schema-3 configuration. Android authenticates with a per-device bearer
-token and retains active/previous/pending copies app-privately. GitHub Pages remains a public,
-non-secret reference and recovery artifact. This prevents server passwords and protected channel
-tokens from entering a public repository while preserving an embedded startup fallback.
+records and complete Schema-3 configuration. Android retains active/previous/pending copies
+app-privately. GitHub Pages remains a public, non-secret reference and recovery artifact.
+
+This decision's manual bearer-token enrollment was superseded by D-021.
+
+## D-021: Device Profile creation is the only control-plane enrollment step
+
+Managed radios fetch by their stable six-character Device ID. Operators create the Device Profile
+in the authenticated admin portal but do not copy or rotate a second bearer token on the handset.
+Unknown IDs are retained briefly in the pending queue and receive `404`; registered IDs receive the
+validated config. Android refreshes at every process start as well as on the six-hour/network-return
+schedule, so reboot and OTA do not require physical reprovisioning.
 
 ## D-020: Default channel is a fallback, not a forced selection
 

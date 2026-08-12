@@ -3,6 +3,20 @@
 This short log records meaningful project milestones. Detailed code truth remains in
 `PROJECT_STATUS.md` and the source files.
 
+## 2026-08-12 - Tokenless Device Profile provisioning
+
+- Removed the manual device bearer-token lifecycle from Android, the provisioning script, Web API
+  and Admin UI. Creating a Device Profile for the six-character Device ID is now the only portal
+  enrollment step.
+- Device config endpoints now return a registered profile by Device ID and record unknown IDs in
+  the bounded pending queue with `404`. Existing KV token fields are deleted on read and Android
+  deletes its retired app-private credential file on upgrade.
+- Android now refreshes at every process start in addition to the six-hour and network-return
+  triggers, so reboot and OTA fetch current server configuration without rotating credentials or
+  physically reprovisioning the radio.
+- Made repeated model preparation tolerate Zello already being absent instead of treating the
+  expected `pm path` miss as an ADB failure.
+
 ## 2026-08-12 - RYKS Android and Web profile
 
 - Fixed production Admin Save Configuration BotID rejection. The client route list incorrectly used

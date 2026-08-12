@@ -43,22 +43,15 @@ public final class RadioConfigUpdater {
     private RadioConfigUpdater() {
     }
 
-    /** Starts the six-hour refresh and a process-lifetime network-return trigger. */
+    /** Refreshes at every process start, then watches network return and the six-hour interval. */
     public static void start(Context context) {
         Context applicationContext = context.getApplicationContext();
         registerNetworkReturnMonitor(applicationContext);
-        schedule(applicationContext, false);
+        schedule(applicationContext, true);
     }
 
     public static void schedule(Context context) {
         schedule(context, false);
-    }
-
-    /** Forces a refresh after a protected device credential is installed or rotated. */
-    static void scheduleNow(Context context) {
-        PreferenceManager.getDefaultSharedPreferences(context.getApplicationContext())
-                .edit().remove(PREF_LAST_SUCCESS).apply();
-        schedule(context, true);
     }
 
     /** Returns only the last successful managed refresh time for protected provisioning status. */
@@ -100,8 +93,7 @@ public final class RadioConfigUpdater {
                     applicationContext.sendBroadcast(available);
                 }
             } catch (RadioConfigRepository.DeviceConfigUnavailableException exception) {
-                // A missing, revoked, or unknown device credential is deliberately indistinguishable
-                // to logs and leaves the current Last Known Good config untouched.
+                // An unknown Device ID leaves the current Last Known Good config untouched.
                 Log.w(TAG, "Radio config refresh skipped; device configuration unavailable");
             } catch (IOException | JSONException | RuntimeException exception) {
                 // Remote config is optional. The repository's embedded/cache fallback remains the

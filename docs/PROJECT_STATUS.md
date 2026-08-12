@@ -33,8 +33,8 @@ document disagrees with this file, verify the code and update this file first.
   at `https://minimum.vra.or.th/` with Vercel's **Next.js framework preset**.
 - Production device/admin data is stored in Cloudflare KV through the server-only REST adapter.
   `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_KV_NAMESPACE_ID`,
-  `SESSION_SECRET` and `DEVICE_TOKEN_HASH_SECRET` are deployment secrets; the KV base URL is
-  configurable for compatible test services.
+  `SESSION_SECRET` is a deployment secret; the KV base URL is configurable for compatible test
+  services.
 - The portal provides a first-run administrator handoff, scrypt password hashing, an eight-hour
   HttpOnly admin session, pending-device registration, device CRUD, a structured Schema-3 editor,
   canonical model templates and automatic config-version advancement. The everyday editor has
@@ -43,9 +43,10 @@ document disagrees with this file, verify the code and update this file first.
   The **Channels & default** tab exposes `radio.defaultChannel` explicitly: an administrator can
   select it from the Default channel control or use **Set default** on a channel card. This value is
   the fallback only when no saved Last Selected Channel exists or the saved channel was removed.
-  Device configuration delivery is bearer-authenticated at `/api/device-config/{deviceId}`;
-  `/api/device/{deviceId}/config` remains a compatibility route. Only the token hash is persisted
-  for device credentials, and rotation revokes the previous token.
+  Device configuration delivery uses the registered six-character Device ID at
+  `/api/device-config/{deviceId}`; `/api/device/{deviceId}/config` remains a compatibility route.
+  There is no device bearer-token copy/rotation step. Existing KV token fields and Android token
+  files are removed during migration. Admin reads and mutations remain session protected.
 - Portal-issued config starts at v7 so it is newer than Android's bundled v6 baseline. Legacy portal
   records are repaired without dropping private connection/channel/APRS values. Connection maps
   supplied by a device record replace the template map, so repair cannot reintroduce the placeholder
@@ -55,7 +56,7 @@ document disagrees with this file, verify the code and update this file first.
   page-level horizontal overflow.
 - Production BotID coverage for dynamic admin mutations now initializes from Next.js 15.5
   `instrumentation-client.ts` and uses BotID `*` wildcard paths. Save Configuration, Delete and
-  Rotate token receive verification headers while server-side enforcement remains enabled.
+  Delete receive verification headers while server-side enforcement remains enabled.
 
 ## Completed
 
@@ -88,7 +89,7 @@ document disagrees with this file, verify the code and update this file first.
   a compatibility wrapper.
 - Added a public static GitHub Pages backend under `backend/`, with schema, defaults, model files and
   a Pages workflow. No user token is committed.
-- Added Android-side `RadioConfigRepository`: embedded safe default, bearer-authenticated complete
+- Added Android-side `RadioConfigRepository`: embedded safe default, Device-ID-addressed complete
   device config from the Vercel control plane, validation, size limits and active/previous cache
   files. Managed refresh no longer depends on the GitHub Pages default/model files. API-22 devices
   combine platform trust with the bundled ISRG Root X1, force TLS 1.2, retain hostname verification
@@ -97,8 +98,9 @@ document disagrees with this file, verify the code and update this file first.
   deduplication and safe exclusion of none/protected entries. The radio connection passes only the
   selected channel's values through Humla authentication without writing them to the server
   database, preferences or logs.
-- Added a best-effort six-hour background refresh scheduler plus a network-return trigger and an
-  in-flight guard. Failed attempts do not postpone the next retry and never delay normal startup.
+- Added a startup refresh, best-effort six-hour background refresh scheduler, network-return trigger
+  and in-flight guard. Reboot and OTA process start therefore check the server immediately. Failed
+  attempts do not postpone the next retry and never delay normal startup.
 - Remote config now has an explicit Last Known Good lifecycle: validated downloads are staged as
   `pending-config.json`, trialled only while RX/TX and connection transitions are idle, promoted to
   active only after the candidate connects and joins its configured room, and discarded on trial

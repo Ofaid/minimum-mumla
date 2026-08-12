@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  Activity, AlertCircle, Check, ChevronRight, Copy, KeyRound, LayoutDashboard,
+  Activity, AlertCircle, Check, ChevronRight, LayoutDashboard,
   LogOut, Plus, RadioTower, RefreshCw, Save, Search, Settings2, ShieldCheck, Trash2,
   X
 } from 'lucide-react';
@@ -24,7 +24,6 @@ type DeviceRecord = {
   label: string;
   model: ModelProfile;
   config: MinimumConfig;
-  tokenCreatedAt: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -253,7 +252,7 @@ function Dashboard({ username, setNotice, notice, onLogout }: { username: string
           <section className="registry-panel surface">
             <div className="panel-heading"><div><span className="eyebrow">CONFIG PROFILES</span><h2>Devices <span className="heading-count">{devices.length.toString().padStart(2, '0')}</span></h2></div><div className="panel-actions"><button className="icon-button" onClick={() => void loadDevices()} title="Refresh devices" aria-label="Refresh devices"><RefreshCw size={17} /></button><button className="primary-button" onClick={() => setShowAdd(true)}><Plus size={17} /> Add device</button></div></div>
             <PendingRequests requests={pendingRequests} onRegister={(deviceId) => { setPrefillDeviceId(deviceId); setShowAdd(true); }} />
-            {showAdd && <AddDeviceForm key={prefillDeviceId || 'new'} initialDeviceId={prefillDeviceId} onClose={() => { setShowAdd(false); setPrefillDeviceId(''); }} onSaved={(token, device) => { setShowAdd(false); setPrefillDeviceId(''); setNotice({ tone: 'success', text: `Device ${device.deviceId} created. Copy this one-time token now: ${token}` }); void loadDevices(); setSelectedId(device.deviceId); setSelected({ ...device, config: emptyConfig(device.deviceId, device.model) }); }} />}
+            {showAdd && <AddDeviceForm key={prefillDeviceId || 'new'} initialDeviceId={prefillDeviceId} onClose={() => { setShowAdd(false); setPrefillDeviceId(''); }} onSaved={(device) => { setShowAdd(false); setPrefillDeviceId(''); setNotice({ tone: 'success', text: `Device ${device.deviceId} created. It can now fetch configuration by Device ID.` }); void loadDevices(); setSelectedId(device.deviceId); setSelected({ ...device, config: emptyConfig(device.deviceId, device.model) }); }} />}
             {!loading && devices.length > 0 && <div className="registry-search">
               <label className="search-field">
                 <span className="sr-only">Search devices by Device ID or display label</span>
@@ -271,7 +270,7 @@ function Dashboard({ username, setNotice, notice, onLogout }: { username: string
             </div>}
             {loading ? <div className="loading-row"><RefreshCw size={17} className="spin" />Loading registry...</div> : devices.length === 0 ? <EmptyState onAdd={() => setShowAdd(true)} /> : visibleDevices.length === 0 ? <div className="search-empty"><Search size={24} /><h3>No matching devices</h3><p>Try a different Device ID or display label.</p><button className="quiet-button" type="button" onClick={() => setSearchQuery('')}>Clear search</button></div> : <div className="device-table"><div className="table-head"><span>PROFILE</span><span>MODEL</span><span>VERSION</span><span>UPDATED</span><span /></div>{visibleDevices.map((device) => <button className={`device-row ${selectedId === device.deviceId ? 'selected' : ''}`} key={device.deviceId} onClick={() => void chooseDevice(device.deviceId)}><span className="device-identity"><span className="device-mark"><RadioTower size={16} /></span><span><strong>{device.deviceId}</strong><small>{device.label}</small></span></span><span className="muted mono">{device.model}</span><span className="version-pill">v{device.configVersion}</span><span className="muted">{formatDate(device.updatedAt)}</span><ChevronRight size={16} className="row-chevron" /></button>)}</div>}
           </section>
-          {selectedId && <DeviceEditor key={selectedId} device={selected} onSaved={(updated) => { setSelected(updated); setNotice({ tone: 'success', text: `${updated.deviceId} saved at config v${updated.config.configVersion}.` }); void loadDevices(); }} onDeleted={() => { setSelected(null); setSelectedId(null); setNotice({ tone: 'success', text: 'Device removed.' }); void loadDevices(); }} onToken={(token) => setNotice({ tone: 'success', text: `New device token: ${token}` })} />}
+          {selectedId && <DeviceEditor key={selectedId} device={selected} onSaved={(updated) => { setSelected(updated); setNotice({ tone: 'success', text: `${updated.deviceId} saved at config v${updated.config.configVersion}.` }); void loadDevices(); }} onDeleted={() => { setSelected(null); setSelectedId(null); setNotice({ tone: 'success', text: 'Device removed.' }); void loadDevices(); }} />}
         </section>}
         {activeNav !== 'Devices' && <section className="placeholder-panel surface"><div className="empty-icon"><Settings2 size={24} /></div><h2>{activeNav} is quiet</h2><p>Operational history will appear here as devices report state.</p></section>}
       </main>
@@ -279,7 +278,7 @@ function Dashboard({ username, setNotice, notice, onLogout }: { username: string
   );
 }
 
-function AddDeviceForm({ initialDeviceId = '', onClose, onSaved }: { initialDeviceId?: string; onClose: () => void; onSaved: (token: string, device: DeviceRecord) => void }) {
+function AddDeviceForm({ initialDeviceId = '', onClose, onSaved }: { initialDeviceId?: string; onClose: () => void; onSaved: (device: DeviceRecord) => void }) {
   const [deviceId, setDeviceId] = useState('');
   const [label, setLabel] = useState('');
   const [model, setModel] = useState<ModelProfile>('generic-radio');
@@ -290,23 +289,21 @@ function AddDeviceForm({ initialDeviceId = '', onClose, onSaved }: { initialDevi
     event.preventDefault(); setBusy(true); setError('');
     try {
       const normalized = deviceId.toUpperCase();
-      const data = await api<{ token: string; device: DeviceSummary }>('/api/devices', { method: 'POST', body: JSON.stringify({ deviceId: normalized, label, model, config: emptyConfig(normalized, model) }) });
-      onSaved(data.token, { ...data.device, config: emptyConfig(normalized, model) });
+      const data = await api<{ device: DeviceSummary }>('/api/devices', { method: 'POST', body: JSON.stringify({ deviceId: normalized, label, model, config: emptyConfig(normalized, model) }) });
+      onSaved({ ...data.device, config: emptyConfig(normalized, model) });
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not create device'); }
     finally { setBusy(false); }
   }
   return <div className="inline-form"><div className="inline-form-head"><div><span className="eyebrow">NEW PROFILE</span><h3>Register device</h3></div><button className="icon-button" onClick={onClose} aria-label="Close" title="Close"><X size={17} /></button></div><form onSubmit={submit} className="form-grid"><Field label="Device ID" value={deviceId} onChange={setDeviceId} placeholder="ABC123" /><Field label="Display label" value={label} onChange={setLabel} placeholder="Field unit 01" /><ModelProfileField value={model} onChange={setModel} /><div className="form-actions"><button className="quiet-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={busy}>{busy ? 'Creating...' : 'Create profile'}<Plus size={16} /></button></div>{error && <div className="form-error grid-span"><AlertCircle size={15} />{error}</div>}</form></div>;
 }
 
-function DeviceEditor({ device, onSaved, onDeleted, onToken }: { device: DeviceRecord | null; onSaved: (device: DeviceRecord) => void; onDeleted: () => void; onToken: (token: string) => void }) {
+function DeviceEditor({ device, onSaved, onDeleted }: { device: DeviceRecord | null; onSaved: (device: DeviceRecord) => void; onDeleted: () => void }) {
   const [label, setLabel] = useState('');
   const [model, setModel] = useState<ModelProfile>('generic-radio');
   const [draft, setDraft] = useState<MinimumConfig | null>(null);
-  const [tab, setTab] = useState<'config' | 'security'>('config');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [token, setToken] = useState('');
-  useEffect(() => { if (device) { setLabel(device.label); setModel(device.model); setDraft(device.config); setError(''); setToken(''); } }, [device]);
+  useEffect(() => { if (device) { setLabel(device.label); setModel(device.model); setDraft(device.config); setError(''); } }, [device]);
   if (!device) return <section className="editor-panel surface loading-editor"><RefreshCw size={17} className="spin" />Loading profile...</section>;
   const currentDevice = device;
   function handleModelChange(nextModel: ModelProfile) {
@@ -320,23 +317,10 @@ function DeviceEditor({ device, onSaved, onDeleted, onToken }: { device: DeviceR
     catch (err) { setError(err instanceof Error ? err.message : 'Could not save profile'); }
     finally { setBusy(false); }
   }
-  async function rotateToken() {
-    try { const data = await api<{ token: string }>(`/api/devices/${currentDevice.deviceId}/token`, { method: 'POST' }); setToken(data.token); onToken(data.token); }
-    catch (err) { setError(err instanceof Error ? err.message : 'Could not rotate token'); }
-  }
   async function remove() {
     if (!window.confirm(`Delete ${currentDevice.deviceId}? This cannot be undone.`)) return;
     try { await api(`/api/devices/${currentDevice.deviceId}`, { method: 'DELETE' }); onDeleted(); }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not delete device'); }
   }
-  return <section className="editor-panel surface"><div className="editor-heading"><div className="editor-title"><span className="device-mark large"><RadioTower size={19} /></span><div><span className="eyebrow">DEVICE PROFILE</span><h2>{device.deviceId}</h2><span className="muted">{device.label}</span></div></div><div className="editor-actions"><span className="version-pill">v{device.config.configVersion}</span><button className="icon-button danger-icon" onClick={() => void remove()} title="Delete device" aria-label="Delete device"><Trash2 size={17} /></button></div></div><div className="editor-meta"><span><small>MODEL</small><strong>{model}</strong></span><span><small>LAST UPDATED</small><strong>{formatDate(device.updatedAt)}</strong></span><span><small>DEVICE API</small><strong className="green-text">Bearer enabled</strong></span></div><div className="editor-tabs"><button className={tab === 'config' ? 'editor-tab active' : 'editor-tab'} onClick={() => setTab('config')}><Settings2 size={15} /> Configuration</button><button className={tab === 'security' ? 'editor-tab active' : 'editor-tab'} onClick={() => setTab('security')}><KeyRound size={15} /> Security</button></div>{tab === 'config' ? <div className="config-editor"><div className="form-grid editor-basics"><Field label="Display label" value={label} onChange={setLabel} /><ModelProfileField value={model} onChange={handleModelChange} /></div>{draft && <ConfigEditorForm config={draft} model={model} onChange={setDraft} />}{error && <div className="form-error"><AlertCircle size={15} />{error}</div>}<div className="editor-footer"><span className="muted">Effective changes update the version automatically.</span><button className="primary-button" onClick={() => void save()} disabled={busy || !draft}><Save size={16} />{busy ? 'Saving...' : 'Save configuration'}</button></div></div> : <SecurityPanel token={token} onRotate={rotateToken} />}</section>;
-}
-
-function SecurityPanel({ token, onRotate }: { token: string; onRotate: () => Promise<void> }) {
-  const [copied, setCopied] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [rotating, setRotating] = useState(false);
-  async function copyToken() { if (!token) return; await navigator.clipboard?.writeText(token); setCopied(true); setTimeout(() => setCopied(false), 1800); }
-  async function confirmRotation() { setRotating(true); await onRotate(); setRotating(false); setConfirming(false); }
-  return <div className="security-panel"><div className="security-row"><div className="security-icon"><KeyRound size={18} /></div><div><h3>Device API token</h3><p>Only the token hash is stored. Rotation revokes the previous token.</p></div><span className="status-badge"><span className="status-dot" />Active</span></div><div className="token-box">{token ? <><code>{token}</code><button className="icon-button" onClick={() => void copyToken()} title="Copy token" aria-label="Copy token">{copied ? <Check size={16} /> : <Copy size={16} />}</button></> : <span className="token-placeholder">Token hidden. Rotate to issue a new one.</span>}</div>{confirming && <div className="rotation-confirm"><AlertCircle size={17} /><span>The current device token will stop working immediately.</span><button className="quiet-button" onClick={() => setConfirming(false)} disabled={rotating}>Cancel</button><button className="danger-button" onClick={() => void confirmRotation()} disabled={rotating}>{rotating ? 'Rotating...' : 'Confirm rotation'}</button></div>}<div className="security-actions">{!confirming && <button className="primary-button" onClick={() => setConfirming(true)}><RefreshCw size={16} /> Rotate token</button>}<span className="muted">The device endpoint uses <code>Authorization: Bearer</code>.</span></div></div>;
+  return <section className="editor-panel surface"><div className="editor-heading"><div className="editor-title"><span className="device-mark large"><RadioTower size={19} /></span><div><span className="eyebrow">DEVICE PROFILE</span><h2>{device.deviceId}</h2><span className="muted">{device.label}</span></div></div><div className="editor-actions"><span className="version-pill">v{device.config.configVersion}</span><button className="icon-button danger-icon" onClick={() => void remove()} title="Delete device" aria-label="Delete device"><Trash2 size={17} /></button></div></div><div className="editor-meta"><span><small>MODEL</small><strong>{model}</strong></span><span><small>LAST UPDATED</small><strong>{formatDate(device.updatedAt)}</strong></span><span><small>DEVICE API</small><strong className="green-text">Device ID lookup</strong></span></div><div className="editor-tabs"><span className="editor-tab active"><Settings2 size={15} /> Configuration</span></div><div className="config-editor"><div className="form-grid editor-basics"><Field label="Display label" value={label} onChange={setLabel} /><ModelProfileField value={model} onChange={handleModelChange} /></div>{draft && <ConfigEditorForm config={draft} model={model} onChange={setDraft} />}{error && <div className="form-error"><AlertCircle size={15} />{error}</div>}<div className="editor-footer"><span className="muted">Effective changes update the version automatically. Registered radios fetch updates automatically.</span><button className="primary-button" onClick={() => void save()} disabled={busy || !draft}><Save size={16} />{busy ? 'Saving...' : 'Save configuration'}</button></div></div></section>;
 }

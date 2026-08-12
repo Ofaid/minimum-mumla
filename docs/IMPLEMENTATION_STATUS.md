@@ -8,13 +8,12 @@ This file remains as a compatibility link for earlier notes. The maintained hand
 - `web/` contains the Next.js admin portal and is deployed at `https://minimum.vra.or.th/` through
   Vercel's Next.js framework preset.
 - Production persistence is Cloudflare KV over its REST API. The deployment requires the account,
-  API-token and namespace environment variables plus 32-character-or-longer session and device-token
-  hash secrets; no secret is stored in this repository.
+  API-token and namespace environment variables plus a 32-character-or-longer session secret; no
+  secret is stored in this repository.
 - The first-run administrator handoff, pending-device queue, device CRUD, structured Schema-3 form,
-  canonical per-model templates, automatic config-version advancement and one-time bearer-token
-  rotation are implemented. Raw JSON is an Advanced fallback. Credential material is persisted as password/token
-  hashes; device metadata/config remain persisted, and Android reads a device config through
-  `Authorization: Bearer <device token>`.
+  canonical per-model templates and automatic config-version advancement are implemented. Raw JSON
+  is an Advanced fallback. Android reads the registered profile by Device ID; there is no handset
+  token-copy or rotation step.
 - The **Channels & default** editor exposes `radio.defaultChannel` through a highlighted selector
   and per-channel **Set default** action while keeping Last Selected Channel as handset-owned state.
 - Verification completed: the web test suite, TypeScript and the production Next.js build pass from

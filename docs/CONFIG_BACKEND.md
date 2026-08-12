@@ -10,14 +10,13 @@ schema-3 configuration.
 Production persistence is Cloudflare KV accessed server-side through the REST API. The Vercel
 project must provide `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` and
 `CLOUDFLARE_KV_NAMESPACE_ID`; `CLOUDFLARE_KV_API_BASE` is optional and is intended for a compatible
-test endpoint. `SESSION_SECRET` and `DEVICE_TOKEN_HASH_SECRET` must each be at least 32 characters.
-These values are deployment secrets and must never be committed or printed.
+test endpoint. `SESSION_SECRET` must be at least 32 characters. These values are deployment secrets
+and must never be committed or printed.
 
-The first-run handoff is deliberately explicit: open the portal, create the administrator account,
-then register each device and copy its one-time bearer token into device-private provisioning. For
-credentials, the portal stores only the scrypt administrator hash and HMAC device-token hash (device
-metadata and schema-3 config are also persisted); rotating a token revokes the previous token
-immediately. Browser mutations are same-origin and BotID-protected in production.
+The first-run handoff is deliberately short: open the portal, create the administrator account, then
+register the radio's six-character Device ID and edit its profile. No bearer token is copied to the
+radio. The portal stores the scrypt administrator hash plus device metadata and Schema-3 config;
+browser mutations remain same-origin and BotID-protected in production.
 
 The administrator edits config through a structured form, not raw JSON. Servers, per-server
 credentials, channels, aliases, channel access, default/last channel behavior, PTT safety and
@@ -37,8 +36,8 @@ this prevents a newly registered portal profile from looking like a downgrade to
 portal records are repaired against the canonical Schema-3 template and advanced monotonically when
 an Android client fetches them or an administrator saves them. Effective changes advance the version
 automatically; re-saving unchanged content does not. The operator reported completing administrator
-setup and registering the development T56/T99 records on 2026-08-09. Tokens and private config values
-remain outside this documentation.
+setup and registering the development T56/T99 records on 2026-08-09. Config values remain outside
+this documentation.
 
 `connections` is an ID-keyed collection rather than a field-by-field template overlay. When an
 existing record supplies it, normalization preserves that collection exactly and does not add the
@@ -60,18 +59,25 @@ device-specific Schema-3 configuration is served by the production portal above:
 
 Expected base URL after Pages deploy: `https://awatchar.github.io/minimum/`.
 
-The private Android endpoint is `GET https://minimum.vra.or.th/api/device-config/{deviceId}` and
-requires `Authorization: Bearer <device token>`. The legacy equivalent
-`/api/device/{deviceId}/config` remains available for compatibility. Missing, invalid, or rotated
-tokens return the same generic `401 Unauthorized` response; device IDs are never authentication.
+The Android endpoint is `GET https://minimum.vra.or.th/api/device-config/{deviceId}`. The legacy
+equivalent `/api/device/{deviceId}/config` remains available for compatibility. A registered Device
+ID returns its config without a second device credential; an unknown ID records a bounded pending
+request and returns `404 Not Found`.
+
+Because this simplified device endpoint does not authenticate the handset, the Device ID is an
+address, not a secret. Do not place credentials that require confidentiality in a profile served by
+this mode. HTTPS still protects transport integrity/confidentiality in transit, and Android keeps
+its downloaded Last Known Good cache app-private, but the endpoint itself is readable by anyone who
+knows a registered Device ID. A future device-generated-key protocol can restore endpoint privacy
+without reintroducing operator-copied tokens.
 
 The Android implementation is `RadioConfigRepository`. It exposes `loadActiveOrDefault()` and a
 worker-thread `refresh(deviceId, modelProfile)` method. A provisioned managed device downloads the
 complete config directly from `/api/device-config/{deviceId}` instead of fetching and merging the
 GitHub default/model files first. The user-facing device "Config Profile" is the same six-character
 `deviceId` lookup key; it is independent
-from both the hardware model profile and the Mumble login name. `RadioConfigUpdater` schedules a best-effort
-refresh every six hours and whenever the network returns, without delaying startup. `RadioShellActivity`
+from both the hardware model profile and the Mumble login name. `RadioConfigUpdater` refreshes on
+every process start, every six hours and whenever the network returns, without delaying startup. `RadioShellActivity`
 loads the Last Known Good result immediately, restores the last selected channel ID, connects
 through the existing foreground service with that channel's connection/password/tokens, and joins
 the channel by its exact full path. If the saved ID no longer exists, it uses
@@ -90,7 +96,7 @@ hostname-verification bypass. The embedded/cache configuration remains the Last 
 
 ## Validation and rollback rules
 
-- The private endpoint is fixed to HTTPS and redirects are not followed.
+- The device endpoint is fixed to HTTPS and redirects are not followed.
 - Each response is limited to 262,144 bytes.
 - Schema version must be 3 and config version must be positive.
 - `connections` is an object keyed by stable connection ID. Each complete connection has host,

@@ -16,8 +16,7 @@ export async function GET(request: Request, context: Context) {
   if (!validDeviceId(deviceId)) return errorResponse('Invalid device ID', 400);
   const device = await getDevice(deviceId);
   if (!device) return errorResponse('Device not found', 404);
-  const { tokenHash: _tokenHash, ...safeDevice } = device;
-  return jsonResponse({ device: { ...safeDevice, config: repairConfig(device.config, deviceId, device.model) } });
+  return jsonResponse({ device: { ...device, config: repairConfig(device.config, deviceId, device.model) } });
 }
 
 export async function PATCH(request: Request, context: Context) {
@@ -43,8 +42,7 @@ export async function PATCH(request: Request, context: Context) {
   }
   const updated = { ...device, label, model, config, updatedAt: new Date().toISOString() };
   await putDevice(updated);
-  const { tokenHash: _tokenHash, ...safeDevice } = updated;
-  return jsonResponse({ device: safeDevice });
+  return jsonResponse({ device: updated });
 }
 
 export async function DELETE(request: Request, context: Context) {

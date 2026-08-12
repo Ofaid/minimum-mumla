@@ -5,12 +5,12 @@
 .DESCRIPTION
     This is the operator-facing one-shot workflow for known T99, T56 and RYKS hardware. It selects one
     authorized ADB target, verifies the hardware model, optionally builds the FOSS debug APK,
-    installs the APK without clearing app data, runs the guarded model preparation, installs the
-    portal-issued device bearer credential without putting it on the command line, waits for Ready,
-    reboots the radio, and waits for Ready again.
+    installs the APK without clearing app data, runs the guarded model preparation, waits for the
+    Device ID profile to become available from the portal, waits for Ready, reboots the radio, and
+    waits for Ready again.
 
-    When no credential is supplied, the script opens the Minimum portal and securely prompts for
-    the one-time token after displaying the six-character Device ID. Unknown hardware is reported
+    The script opens the Minimum portal after displaying the six-character Device ID. Create that
+    Device Profile once; no bearer token has to be copied to the radio. Unknown hardware is reported
     and rejected before any APK installation or provisioning change.
 
     Connect only one unit of a given model while using the reboot acceptance step. ADB transport IDs
@@ -26,8 +26,6 @@ param(
     [switch]$BuildApk,
     [Alias("DeviceId")]
     [string]$DeviceProfile = "",
-    [System.Security.SecureString]$DeviceConfigCredential,
-    [string]$DeviceConfigCredentialPath = "",
     [string]$PortalUrl = "https://minimum.vra.or.th/",
     [switch]$SkipOpenPortal,
     [switch]$NonInteractive,
@@ -51,7 +49,6 @@ $MinimumActivity = "se.lublin.mumla/.radio.RadioShellActivity"
 $ProvisionReceiver = "se.lublin.mumla/.radio.RadioProvisionReceiver"
 $IdentityReportAction = "se.lublin.mumla.action.PROVISION_REPORT_IDENTITY"
 $ProvisionStatusAction = "se.lublin.mumla.action.PROVISION_REPORT_STATUS"
-$CredentialProvisionAction = "se.lublin.mumla.action.PROVISION_DEVICE_CONFIG_CREDENTIAL"
 $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $BundledApkPath = Join-Path $RepositoryRoot "minimum-foss.apk"
 $SourceBuildApkPath = Join-Path $RepositoryRoot "app\build\outputs\apk\foss\debug\mumla-foss-debug.apk"
@@ -74,9 +71,6 @@ $script:targetRecord = $null
 if ($DeviceProfile -and (($DeviceProfile -cnotmatch '^[A-Z0-9]{6}$') -or
         ($DeviceProfile -notmatch '[A-Z]') -or ($DeviceProfile -notmatch '\d'))) {
     throw "DeviceProfile must be six uppercase A-Z/0-9 characters with a letter and digit."
-}
-if ($DeviceConfigCredential -and $DeviceConfigCredentialPath) {
-    throw "Pass either -DeviceConfigCredential or -DeviceConfigCredentialPath, not both."
 }
 if ($SkipLocation -and $RequestNetworkLocationConsent) {
     throw "-SkipLocation and -RequestNetworkLocationConsent cannot be used together."
@@ -406,17 +400,16 @@ function Get-MinimumProvisioningStatus {
     )
     $text = $output -join "`n"
     $match = [regex]::Match($text,
-        'data="?deviceId=([A-Z0-9]{6});credential=(present|missing);activeDeviceId=([A-Z0-9*]{1,6});configVersion=(-?\d+);pending=(true|false);lastSuccessMs=(\d+)"?')
+        'data="?deviceId=([A-Z0-9]{6});activeDeviceId=([A-Z0-9*]{1,6});configVersion=(-?\d+);pending=(true|false);lastSuccessMs=(\d+)"?')
     if (-not $match.Success) {
         return $null
     }
     return [pscustomobject]@{
         DeviceId = $match.Groups[1].Value
-        CredentialPresent = $match.Groups[2].Value -eq "present"
-        ActiveDeviceId = $match.Groups[3].Value
-        ConfigVersion = [int]$match.Groups[4].Value
-        Pending = $match.Groups[5].Value -eq "true"
-        LastSuccessMs = [long]$match.Groups[6].Value
+        ActiveDeviceId = $match.Groups[2].Value
+        ConfigVersion = [int]$match.Groups[3].Value
+        Pending = $match.Groups[4].Value -eq "true"
+        LastSuccessMs = [long]$match.Groups[5].Value
     }
 }
 
@@ -531,66 +524,6 @@ function Invoke-ModelPreparation {
     }
 }
 
-function New-CredentialTemporaryFile {
-    param([Parameter(Mandatory)][System.Security.SecureString]$Credential)
-    $temporaryPath = Join-Path ([IO.Path]::GetTempPath()) (
-        "minimum-device-credential-{0}.txt" -f [guid]::NewGuid().ToString("N"))
-    $bstr = [IntPtr]::Zero
-    $plainText = $null
-    try {
-        $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Credential)
-        $plainText = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-        if ([string]::IsNullOrWhiteSpace($plainText) -or $plainText.Length -gt 4096) {
-            throw "The device credential is empty or too large."
-        }
-        foreach ($character in $plainText.ToCharArray()) {
-            $code = [int][char]$character
-            if ($code -lt 0x20 -or $code -gt 0x7e) {
-                throw "The device credential contains unsupported characters."
-            }
-        }
-        [IO.File]::WriteAllText($temporaryPath, $plainText, [Text.Encoding]::ASCII)
-        return $temporaryPath
-    } catch {
-        if (Test-Path -LiteralPath $temporaryPath) {
-            Remove-Item -LiteralPath $temporaryPath -Force
-        }
-        throw
-    } finally {
-        $plainText = $null
-        if ($bstr -ne [IntPtr]::Zero) {
-            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-        }
-    }
-}
-
-function Install-DeviceCredential {
-    param([Parameter(Mandatory)][string]$LocalPath)
-    $resolvedPath = (Resolve-Path -LiteralPath $LocalPath).Path
-    $credentialFile = Get-Item -LiteralPath $resolvedPath
-    if ($credentialFile.Length -le 0 -or $credentialFile.Length -gt 4096) {
-        throw "The device credential file must contain 1-4096 bytes."
-    }
-    $remotePath = "/data/local/tmp/minimum-device-credential-$PID.txt"
-    try {
-        Invoke-TargetAdb -Arguments @("push", $resolvedPath, $remotePath) | Out-Null
-        Invoke-TargetAdb -Arguments @("shell", "chmod", "644", $remotePath) | Out-Null
-        $result = Invoke-TargetAdb -Arguments @(
-            "shell", "am", "broadcast", "-W",
-            "-a", $CredentialProvisionAction,
-            "-n", $ProvisionReceiver,
-            "--es", "deviceConfigCredentialPath", $remotePath
-        )
-        if (($result -join "`n") -notmatch '(?s)result=-1.*data="?credential-installed"?') {
-            throw "Minimum rejected the device credential."
-        }
-    } finally {
-        $cleanupArgs = $script:targetArgs + @("shell", "rm", "-f", $remotePath)
-        & $adbPath @cleanupArgs 1>$null 2>$null
-    }
-    Write-Host "Portal credential installed; no token value was displayed."
-}
-
 function Ensure-DisplayAwake {
     $powerState = (Invoke-TargetAdb -Arguments @("shell", "dumpsys", "power")) -join "`n"
     if ($powerState -notmatch 'Display Power: state=OFF' -and
@@ -623,7 +556,6 @@ function Wait-MinimumReady {
             if ($ui -match 'content-desc="minimum-state-ready"') {
                 $status = Get-MinimumProvisioningStatus
                 if ($status -and $status.DeviceId -eq $ExpectedDeviceId -and
-                        $status.CredentialPresent -and
                         $status.ActiveDeviceId -eq $ExpectedDeviceId -and
                         -not $status.Pending -and $status.ConfigVersion -gt 0 -and
                         $status.LastSuccessMs -gt 0) {
@@ -637,7 +569,7 @@ function Wait-MinimumReady {
         }
         Start-Sleep -Seconds 5
     }
-    throw "Minimum did not reach Ready $Phase within $TimeoutSeconds seconds. Check network, Portal registration, token and device config."
+    throw "Minimum did not reach Ready $Phase within $TimeoutSeconds seconds. Check network, Portal registration and device config."
 }
 
 function Wait-ForReturningTarget {
@@ -741,33 +673,15 @@ Invoke-ModelPreparation -Profile $target.Profile
 $deviceId = Get-MinimumDeviceId
 Write-Host "Minimum Device ID: $deviceId"
 
-$temporaryCredentialPath = ""
-try {
-    if (-not $DeviceConfigCredential -and -not $DeviceConfigCredentialPath) {
-        if ($NonInteractive) {
-            throw "-NonInteractive requires -DeviceConfigCredential or -DeviceConfigCredentialPath."
+if (-not $NonInteractive) {
+    $portalModel = $target.Profile.ToLowerInvariant()
+    Write-Host "Register Device ID $deviceId as model '$portalModel' in the Minimum Portal. No device token is required."
+    if (-not $SkipOpenPortal) {
+        try {
+            Start-Process $PortalUrl
+        } catch {
+            Write-Warning "Could not open the Portal automatically. Open $PortalUrl manually."
         }
-        $portalModel = $target.Profile.ToLowerInvariant()
-        Write-Host "Register Device ID $deviceId as model '$portalModel' in the Minimum Portal and issue its one-time token."
-        if (-not $SkipOpenPortal) {
-            try {
-                Start-Process $PortalUrl
-            } catch {
-                Write-Warning "Could not open the Portal automatically. Open $PortalUrl manually."
-            }
-        }
-        $DeviceConfigCredential = Read-Host "Paste the one-time device token (input is hidden)" -AsSecureString
-    }
-    if ($DeviceConfigCredential) {
-        $temporaryCredentialPath = New-CredentialTemporaryFile -Credential $DeviceConfigCredential
-        Install-DeviceCredential -LocalPath $temporaryCredentialPath
-    } else {
-        Install-DeviceCredential -LocalPath $DeviceConfigCredentialPath
-    }
-} finally {
-    $DeviceConfigCredential = $null
-    if ($temporaryCredentialPath -and (Test-Path -LiteralPath $temporaryCredentialPath)) {
-        Remove-Item -LiteralPath $temporaryCredentialPath -Force
     }
 }
 

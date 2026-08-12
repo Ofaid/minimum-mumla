@@ -53,8 +53,7 @@ For local UI work, `pnpm dev --hostname 127.0.0.1 --port 3010` may use the devel
 store. Production must fail closed unless Cloudflare KV is configured. Set these Vercel environment
 variables server-side and never paste their values into a shell transcript or tracked file:
 `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_KV_NAMESPACE_ID`, optional
-`CLOUDFLARE_KV_API_BASE`, `SESSION_SECRET` (32+ characters), and
-`DEVICE_TOKEN_HASH_SECRET` (32+ characters). BotID protection is enabled for production browser
+`CLOUDFLARE_KV_API_BASE` and `SESSION_SECRET` (32+ characters). BotID protection is enabled for production browser
 mutations; do not disable it as a deployment workaround. Next.js 15.3+ initializes BotID from
 `web/instrumentation-client.ts`. Dynamic BotID paths use `*` wildcards (for example
 `/api/devices/*`), not Next.js `:deviceId` syntax; otherwise the client omits the verification
@@ -65,15 +64,12 @@ First-run production handoff:
 1. Open `https://minimum.vra.or.th/` and create the administrator account when the `FIRST-RUN
    SETUP` screen appears. The password is stored as a one-way hash and the browser receives an
    eight-hour, HttpOnly, same-site admin session.
-2. Register each device in **Devices**, then copy the one-time bearer token into the device-private
-   config/provisioning path. The portal persists only its token hash; use **Rotate token** to revoke
-   a lost token before issuing a replacement.
-3. Verify the Android client can fetch `GET /api/device-config/{deviceId}` with
-   `Authorization: Bearer <device token>`. The legacy `/api/device/{deviceId}/config` path remains
-   available for compatibility. Never put the bearer token in `backend/`, GitHub Pages, logs or this
-   documentation.
+2. Register each radio's six-character Device ID in **Devices** and save its configuration. There is
+   no token to copy, rotate or install on the handset.
+3. Verify the Android client can fetch `GET /api/device-config/{deviceId}`. The legacy
+   `/api/device/{deviceId}/config` path remains available for compatibility.
 
-Read-only production smoke checks (no credentials required):
+Read-only production smoke checks:
 
 ```powershell
 curl.exe -sS https://minimum.vra.or.th/api/session
@@ -81,9 +77,8 @@ curl.exe -I https://minimum.vra.or.th/api/device-config/AB12C3
 curl.exe -I https://minimum.vra.or.th/api/device/AB12C3/config
 ```
 
-The expected pre-handoff state is `/api/session` `200` with `configured:false` and generic `401`
-responses from both bearer-protected device routes. A `200` from a device route requires a valid
-device token and must return only that device's schema-3 config.
+The expected pre-handoff state is `/api/session` `200` with `configured:false`. An unknown valid
+Device ID returns `404`; a registered Device ID returns only that device's Schema-3 config.
 
 ## T99 ADB session
 
@@ -180,9 +175,8 @@ helper, so Gradle and the project source are not required on the operator workst
 
 Connect only one unit of a given model for the final reboot check. The workflow verifies the exact hardware,
 builds the FOSS debug APK when requested or when the default APK is missing, installs it without
-clearing app data, runs the guarded model preparation, opens the Portal, installs the one-time device
-credential through the `DUMP`-protected receiver, waits for `minimum-state-ready`, reboots, and waits
-for Ready again:
+clearing app data, runs the guarded model preparation, opens the Portal, waits for the Device Profile
+to become available, waits for `minimum-state-ready`, reboots, and waits for Ready again:
 
 Double-click:
 
@@ -196,20 +190,15 @@ device automatically; if both servers are active or no device is visible, it pre
 the USB-debugging/authorization checklist. Advanced automation may still call the underlying
 PowerShell script with parameters, but field operators should use the launcher.
 
-The script displays only the six-character Device ID and detected Portal model (`t99`, `t56` or `ryks`).
-Register that ID under **Devices** at `https://minimum.vra.or.th/` with the displayed model, issue
-its one-time token, and paste the token into the hidden prompt in the same running script. The
-transient token file is removed from both Windows and
-`/data/local/tmp` immediately after the protected receiver returns. The token is never placed in an
-ADB argument or printed.
+The script displays only the six-character Device ID and detected Portal model (`t99`, `t56` or
+`ryks`). Register that ID under **Devices** at `https://minimum.vra.or.th/` with the displayed model
+and save its configuration. The radio fetches by Device ID with no second enrollment credential.
 
-For an unattended operator station, create a tightly protected temporary token file outside the
-repository and pass it explicitly. Delete that source file after the command succeeds:
+For an unattended operator station, pre-create the Device Profile, then run:
 
 ```powershell
 .\scripts\provision-minimum-device.ps1 -AdbPort 5041 -BuildApk `
     -DeviceProfile ABC123 `
-    -DeviceConfigCredentialPath C:\private\minimum-device-token.txt `
     -NonInteractive
 ```
 

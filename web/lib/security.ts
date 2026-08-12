@@ -11,13 +11,6 @@ function sessionSecret() {
   throw new Error('SESSION_SECRET must be configured with at least 32 characters');
 }
 
-function deviceTokenSecret() {
-  const value = process.env.DEVICE_TOKEN_HASH_SECRET || process.env.SESSION_SECRET;
-  if (value && value.length >= 32) return value;
-  if (process.env.NODE_ENV !== 'production') return 'development-only-device-token-secret-0123456789';
-  throw new Error('DEVICE_TOKEN_HASH_SECRET must be configured with at least 32 characters');
-}
-
 function base64Url(value: Buffer | string) {
   return Buffer.from(value).toString('base64url');
 }
@@ -42,20 +35,6 @@ export function verifySecret(secret: string, encoded: string) {
   } catch {
     return false;
   }
-}
-
-export function hashDeviceToken(token: string) {
-  return createHmac('sha256', deviceTokenSecret()).update(token).digest('hex');
-}
-
-export function verifyDeviceToken(token: string, expectedHash: string) {
-  const actual = Buffer.from(hashDeviceToken(token), 'hex');
-  const expected = Buffer.from(expectedHash, 'hex');
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
-}
-
-export function createDeviceToken() {
-  return randomBytes(32).toString('base64url');
 }
 
 export function createSession(username: string) {

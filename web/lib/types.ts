@@ -17,15 +17,12 @@ export type StoredDevice = {
   label: string;
   model: ModelProfile;
   config: MinimumConfig;
-  tokenHash: string;
-  tokenCreatedAt: string;
   createdAt: string;
   updatedAt: string;
 };
 
-export type DeviceSummary = Omit<StoredDevice, 'tokenHash' | 'config'> & {
+export type DeviceSummary = Omit<StoredDevice, 'config'> & {
   configVersion: number;
-  tokenHint: string;
 };
 
 export type PendingDeviceRequest = {

@@ -9,6 +9,8 @@ import static se.lublin.mumla.Settings.PREF_THEME;
 import android.app.Application;
 import android.content.SharedPreferences;
 
+import java.io.File;
+
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDelegate;
 import androidx.preference.PreferenceManager;
@@ -26,11 +28,23 @@ public class MumlaApplication extends Application implements SharedPreferences.O
         // Create the radio identity before either the Activity or service needs it. This keeps
         // the identity stable across normal app launches and makes it available to config code.
         new DeviceIdentityManager(preferences).getOrCreateDeviceId();
+        removeLegacyDeviceCredential();
         RadioPttKeyManager.applyDefaults(preferences);
         RadioLauncherShortcutInstaller.ensureInstalled(this, preferences, false);
         RadioConfigUpdater.start(this);
         applyTheme(preferences);
         preferences.registerOnSharedPreferenceChangeListener(this);
+    }
+
+    /** Removes the retired bearer token after upgrading from credential-based provisioning. */
+    private void removeLegacyDeviceCredential() {
+        File root = getNoBackupFilesDir();
+        if (root == null) {
+            return;
+        }
+        File directory = new File(root, "radio-config");
+        new File(directory, "device-config-credential").delete();
+        new File(directory, "device-config-credential.tmp").delete();
     }
 
     @Override

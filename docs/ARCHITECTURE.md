@@ -23,7 +23,7 @@ MumlaService (long-lived voice path)
 
 RadioConfigRepository
   ├─ embedded safe default
-  ├─ bearer-authenticated complete config from minimum.vra.or.th
+  ├─ Device-ID-addressed complete config from minimum.vra.or.th
   ├─ API-22 TLS 1.2 plus platform/ISRG Root X1 trust
   ├─ schema and safety validation
   └─ downgrade-protected pending/active/previous private cache
@@ -61,7 +61,7 @@ remains a deliberate recovery route to Minimum and Android Settings.
 The production configuration control plane is the Next.js administrator portal at
 `minimum.vra.or.th`. It keeps administrator sessions, pending-device registrations, device records
 and canonical Schema-3 model templates, persists them in Cloudflare KV, and serves a complete
-device-specific config through a bearer-authenticated endpoint. The portal advances
+device-specific config through a Device-ID lookup endpoint. The portal advances
 `configVersion` for effective changes; Android remains responsible for operational Last Known Good
 trial and promotion.
 
@@ -73,11 +73,11 @@ physical MENU/EXIT/red before returning to the dashboard.
 ## Configuration source and precedence
 
 Managed devices fetch one complete device-specific Schema-3 document from
-`https://minimum.vra.or.th/api/device-config/{deviceId}` with a provisioned bearer token. The portal
+`https://minimum.vra.or.th/api/device-config/{deviceId}` with no second credential-copy step. The portal
 normalizes its model template and device record before serving it; Android no longer fetches and
 merges the public GitHub Pages default/model/device files. The checked-in Pages tree remains a
-non-secret reference/recovery artifact. If no managed credential is provisioned, startup still has
-the embedded safe default.
+non-secret reference/recovery artifact. If the Device ID is not registered or the network is
+unavailable, startup still has the embedded safe default or Last Known Good cache.
 
 A lower `configVersion` cannot replace a valid newer active config, and changed content at the same
 version is rejected. Portal normalization must preserve an existing keyed `connections` map as a

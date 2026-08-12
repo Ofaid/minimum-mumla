@@ -447,7 +447,12 @@ Write-Host "Android ro.boot.serialno: $bootSerial"
 Write-Host "USB gadget iSerial: $usbSerial"
 Write-Host "Serial rewrite: NOT ATTEMPTED (requires root/firmware-level provisioning)"
 
-$packagePath = Invoke-TargetAdb -Arguments @("shell", "pm", "path", $PackageName)
+$packagePath = & $adbPath @($targetArgs + @("shell", "pm", "path", $PackageName)) 2>$null
+if ($LASTEXITCODE -ne 0) {
+    # `pm path` returns a non-zero status when an already-prepared radio no longer has Zello.
+    # Treat that expected absence as an empty result so preparation remains idempotent.
+    $packagePath = @()
+}
 if (-not $SkipZello -and $packagePath) {
     Write-Host "Zello system path: $($packagePath -join ' ')"
 }

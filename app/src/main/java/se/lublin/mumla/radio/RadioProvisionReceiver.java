@@ -32,15 +32,10 @@ public final class RadioProvisionReceiver extends BroadcastReceiver {
             "se.lublin.mumla.action.PROVISION_REPORT_STATUS";
     public static final String ACTION_INSTALL_RADIO_CONFIG =
             "se.lublin.mumla.action.PROVISION_RADIO_CONFIG";
-    public static final String ACTION_INSTALL_DEVICE_CONFIG_CREDENTIAL =
-            "se.lublin.mumla.action.PROVISION_DEVICE_CONFIG_CREDENTIAL";
     public static final String ACTION_SET_APRS_OBJECT_NAME =
             "se.lublin.mumla.action.PROVISION_APRS_OBJECT_NAME";
     public static final String EXTRA_DEVICE_PROFILE = "deviceProfile";
     public static final String EXTRA_CONFIG_PATH = "configPath";
-    public static final String EXTRA_DEVICE_CONFIG_CREDENTIAL = "deviceConfigCredential";
-    public static final String EXTRA_DEVICE_CONFIG_CREDENTIAL_PATH =
-            "deviceConfigCredentialPath";
     public static final String EXTRA_APRS_OBJECT_NAME = "objectName";
 
     @Override
@@ -67,17 +62,7 @@ public final class RadioProvisionReceiver extends BroadcastReceiver {
         } else if (ACTION_REPORT_STATUS.equals(intent.getAction())) {
             reportProvisioningStatus(context);
         } else if (ACTION_INSTALL_RADIO_CONFIG.equals(intent.getAction())) {
-            String credential = intent.getStringExtra(EXTRA_DEVICE_CONFIG_CREDENTIAL);
-            String credentialPath = intent.getStringExtra(EXTRA_DEVICE_CONFIG_CREDENTIAL_PATH);
-            if (credential != null || credentialPath != null) {
-                installDeviceConfigCredential(context, credential, credentialPath);
-            } else {
-                installRadioConfig(context, intent.getStringExtra(EXTRA_CONFIG_PATH));
-            }
-        } else if (ACTION_INSTALL_DEVICE_CONFIG_CREDENTIAL.equals(intent.getAction())) {
-            installDeviceConfigCredential(context,
-                    intent.getStringExtra(EXTRA_DEVICE_CONFIG_CREDENTIAL),
-                    intent.getStringExtra(EXTRA_DEVICE_CONFIG_CREDENTIAL_PATH));
+            installRadioConfig(context, intent.getStringExtra(EXTRA_CONFIG_PATH));
         } else if (ACTION_SET_APRS_OBJECT_NAME.equals(intent.getAction())) {
             updateAprsObjectName(context, intent.getStringExtra(EXTRA_APRS_OBJECT_NAME));
         }
@@ -90,23 +75,20 @@ public final class RadioProvisionReceiver extends BroadcastReceiver {
         try {
             String deviceId = new DeviceIdentityManager(
                     PreferenceManager.getDefaultSharedPreferences(context)).getOrCreateDeviceId();
-            DeviceConfigCredentialStore credentialStore = new DeviceConfigCredentialStore(context);
-            boolean credentialPresent = credentialStore.getCredential() != null;
             RadioConfigRepository repository = new RadioConfigRepository(context);
             org.json.JSONObject active = repository.loadActiveOrDefault();
             String activeDeviceId = active.optString("deviceId", "");
             int configVersion = active.optInt("configVersion", -1);
             setResultCode(-1);
             setResultData(String.format(Locale.US,
-                    "deviceId=%s;credential=%s;activeDeviceId=%s;configVersion=%d;pending=%s;lastSuccessMs=%d",
+                    "deviceId=%s;activeDeviceId=%s;configVersion=%d;pending=%s;lastSuccessMs=%d",
                     deviceId,
-                    credentialPresent ? "present" : "missing",
                     activeDeviceId,
                     configVersion,
                     repository.hasPending() ? "true" : "false",
                     RadioConfigUpdater.getLastSuccess(context)));
         } catch (IOException | RuntimeException | org.json.JSONException ignored) {
-            // Status intentionally contains no config fields, credentials, endpoints or room data.
+            // Status intentionally contains no config fields, endpoints or room data.
         }
     }
 
@@ -118,12 +100,12 @@ public final class RadioProvisionReceiver extends BroadcastReceiver {
                     PreferenceManager.getDefaultSharedPreferences(context)).getOrCreateDeviceId();
             new RadioConfigRepository(context).updateActiveAprsObjectName(deviceId, objectName);
             // The running service owns the APRS manager; ask it to re-read the active cache
-            // without exporting the config or credentials through the provisioning result.
+            // without exporting the config through the provisioning result.
             MumlaService.reloadTrackingConfigIfRunning();
             setResultCode(-1);
             setResultData("updated");
         } catch (IOException | RuntimeException | org.json.JSONException ignored) {
-            // The narrow provisioning result never exposes config content or credentials.
+            // The narrow provisioning result never exposes config content.
         }
     }
 
@@ -149,38 +131,7 @@ public final class RadioProvisionReceiver extends BroadcastReceiver {
             setResultCode(-1);
             setResultData("installed");
         } catch (IOException | RuntimeException | org.json.JSONException ignored) {
-            // Provisioning failures are returned without logging config content or credentials.
-        }
-    }
-
-    private void installDeviceConfigCredential(Context context, String credential,
-                                               String requestedPath) {
-        setResultCode(0);
-        setResultData("rejected");
-        if (credential == null && requestedPath == null) {
-            return;
-        }
-        try {
-            DeviceConfigCredentialStore store = new DeviceConfigCredentialStore(context);
-            if (credential != null) {
-                store.setCredential(credential);
-            } else {
-                File credentialFile = new File(requestedPath).getCanonicalFile();
-                File parent = credentialFile.getParentFile();
-                if (parent == null || !"/data/local/tmp".equals(parent.getCanonicalPath())
-                        || !credentialFile.getName().startsWith("minimum-device-credential-")
-                        || !credentialFile.getName().endsWith(".txt")) {
-                    return;
-                }
-                try (FileInputStream input = new FileInputStream(credentialFile)) {
-                    store.setCredential(input);
-                }
-            }
-            RadioConfigUpdater.scheduleNow(context);
-            setResultCode(-1);
-            setResultData("credential-installed");
-        } catch (IOException | RuntimeException ignored) {
-            // Credential failures never expose the supplied token or its contents.
+            // Provisioning failures are returned without logging config content.
         }
     }
 }

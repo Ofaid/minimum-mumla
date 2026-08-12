@@ -1,18 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { createDeviceToken, createSession, hashDeviceToken, hashSecret, readSession, securityHeaders, verifyDeviceToken, verifySecret } from './security';
+import { createSession, hashSecret, readSession, securityHeaders, verifySecret } from './security';
 
 describe('portal security primitives', () => {
   it('hashes passwords and verifies only the original value', () => {
     const encoded = hashSecret('correct horse battery staple');
     expect(verifySecret('correct horse battery staple', encoded)).toBe(true);
     expect(verifySecret('wrong password', encoded)).toBe(false);
-  });
-
-  it('issues bearer tokens that can be verified without storing plaintext', () => {
-    const token = createDeviceToken();
-    const hash = hashDeviceToken(token);
-    expect(verifyDeviceToken(token, hash)).toBe(true);
-    expect(verifyDeviceToken(`${token}x`, hash)).toBe(false);
   });
 
   it('signs and reads an expiring admin session', () => {

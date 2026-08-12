@@ -1,6 +1,6 @@
 import { errorResponse, jsonResponse, readJson, requireAdmin, requireAdminMutation } from '@/lib/api';
 import { assertDeviceConfig, emptyConfig, repairConfig } from '@/lib/config';
-import { createDeviceToken, hashDeviceToken, validDeviceId } from '@/lib/security';
+import { validDeviceId } from '@/lib/security';
 import { validModelProfile } from '@/lib/model-profiles';
 import { deletePendingDeviceRequest, getDevice, listDevices, putDevice } from '@/lib/storage';
 import type { DeviceSummary, MinimumConfig, StoredDevice } from '@/lib/types';
@@ -13,10 +13,8 @@ function summary(device: StoredDevice): DeviceSummary {
     label: device.label,
     model: device.model,
     configVersion: device.config.configVersion,
-    tokenCreatedAt: device.tokenCreatedAt,
     createdAt: device.createdAt,
-    updatedAt: device.updatedAt,
-    tokenHint: `rotated ${new Date(device.tokenCreatedAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`
+    updatedAt: device.updatedAt
   };
 }
 
@@ -47,22 +45,19 @@ export async function POST(request: Request) {
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : 'Invalid configuration');
   }
-  const token = createDeviceToken();
   const now = new Date().toISOString();
   const device: StoredDevice = {
     deviceId,
     label,
     model,
     config,
-    tokenHash: hashDeviceToken(token),
-    tokenCreatedAt: now,
     createdAt: now,
     updatedAt: now
   };
   try {
     await putDevice(device);
     await deletePendingDeviceRequest(deviceId).catch(() => undefined);
-    return jsonResponse({ device: summary(device), token }, 201);
+    return jsonResponse({ device: summary(device) }, 201);
   } catch {
     return errorResponse('Device store unavailable', 503);
   }
