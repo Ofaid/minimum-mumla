@@ -53,6 +53,9 @@ document disagrees with this file, verify the code and update this file first.
   and T99 records are registered and provisioned at config v1101. Local verification passes the web test suite, TypeScript,
   production build, two-server/two-channel browser round-trip, and 390 px responsive QA without
   page-level horizontal overflow.
+- Production BotID coverage for dynamic admin mutations now initializes from Next.js 15.5
+  `instrumentation-client.ts` and uses BotID `*` wildcard paths. Save Configuration, Delete and
+  Rotate token receive verification headers while server-side enforcement remains enabled.
 
 ## Completed
 

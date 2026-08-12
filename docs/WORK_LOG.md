@@ -5,6 +5,10 @@ This short log records meaningful project milestones. Detailed code truth remain
 
 ## 2026-08-12 - RYKS Android and Web profile
 
+- Fixed production Admin Save Configuration BotID rejection. The client route list incorrectly used
+  Next.js `:deviceId` syntax, which BotID does not match, so PATCH requests lacked verification
+  headers. Moved initialization to Next.js 15.5 `instrumentation-client.ts`, changed dynamic paths
+  to BotID `*` wildcards, retained server-side enforcement and added route regression tests.
 - Captured the operator-reported RYKS controls and corrected the conservative front-key policy:
   three-line is F2/scan 60 and toggles Device ID on one press, green is DPAD_CENTER/scan 353, and
   red is native POWER/scan 116 with the Android Power off / Reboot menu intentionally retained.

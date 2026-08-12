@@ -55,7 +55,10 @@ variables server-side and never paste their values into a shell transcript or tr
 `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_KV_NAMESPACE_ID`, optional
 `CLOUDFLARE_KV_API_BASE`, `SESSION_SECRET` (32+ characters), and
 `DEVICE_TOKEN_HASH_SECRET` (32+ characters). BotID protection is enabled for production browser
-mutations; do not disable it as a deployment workaround.
+mutations; do not disable it as a deployment workaround. Next.js 15.3+ initializes BotID from
+`web/instrumentation-client.ts`. Dynamic BotID paths use `*` wildcards (for example
+`/api/devices/*`), not Next.js `:deviceId` syntax; otherwise the client omits the verification
+header and the server correctly rejects the mutation.
 
 First-run production handoff:
 
