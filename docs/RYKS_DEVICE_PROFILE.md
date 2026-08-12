@@ -44,18 +44,20 @@ The firmware reports `ro.build.ptt_type=ANYPTT`. Its PhoneWindowManager maps ven
 - `com.zello.ptt.down`
 - `com.zello.ptt.up`
 
-`RadioHardwareKeyReceiver` accepts these actions only when the detected hardware profile is RYKS
-and delivers them directly to the already-running `MumlaService`. This avoids the Android 8
-background `startService` edge while preserving the service-owned room-ready gate, release handling,
-disconnect safety and 120-second watchdog. If the service is absent the receiver retains the normal
-start fallback; it never queues a press for later transmission. Duplicate raw-key and broadcast DOWN
-events remain idempotent in the service. When DOWN starts while the display is off, RadioShell reads
-the service-owned talking state as it resumes so it does not incorrectly render Ready during TX.
+The running foreground `MumlaService` registers `RadioHardwareKeyReceiver` at runtime for these
+RYKS-only actions. This is required because Android 8.1 suppresses the equivalent manifest receiver
+before application code runs while the display is off. The runtime receiver delivers each edge
+directly to the existing service-owned room-ready gate, release handling, disconnect safety and
+120-second watchdog; it never queues a press for later transmission. When DOWN starts while the
+display is off, RadioShell reads the service-owned talking state as it resumes so it does not
+incorrectly render Ready during TX.
 
 An injected keyCode-285 test first proved that PhoneWindowManager emits both OEM actions. A later
 physical hold started from an explicitly verified `Asleep` / display-OFF state and produced the OEM
-DOWN and UP about 3.9 seconds apart while waking RadioShell. The direct-dispatch build is installed;
-capturing the TX state during a second supervised hold remains the final live-audio acceptance step.
+DOWN and UP about 3.9 seconds apart while waking RadioShell. Device logging then proved Android was
+suppressing the static receiver. After installing the runtime-receiver build, a second physical hold
+from display OFF transmitted successfully, its DOWN/UP deliveries completed in single-digit
+milliseconds, and RadioShell returned to Ready after release without a stuck TX state.
 
 ## Installation and provisioning
 

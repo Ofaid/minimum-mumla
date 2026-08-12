@@ -8,14 +8,17 @@ This short log records meaningful project milestones. Detailed code truth remain
 - Removed the redundant `CHANNEL` label from the yellow RadioShell badge while retaining its
   accessibility description, color and selected alias.
 - Physical device evidence showed that RYKS emitted `com.zello.ptt.down/up` while the display was
-  off, but the manifest receiver still relied on a background `startService` call. The receiver now
-  delivers each edge synchronously to the already-running foreground service and keeps the existing
-  no-queue readiness gate, release safety and watchdog.
+  off, but Android 8.1 logged `Background execution not allowed` and suppressed the manifest receiver
+  before application code ran. The foreground service now registers the profile-specific PTT receiver
+  at runtime and delivers each edge through the existing no-queue readiness gate, release safety and
+  watchdog. Static manifest PTT actions were removed to avoid duplicate delivery.
 - RadioShell now recovers an already-active service TX state when Android resumes it after the
   screen-off DOWN, covering the observer edge that occurs before the Activity is visible.
 - Installed the reviewed build, visually confirmed the alias-only yellow badge and Ready state,
   then verified a physical hold from explicit `Asleep` / display OFF produced DOWN and UP about
-  3.9 seconds apart and woke RadioShell. A second supervised in-hold TX-state capture remains open.
+  3.9 seconds apart and woke RadioShell. After the runtime-receiver correction, a second physical
+  display-off hold transmitted successfully; Android recorded single-digit-millisecond delivery and
+  RadioShell returned to Ready after release without stuck TX.
 
 ## 2026-08-12 - Tokenless Device Profile provisioning
 

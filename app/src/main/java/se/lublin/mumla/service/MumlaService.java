@@ -38,6 +38,7 @@ import android.util.Log;
 import android.view.KeyEvent;
 import android.widget.Toast;
 
+import androidx.core.content.ContextCompat;
 import androidx.preference.PreferenceManager;
 
 import org.jsoup.Jsoup;
@@ -67,6 +68,7 @@ import se.lublin.mumla.radio.RadioPttRecoveryGuard;
 import se.lublin.mumla.radio.RadioPttSafetyPolicy;
 import se.lublin.mumla.radio.RadioReceiveTracker;
 import se.lublin.mumla.radio.RadioDeviceProfile;
+import se.lublin.mumla.radio.RadioHardwareKeyReceiver;
 import se.lublin.mumla.radio.RadioKeyDiagnostics;
 import se.lublin.mumla.radio.RadioNotificationPolicy;
 import se.lublin.mumla.radio.RadioProcessWatchdog;
@@ -151,6 +153,7 @@ public class MumlaService extends HumlaService implements
      * still require an OEM broadcast or privileged input path.
      */
     private MediaSession mPttMediaSession;
+    private RadioHardwareKeyReceiver mRadioHardwareKeyReceiver;
     private boolean mRadioRoomReady;
     private boolean mPttMediaKeyDown;
     private final Handler mPttWatchdogHandler = new Handler(Looper.getMainLooper());
@@ -485,6 +488,7 @@ public class MumlaService extends HumlaService implements
             mTTS = new TextToSpeech(this, mTTSInitListener);
 
         mTalkReceiver = new TalkBroadcastReceiver(this);
+        registerRadioHardwarePttReceiver();
     }
 
     @Override
@@ -551,6 +555,14 @@ public class MumlaService extends HumlaService implements
             unregisterReceiver(mTalkReceiver);
         } catch (IllegalArgumentException e) {
             e.printStackTrace();
+        }
+        if (mRadioHardwareKeyReceiver != null) {
+            try {
+                unregisterReceiver(mRadioHardwareKeyReceiver);
+            } catch (IllegalArgumentException ignored) {
+                // A partial service startup may not have completed receiver registration.
+            }
+            mRadioHardwareKeyReceiver = null;
         }
 
         unregisterObserver(mObserver);
@@ -1110,6 +1122,28 @@ public class MumlaService extends HumlaService implements
         if (service != null) {
             service.reloadTrackingConfig();
         }
+    }
+
+    /**
+     * Manifest receivers for these OEM implicit broadcasts are suppressed by Android 8 while the
+     * display is off. The foreground service remains alive, so a context receiver is the reliable
+     * lifecycle owner for the physical PTT edges.
+     */
+    private void registerRadioHardwarePttReceiver() {
+        String profile = RadioDeviceProfile.detectCurrent();
+        IntentFilter filter = new IntentFilter();
+        if (RadioDeviceProfile.RYKS.equals(profile)) {
+            filter.addAction(RadioHardwareKeyReceiver.ACTION_RYKS_PTT_DOWN);
+            filter.addAction(RadioHardwareKeyReceiver.ACTION_RYKS_PTT_UP);
+        } else if (RadioDeviceProfile.T56.equals(profile)) {
+            filter.addAction(RadioHardwareKeyReceiver.ACTION_T56_PTT_DOWN);
+            filter.addAction(RadioHardwareKeyReceiver.ACTION_T56_PTT_UP);
+        } else {
+            return;
+        }
+        mRadioHardwareKeyReceiver = new RadioHardwareKeyReceiver();
+        ContextCompat.registerReceiver(this, mRadioHardwareKeyReceiver, filter,
+                ContextCompat.RECEIVER_EXPORTED);
     }
 
     /**

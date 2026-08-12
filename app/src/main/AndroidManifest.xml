@@ -170,17 +170,13 @@
             </intent-filter>
         </receiver>
 
-        <!-- Supported radio firmware emits these even when keyguard consumes the raw event. -->
+        <!-- PTT edges are registered by the running foreground service; identity remains static. -->
         <receiver
             android:name=".radio.RadioHardwareKeyReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
-                <action android:name="unipro.hotkey.ptt.down" />
-                <action android:name="unipro.hotkey.ptt.up" />
                 <action android:name="unipro.hotkey.p2.long" />
-                <action android:name="com.zello.ptt.down" />
-                <action android:name="com.zello.ptt.up" />
             </intent-filter>
         </receiver>
 

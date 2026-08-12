@@ -212,10 +212,11 @@ document disagrees with this file, verify the code and update this file first.
   key is F2/scan 60 and now toggles Device ID on a single press; green is DPAD_CENTER/scan 353; red
   is native POWER/scan 116 and deliberately retains Android's Power off / Reboot menu. The two keys
   below PTT are F8/scan 66 and F7/scan 65 for previous/next room selection. A physical hold from a
-  verified display-OFF state now proves the OEM DOWN/UP edges and wake path. The receiver dispatches
-  those edges directly into the already-running foreground service instead of relying on Android 8
-  background `startService`; it does not queue a rejected/not-ready press. Live TX visual capture
-  and live multi-room acceptance remain open.
+  verified display-OFF state now proves the OEM DOWN/UP edges and wake path. Android 8.1 logs showed
+  that it suppressed the manifest receiver before application code ran, so the foreground service
+  now registers the OEM PTT receiver at runtime and dispatches each edge without queuing. A physical
+  display-off hold then transmitted successfully and returned to Ready after release without stuck
+  TX. Live multi-room acceptance remains open.
   After installing the corrected APK, repeated physical F2 DOWN/UP events reached the identity-toggle
   path and RadioShell remained foreground instead of opening Settings.
   Android High Accuracy (`gps,network`) survives reboot, but the 120-second redacted location probe
