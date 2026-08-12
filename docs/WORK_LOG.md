@@ -5,6 +5,12 @@ This short log records meaningful project milestones. Detailed code truth remain
 
 ## 2026-08-12 - RYKS Android and Web profile
 
+- Captured the operator-reported RYKS controls and corrected the conservative front-key policy:
+  three-line is F2/scan 60 and toggles Device ID on one press, green is DPAD_CENTER/scan 353, and
+  red is native POWER/scan 116 with the Android Power off / Reboot menu intentionally retained.
+  F8/scan 66 and F7/scan 65 are the two below-PTT previous/next room controls. Installed the corrected
+  APK and observed repeated physical F2 DOWN/UP events enter the identity-toggle path while
+  RadioShell remained foreground instead of opening Settings.
 - Commissioned the connected `ELINK/ym_258` RYKS (Android 8.1/API 27, 160x128) without committing
   its serial or Minimum Device ID. Device-tree input inventory identified rotary volume scans
   115/114, `CHAT` scans 216/249 and F7 scan 65.
@@ -12,7 +18,7 @@ This short log records meaningful project milestones. Detailed code truth remain
   `ro.build.ptt_type=ANYPTT` broadcasts `com.zello.ptt.down/up`. Added a RYKS-gated receiver path
   into the existing service PTT safety gate and kept both CHAT scans as PTT because the broadcast
   carries no scan-code discriminator.
-- Added RYKS detection/defaults, F7 room selection, front-key policy, app-private diagnostics,
+- Added RYKS detection/defaults, F8/F7 room selection, front-key policy, app-private diagnostics,
   tests, Web model/template/schema data, a guarded model wrapper and one-shot/release-bundle support.
 - Verified the ELINK PackageManager's per-boot `ro.build.install=1` gate, installed the debug APK,
   granted microphone permission, removed Zello for user 0, requested the recovery shortcut and

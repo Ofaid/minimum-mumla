@@ -354,9 +354,11 @@ The wrapper then uses the same guarded Zello, microphone, shortcut and HOME veri
 ```
 
 The OEM framework maps both GPIO `CHAT` scans 216 and 249 to vendor keyCode 285 and emits
-`com.zello.ptt.down/up`; both controls therefore remain PTT. Scan 65/F7 is the safe room-selection
-control. Rotary volume remains Android-native. See [RYKS_DEVICE_PROFILE.md](RYKS_DEVICE_PROFILE.md)
-for the evidence and the remaining labelled-button/display-off physical acceptance.
+`com.zello.ptt.down/up`; both controls therefore remain PTT. The two keys below PTT are scan 66/F8
+and scan 65/F7 for previous/next room. The three-line key is F2/scan 60 and toggles Device ID; red is
+native POWER/scan 116 and retains the Power off / Reboot menu. Rotary volume remains Android-native.
+See [RYKS_DEVICE_PROFILE.md](RYKS_DEVICE_PROFILE.md)
+for the evidence and the remaining PTT/display-off physical acceptance.
 
 ## APRS tracking verification
 

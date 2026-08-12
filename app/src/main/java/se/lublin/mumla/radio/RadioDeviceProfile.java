@@ -28,8 +28,18 @@ public final class RadioDeviceProfile {
     public static final int RYKS_PTT_SCAN_CODE = 216;
     /** A second physical gpio PTT uses the same vendor keyCode with scan 249. */
     public static final int RYKS_SECONDARY_PTT_SCAN_CODE = 249;
-    /** The remaining lower side key is Linux F7 and is available for room selection. */
+    /** The two keys below PTT are Linux F8/F7 and select previous/next rooms. */
+    public static final int RYKS_SIDE_UP_SCAN_CODE = 66;
     public static final int RYKS_SIDE_DOWN_SCAN_CODE = 65;
+    /** The labelled three-line key is Linux F2 on the captured matrix keypad. */
+    public static final int RYKS_MENU_KEY_CODE = 132;
+    public static final int RYKS_MENU_SCAN_CODE = 60;
+    /** The green front key is DPAD_CENTER on the captured matrix keypad. */
+    public static final int RYKS_GREEN_KEY_CODE = 23;
+    public static final int RYKS_GREEN_SCAN_CODE = 353;
+    /** The red key is the native Android power key and intentionally keeps the system power menu. */
+    public static final int RYKS_RED_KEY_CODE = 26;
+    public static final int RYKS_RED_SCAN_CODE = 116;
 
     private RadioDeviceProfile() {
     }

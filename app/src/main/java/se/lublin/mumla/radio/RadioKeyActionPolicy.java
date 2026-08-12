@@ -32,10 +32,8 @@ public final class RadioKeyActionPolicy {
                 || keyCode == KeyEvent.KEYCODE_BACK
                 || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT;
         }
-        // T56 and RYKS expose a dedicated BACK/red control; require the same deliberate hold.
-        return (RadioDeviceProfile.T56.equals(profile)
-                || RadioDeviceProfile.RYKS.equals(profile))
-                && keyCode == KeyEvent.KEYCODE_BACK;
+        // T56 exposes a dedicated BACK control. RYKS red is native POWER and stays system-owned.
+        return RadioDeviceProfile.T56.equals(profile) && keyCode == KeyEvent.KEYCODE_BACK;
     }
 
     public static boolean isRoomChangeKey(int keyCode) {
@@ -57,7 +55,7 @@ public final class RadioKeyActionPolicy {
         return roomDirection(profile, event) != 0;
     }
 
-    /** Uses the one non-PTT side scan on RYKS for forward room selection. */
+    /** Uses the two non-PTT side scans on RYKS for previous/next room selection. */
     public static int roomDirection(String profile, KeyEvent event) {
         if (event == null) {
             return 0;
@@ -67,6 +65,9 @@ public final class RadioKeyActionPolicy {
 
     static int roomDirection(String profile, int keyCode, int scanCode) {
         if (RadioDeviceProfile.RYKS.equals(profile)) {
+            if (scanCode == RadioDeviceProfile.RYKS_SIDE_UP_SCAN_CODE) {
+                return -1;
+            }
             if (scanCode == RadioDeviceProfile.RYKS_SIDE_DOWN_SCAN_CODE) {
                 return 1;
             }
@@ -83,7 +84,7 @@ public final class RadioKeyActionPolicy {
             return keyCode == KeyEvent.KEYCODE_DPAD_LEFT;
         }
         if (RadioDeviceProfile.RYKS.equals(profile)) {
-            return keyCode == KeyEvent.KEYCODE_MENU;
+            return keyCode == RadioDeviceProfile.RYKS_MENU_KEY_CODE;
         }
         return false;
     }
@@ -103,7 +104,11 @@ public final class RadioKeyActionPolicy {
         if (RadioDeviceProfile.T99.equals(profile)) {
             return scanCode == 139;
         }
-        return RadioDeviceProfile.T56.equals(profile) && scanCode == 64;
+        if (RadioDeviceProfile.T56.equals(profile)) {
+            return scanCode == 64;
+        }
+        return RadioDeviceProfile.RYKS.equals(profile)
+                && scanCode == RadioDeviceProfile.RYKS_MENU_SCAN_CODE;
     }
 
     public static boolean heldLongEnough(long startedAt, long endedAt, long requiredDuration) {

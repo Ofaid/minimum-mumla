@@ -108,6 +108,7 @@ public final class MinimumHomeActivity extends Activity {
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         RadioKeyDiagnostics.record(this, "home", event);
+        String profile = RadioDeviceProfile.detectCurrent();
         if (RadioPttKeyManager.isConfiguredPttEvent(event, settings)
                 && !RadioPttKeyManager.isMediaStyleKey(keyCode)) {
             if (event.getRepeatCount() == 0) {
@@ -124,8 +125,13 @@ public final class MinimumHomeActivity extends Activity {
             }
             return true;
         }
-        if (RadioKeyActionPolicy.isIdentityToggleEvent(
-                RadioDeviceProfile.detectCurrent(), event)) {
+        if (RadioKeyActionPolicy.isIdentityToggleEvent(profile, event)) {
+            if (RadioDeviceProfile.RYKS.equals(profile)) {
+                if (event.getRepeatCount() == 0) {
+                    setIdentityOverlayVisible(!identityOverlayVisible);
+                }
+                return true;
+            }
             beginIdentityToggle(keyCode, event);
             return true;
         }
@@ -153,6 +159,7 @@ public final class MinimumHomeActivity extends Activity {
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
         RadioKeyDiagnostics.record(this, "home", event);
+        String profile = RadioDeviceProfile.detectCurrent();
         if (RadioPttKeyManager.isConfiguredPttEvent(event, settings)
                 && !RadioPttKeyManager.isMediaStyleKey(keyCode)) {
             signalPttReleased();
@@ -162,8 +169,10 @@ public final class MinimumHomeActivity extends Activity {
                 RadioDeviceProfile.detectCurrent(), event)) {
             return true;
         }
-        if (RadioKeyActionPolicy.isIdentityToggleEvent(
-                RadioDeviceProfile.detectCurrent(), event)) {
+        if (RadioKeyActionPolicy.isIdentityToggleEvent(profile, event)) {
+            if (RadioDeviceProfile.RYKS.equals(profile)) {
+                return true;
+            }
             finishIdentityToggle(keyCode, event);
             return true;
         }

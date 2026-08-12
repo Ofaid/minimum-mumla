@@ -197,12 +197,13 @@ document disagrees with this file, verify the code and update this file first.
 
 ## Known limitations / not falsely marked complete
 
-- RYKS physical labelled-button acceptance is pending because no operator key press was captured
-  during the commissioning windows. GPIO and OEM-framework mappings are verified, including the
-  fact that scans 216 and 249 both become PTT and cannot safely be split by the broadcast path.
-  Green/CALL, menu/MENU, red/BACK, F7 room selection, rotary volume and real display-off PTT still
-  need direct operator verification. The injected keyCode-285 path proves firmware broadcast
-  delivery, not a physical screen-off press.
+- RYKS operator capture corrected the initial conservative front-key assumptions: the three-line
+  key is F2/scan 60 and now toggles Device ID on a single press; green is DPAD_CENTER/scan 353; red
+  is native POWER/scan 116 and deliberately retains Android's Power off / Reboot menu. The two keys
+  below PTT are F8/scan 66 and F7/scan 65 for previous/next room selection. Real display-off PTT
+  and live multi-room acceptance remain open; injected keyCode 285 is not a physical screen-off pass.
+  After installing the corrected APK, repeated physical F2 DOWN/UP events reached the identity-toggle
+  path and RadioShell remained foreground instead of opening Settings.
 
 - Physical PTT while the T99 display is off has passed an operator test. A subsequent physical trace
   classified the labelled control as `KEYCODE_F1` 131 / scan 59 / deviceId 4 / source `0x101` /
@@ -308,8 +309,8 @@ document disagrees with this file, verify the code and update this file first.
    keylayout/OEM path for unrelated foreground apps.
 2. Execute the supervised server-restart, long-outage, reconnect visual, wake-screen, half-duplex
    and PTT-failure portions of `RECONNECT_TEST_PLAN.md`.
-3. Complete RYKS labelled-button and real display-off PTT acceptance, then verify its F7 room action
-   against at least two live configured rooms.
+3. Complete RYKS real display-off PTT acceptance, then verify its F8/F7 room actions against at
+   least two live configured rooms and reconfirm the corrected Device ID/Power behavior.
 4. Complete T56 app-private side/power trace, room and supervised PTT tests without copying T99's
    F1 mapping.
 5. Exercise two or more room presets, denied-room fallback and safe room switching during traffic.

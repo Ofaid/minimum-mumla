@@ -407,8 +407,15 @@ public final class RadioShellActivity extends AppCompatActivity {
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         RadioKeyDiagnostics.record(this, "activity", event);
+        String profile = RadioDeviceProfile.detectCurrent();
         if (event != null && isIdentityToggleEvent(event)) {
             RadioKeyDiagnostics.record(this, "identity-toggle", event);
+            if (RadioDeviceProfile.RYKS.equals(profile)) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                    toggleIdentityOverlay();
+                }
+                return true;
+            }
             if (event.getAction() == KeyEvent.ACTION_DOWN) {
                 beginIdentityToggle(event.getKeyCode(), event);
             } else if (event.getAction() == KeyEvent.ACTION_UP) {

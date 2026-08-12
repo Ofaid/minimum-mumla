@@ -107,8 +107,11 @@
         "p3KeyCode": { "type": "integer", "minimum": 0 },
         "p3ScanCode": { "type": "integer", "minimum": 0 },
         "greenKeyCode": { "type": "integer", "minimum": 0 },
+        "greenScanCode": { "type": "integer", "minimum": 0 },
         "menuKeyCode": { "type": "integer", "minimum": 0 },
+        "menuScanCode": { "type": "integer", "minimum": 0 },
         "redKeyCode": { "type": "integer", "minimum": 0 },
+        "redScanCode": { "type": "integer", "minimum": 0 },
         "locationTrackingSupported": { "type": "boolean", "default": false }
       }
     }

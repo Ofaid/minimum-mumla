@@ -16,25 +16,26 @@ to the guarded shared provisioner.
 
 ## Input inventory
 
-The GPIO/rotary rows below come from the kernel/device-tree and OEM framework. The front-label rows
-are Minimum's conservative CALL/MENU/BACK policy and remain subject to the physical trace below:
+The GPIO/rotary and labelled-key rows below include the operator capture from 2026-08-12:
 
 | Control path | Linux scan/code | Android path | Minimum behavior |
 |---|---:|---|---|
 | `gpio_keys/ptt_btn1` | 216 / `KEY_CHAT` | vendor keyCode 285 plus `com.zello.ptt.down/up` | hold-to-talk PTT |
 | `gpio_keys/ptt_btn2` | 249 / `KEY_CHAT` | vendor keyCode 285 plus the same OEM broadcasts | secondary hold-to-talk PTT |
-| remaining lower side key | 65 / `KEY_F7` | `KEYCODE_F7` 137 | hold 1 s to select/join the next configured room |
+| upper key below PTT | 66 / `KEY_F8` | `KEYCODE_F8` 138 | hold 1 s to select/join the previous configured room |
+| lower key below PTT | 65 / `KEY_F7` | `KEYCODE_F7` 137 | hold 1 s to select/join the next configured room |
 | rotary clockwise | 115 / `KEY_VOLUMEUP` | Android volume up | raise media/playback volume |
 | rotary counter-clockwise | 114 / `KEY_VOLUMEDOWN` | Android volume down | lower media/playback volume |
-| green | Android `KEYCODE_CALL` 5 | foreground Activity | confirm/rejoin selected room |
-| three-line menu | Android `KEYCODE_MENU` 82 | foreground Activity | hold 1 s to toggle Device ID |
-| red/back | Android `KEYCODE_BACK` 4 | foreground Activity | hold 5 s to open recovery dashboard |
+| green | 353 / `KEY_OK` | `KEYCODE_DPAD_CENTER` 23 | confirm/rejoin selected room |
+| three-line menu | 60 / `KEY_F2` | `KEYCODE_F2` 132 | press once to show/hide Device ID |
+| red | 116 / `KEY_POWER` | system Power policy | long press keeps the native Power off / Reboot menu |
 
 The two `CHAT` GPIOs must remain PTT. The OEM PhoneWindowManager broadcasts the same action for
 both and does not include a scan-code extra, so assigning scan 249 to channel selection would allow
-an unintended transmission. Minimum therefore uses scan 65 as the only side-key room action.
+an unintended transmission. Minimum therefore uses scans 66/65 for previous/next room actions.
 
-The rotary is left on Android's native media-volume path. Minimum does not consume those events.
+The rotary and red Power key stay on Android's native paths. Minimum consumes the physical F2
+three-line key so it no longer falls through to Settings while a Minimum screen is active.
 
 ## Screen-off PTT path
 
@@ -49,7 +50,7 @@ room-ready gate, release handling, disconnect safety and 120-second watchdog. Du
 broadcast DOWN events are idempotent in the service.
 
 An injected keyCode-285 test on the physical unit proved that PhoneWindowManager emits both OEM
-actions and Minimum remains foreground without a crash. A labelled-button operator trace with an
+actions and Minimum remains foreground without a crash. A real PTT-button operator trace with an
 explicitly verified display-off state is still required before physical screen-off PTT is marked
 accepted.
 
@@ -71,18 +72,18 @@ not show a chooser. The property resets with a reboot and is not written to the 
 ## Web configuration
 
 The portal model value is `ryks`. Its model-owned hardware data includes vendor PTT keyCode 285,
-PTT scans 216/249, F7 scan 65, front-key Android codes and `locationTrackingSupported=false`.
+PTT scans 216/249, F8/F7 scans 66/65, F2 menu scan 60, DPAD_CENTER green scan 353, native Power
+scan 116 and `locationTrackingSupported=false`.
 Selecting RYKS in the portal preserves connections/channels while applying these model values and
 disabling tracking/APRS.
 
 ## Remaining physical acceptance
 
-- Capture each labelled button in order to confirm the front-label-to-Android mapping on this exact
-  enclosure revision.
 - Verify real PTT DOWN/UP while RadioShell is Ready, first with display on and then after confirming
   `Display Power: state=OFF`.
 - Confirm both PTT GPIOs release TX normally and do not leave a stuck state.
-- Verify F7 room selection with at least two live configured rooms.
-- Verify green confirm, menu identity overlay, five-second red recovery and rotary volume by direct
-  operator use.
+- Verify F8/F7 room selection with at least two live configured rooms.
+- Reconfirm green and rotary volume. The corrected build has physically received repeated
+  three-line F2 DOWN/UP events through the Device ID toggle path without leaving RadioShell; the
+  operator-approved red long press remains the native Power menu.
 - Reboot after portal provisioning and verify unattended return to the selected Ready room.

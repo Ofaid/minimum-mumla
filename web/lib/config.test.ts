@@ -59,7 +59,12 @@ describe('Minimum config validation', () => {
     expect((t99.hardware as { locationTrackingSupported: boolean }).locationTrackingSupported).toBe(false);
     expect((ryks.hardware as { pttScanCode: number }).pttScanCode).toBe(216);
     expect((ryks.hardware as { pttScanCodes: number[] }).pttScanCodes).toEqual([216, 249]);
-    expect((ryks.hardware as { p1ScanCode: number }).p1ScanCode).toBe(65);
+    expect((ryks.hardware as { p1ScanCode: number }).p1ScanCode).toBe(66);
+    expect((ryks.hardware as { p2ScanCode: number }).p2ScanCode).toBe(65);
+    expect((ryks.hardware as { menuKeyCode: number }).menuKeyCode).toBe(132);
+    expect((ryks.hardware as { menuScanCode: number }).menuScanCode).toBe(60);
+    expect((ryks.hardware as { redKeyCode: number }).redKeyCode).toBe(26);
+    expect((ryks.hardware as { redScanCode: number }).redScanCode).toBe(116);
     expect(validModelProfile('ryks')).toBe(true);
     expect(validModelProfile('t56')).toBe(true);
     expect(validModelProfile('T-56 typo')).toBe(false);

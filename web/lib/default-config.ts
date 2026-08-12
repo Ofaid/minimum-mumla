@@ -17,8 +17,11 @@ type HardwareProfile = ConfigObject & {
   p2ScanCode?: number;
   p3ScanCode?: number;
   greenKeyCode?: number;
+  greenScanCode?: number;
   menuKeyCode?: number;
+  menuScanCode?: number;
   redKeyCode?: number;
+  redScanCode?: number;
 };
 
 export const HARDWARE_BY_MODEL: Record<ModelProfile, HardwareProfile> = {
@@ -29,14 +32,17 @@ export const HARDWARE_BY_MODEL: Record<ModelProfile, HardwareProfile> = {
     pttKeyCodes: [285, 85, 79],
     pttScanCodes: [216, 249],
     locationTrackingSupported: false,
-    p1KeyCode: 137,
-    p1ScanCode: 65,
-    p2KeyCode: 0,
-    p2ScanCode: 0,
+    p1KeyCode: 138,
+    p1ScanCode: 66,
+    p2KeyCode: 137,
+    p2ScanCode: 65,
     p3KeyCode: 0,
-    greenKeyCode: 5,
-    menuKeyCode: 82,
-    redKeyCode: 4
+    greenKeyCode: 23,
+    greenScanCode: 353,
+    menuKeyCode: 132,
+    menuScanCode: 60,
+    redKeyCode: 26,
+    redScanCode: 116
   },
   t56: {
     profile: 't56-unipro-zx-l809',
