@@ -80,9 +80,12 @@ copied to the radio. Physical acceptance on 2026-08-12 installed the tokenless A
 Config v12 and rebooted successfully back to RadioShell Ready with saved Wi-Fi reconnected and
 `pending=false`.
 
-Android High Accuracy (`gps,network`) was enabled and survived reboot. A 120-second redacted probe
-detected 15 satellites but no ephemeris/SNR/used-in-fix and no GPS/network fix, so outdoor location
-fix acceptance remains open.
+Android High Accuracy (`gps,network`) was enabled and survived reboot. The initial 120-second
+redacted probe detected 15 satellite entries but no ephemeris/SNR/used-in-fix and no GPS/network
+fix. A repeat probe reported GPS enabled, network provider unavailable, 16 almanac entries and again
+zero ephemeris/SNR/used-in-fix or coordinates. These runs justify keeping RYKS APRS disabled, but
+they do not prove permanent hardware incapability because neither run was a controlled ten-minute
+open-sky acceptance test.
 
 ## Web configuration
 

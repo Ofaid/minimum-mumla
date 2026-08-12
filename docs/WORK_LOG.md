@@ -3,6 +3,20 @@
 This short log records meaningful project milestones. Detailed code truth remains in
 `PROJECT_STATUS.md` and the source files.
 
+## 2026-08-12 - T56 update provisioning and RYKS location recheck
+
+- Rebuilt the FOSS debug APK from current `main`, then updated the connected T56 with
+  `adb install -r` without uninstalling, clearing app data, rebooting, changing network settings or
+  transmitting PTT. The original install lineage remained intact and the new APK returned to
+  RadioShell Ready with its foreground service running.
+- The protected status report showed the current portal config active, no pending candidate and a
+  successful refresh immediately after the update. A sanitized comparison against the production
+  endpoint matched schema, config version, channel count and default-channel presence.
+- Repeated the redacted RYKS location probe for 120 seconds. GPS was enabled and reported 16
+  almanac entries, but network provider availability was false and GPS produced zero ephemeris,
+  SNR, used-in-fix or coordinates. This supports keeping RYKS APRS disabled, but does not prove
+  permanent hardware incapability without a controlled open-sky test.
+
 ## 2026-08-12 - RYKS display-off PTT delivery and channel badge
 
 - Removed the redundant `CHANNEL` label from the yellow RadioShell badge while retaining its

@@ -193,6 +193,10 @@ document disagrees with this file, verify the code and update this file first.
   Accuracy mode, fetched/retained v12 with `pending=false`, returned RadioShell to foreground and
   exposed the Ready automation marker without any credential copy or rotation. The retired Android
   token file was absent after migration.
+- Rebuilt the current APK and updated the connected T56 in place with `adb install -r`. Its original
+  install lineage and Device ID/config association remained valid; process-start refresh selected
+  the production config version exposed by the Web endpoint, left `pending=false` and returned the
+  device to RadioShell Ready without a reboot, data clear or PTT transmission.
 - Added a protected receiver provisioning fallback for Android builds without `/system/bin/run-as`.
   It reports the non-secret Device ID and validates/installs a temporary ADB config through the
   `android.permission.DUMP`-protected receiver, preserving active/previous config semantics.
@@ -219,9 +223,10 @@ document disagrees with this file, verify the code and update this file first.
   TX. Live multi-room acceptance remains open.
   After installing the corrected APK, repeated physical F2 DOWN/UP events reached the identity-toggle
   path and RadioShell remained foreground instead of opening Settings.
-  Android High Accuracy (`gps,network`) survives reboot, but the 120-second redacted location probe
-  saw 15 satellites with zero ephemeris/SNR/used-in-fix and produced neither GPS nor network fix;
-  a real outdoor fix remains open.
+  Android High Accuracy (`gps,network`) survives reboot. Two 120-second redacted probes produced no
+  coordinates; the repeat saw GPS enabled, network provider unavailable and 16 almanac entries with
+  zero ephemeris/SNR/used-in-fix. Keep APRS disabled, but do not claim permanent hardware inability
+  until a controlled ten-minute open-sky GPS-only plus GPS/network test is also negative.
 
 - Physical PTT while the T99 display is off has passed an operator test. A subsequent physical trace
   classified the labelled control as `KEYCODE_F1` 131 / scan 59 / deviceId 4 / source `0x101` /

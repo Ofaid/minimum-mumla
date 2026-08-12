@@ -37,6 +37,7 @@
 | Web `radio.defaultChannel` editor | PASS IN WEB | **Channels & default** selector and per-channel **Set default** persist `radio.defaultChannel` and advance `configVersion`; handset Last Selected Channel still wins when valid |
 | Android config embedded fallback | PASS | Asset + validation in repository |
 | Android remote config fetch/cache | PASS IN JVM / RYKS PHYSICAL | Startup/six-hour/network-return refresh, in-flight guard, pending staging and LKG fallback; RYKS tokenless OTA activated portal v12 and a real reboot returned Ready with v12 active and `pending=false` |
+| T56 APK update + remote config | PASS PHYSICAL | Current APK installed with `adb install -r`; install lineage persisted, process-start refresh matched the production endpoint, active config had no pending candidate and RadioShell returned Ready without reboot/data clear/PTT |
 | Public access-token resolver | PASS | JVM tests cover trimming, case, ordering, duplicates and malformed/protected entries |
 | Remote room path selection | PASS | Exact full-path resolver JVM tests plus live T99 join to the supplied nested room |
 | Connection-time token integration | PASS | Live T99 authentication through existing Humla extras; token remained local and was not logged |
@@ -69,6 +70,7 @@
 | T56 GPS fix | PASS | Two-minute temporary probe: about 5 m accuracy, 27 satellites visible, 13 used, max SNR about 32.8 |
 | T56 network-location fix | PASS AFTER CONSENT | Redacted 30-second probe returned a network fix at about 29.21 m accuracy while GPS also fixed at about 13 m |
 | T99 GPS fix / tracking capability | UNSUPPORTED | Repeated two-minute-plus probes see almanac entries but zero SNR/ephemeris/used satellites and no fix; the app hardware capability gate denies T99 tracking |
+| RYKS GPS/network fix | NOT ACCEPTED / OUTDOOR TEST OPEN | Repeat 120-second redacted probe: GPS enabled, network provider unavailable, 16 almanac entries, zero ephemeris/SNR/used-in-fix and no coordinates. APRS remains disabled; this is not proof of permanent hardware incapability without a controlled open-sky run |
 | T56 tracking unit policy | PASS IN JVM / DEVICE BEACON PASS | Coordinator covers jitter, movement, turns, transitions, stale fixes, PTT, concurrency, restart restore and newest-pending replacement; the T56 regular GPS request is removed after the 90-second acquisition window |
 | T99 tracking isolation | PASS IN CODE/ADB | T99 config gate returns disabled, no tracking manager is constructed, and post-install `dumpsys location` had no `se.lublin.mumla` request |
 | APRS HTTPS send-only response policy | PASS IN JVM | HTTP 204 with `X-Packetsrcvd > 0` is success; missing receipt is uncertain; auth rejection is permanent; 5xx/409 are retryable |
