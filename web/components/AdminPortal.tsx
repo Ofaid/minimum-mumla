@@ -2,15 +2,19 @@
 
 import {
   Activity, AlertCircle, Check, ChevronRight, LayoutDashboard,
-  LogOut, Plus, RadioTower, RefreshCw, Save, Search, Settings2, ShieldCheck, Trash2,
+  Library, LogOut, Plus, RadioTower, RefreshCw, Save, Search, Settings2, ShieldCheck, Trash2,
   X
 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import type { DeviceSummary, MinimumConfig, PendingDeviceRequestSummary } from '@/lib/types';
+import type { DeviceDeliveryStats, DeviceSummary, MinimumConfig, PendingDeviceRequestSummary } from '@/lib/types';
 import { applyModelProfile, emptyConfig } from '@/lib/default-config';
 import { MODEL_PROFILES, type ModelProfile } from '@/lib/model-profiles';
 import { filterDevices } from '@/lib/device-search';
 import { ConfigEditorForm } from './ConfigEditorForm';
+import { ActivityView } from './ActivityView';
+import { OverviewView } from './OverviewView';
+import { ConfigurationLibraryView } from './ConfigurationLibraryView';
+import { ConfigImportDialog } from './ConfigImportDialog';
 
 type SessionState = {
   loading: boolean;
@@ -26,6 +30,7 @@ type DeviceRecord = {
   config: MinimumConfig;
   createdAt: string;
   updatedAt: string;
+  deliveryStats?: DeviceDeliveryStats;
 };
 
 type Notice = { tone: 'success' | 'error' | 'info'; text: string } | null;
@@ -160,10 +165,27 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
   return <div className="empty-state"><div className="empty-icon"><RadioTower size={25} /></div><h2>No devices registered</h2><p>Provision a device profile to start publishing configuration.</p><button className="primary-button" type="button" onClick={onAdd}><Plus size={17} /> Add device</button></div>;
 }
 
-function PendingRequests({ requests, onRegister }: {
+function PendingRequests({ requests, onRegister, onDismiss }: {
   requests: PendingDeviceRequestSummary[];
   onRegister: (deviceId: string) => void;
+  onDismiss: (deviceId: string) => Promise<void>;
 }) {
+  const [dismissingDeviceIds, setDismissingDeviceIds] = useState<Set<string>>(new Set());
+
+  async function dismiss(deviceId: string) {
+    if (dismissingDeviceIds.has(deviceId)) return;
+    if (!window.confirm(`Remove pending request for ${deviceId}? Only the pending request will be removed. No registered Device Profile will be changed.`)) return;
+    setDismissingDeviceIds((current) => new Set(current).add(deviceId));
+    try { await onDismiss(deviceId); }
+    finally {
+      setDismissingDeviceIds((current) => {
+        const next = new Set(current);
+        next.delete(deviceId);
+        return next;
+      });
+    }
+  }
+
   if (!requests.length) return null;
   return (
     <section className="pending-requests" aria-labelledby="pending-requests-heading">
@@ -176,7 +198,12 @@ function PendingRequests({ requests, onRegister }: {
           <div className="pending-row" key={request.deviceId}>
             <span className="device-mark"><RadioTower size={15} /></span>
             <span className="pending-identity"><strong>{request.deviceId}</strong><small>{request.requestCount} request{request.requestCount === 1 ? '' : 's'} · {formatDate(request.lastSeenAt)}</small></span>
-            <button className="quiet-button" type="button" onClick={() => onRegister(request.deviceId)}>Register <ChevronRight size={15} /></button>
+            <span className="pending-actions">
+              <button className="quiet-button" type="button" onClick={() => onRegister(request.deviceId)}>Register <ChevronRight size={15} /></button>
+              <button className="danger-button" type="button" onClick={() => void dismiss(request.deviceId)} disabled={dismissingDeviceIds.has(request.deviceId)} aria-label={`Dismiss pending request for ${request.deviceId}`}>
+                {dismissingDeviceIds.has(request.deviceId) ? 'Dismissing...' : 'Dismiss'} <X size={15} aria-hidden="true" />
+              </button>
+            </span>
           </div>
         ))}
       </div>
@@ -229,6 +256,16 @@ function Dashboard({ username, setNotice, notice, onLogout }: { username: string
     try { const data = await api<{ device: DeviceRecord }>(`/api/devices/${deviceId}`); setSelected(data.device); }
     catch (err) { setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Could not load device' }); }
   };
+  const dismissPendingRequest = async (deviceId: string) => {
+    try {
+      const data = await api<{ ok: true; deviceId: string }>(`/api/devices/pending/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
+      setPendingRequests((current) => current.filter((request) => request.deviceId !== deviceId));
+      setNotice({ tone: 'success', text: `Pending request for ${data.deviceId} dismissed.` });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : 'The server could not remove it.';
+      setNotice({ tone: 'error', text: `Could not dismiss pending request for ${deviceId}. ${detail} Try again.` });
+    }
+  };
   async function logout() { await api('/api/logout', { method: 'POST' }).catch(() => undefined); onLogout(); }
   return (
     <div className="portal-shell">
@@ -238,6 +275,7 @@ function Dashboard({ username, setNotice, notice, onLogout }: { username: string
         <nav className="side-nav">
           <button className={activeNav === 'Overview' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveNav('Overview')}><LayoutDashboard size={17} /> Overview</button>
           <button className={activeNav === 'Devices' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveNav('Devices')}><RadioTower size={17} /> Devices <span className="nav-count">{devices.length}</span></button>
+          <button className={activeNav === 'Library' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveNav('Library')}><Library size={17} /> Library</button>
           <button className={activeNav === 'Activity' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveNav('Activity')}><Activity size={17} /> Activity</button>
         </nav>
         <div className="sidebar-bottom">
@@ -246,12 +284,15 @@ function Dashboard({ username, setNotice, notice, onLogout }: { username: string
         </div>
       </aside>
       <main className="main-content">
-        <header className="topbar"><div><span className="breadcrumb">MINIMUM / {activeNav.toUpperCase()}</span><h1>{activeNav === 'Devices' ? 'Device registry' : activeNav}</h1></div><div className="topbar-actions"><span className="kv-status"><span className="status-dot" />KV REST ready</span><span className="user-chip">{username.slice(0, 1).toUpperCase()}</span></div></header>
+        <header className="topbar"><div><span className="breadcrumb">MINIMUM / {activeNav.toUpperCase()}</span><h1>{activeNav === 'Devices' ? 'Device registry' : activeNav === 'Library' ? 'Configuration library' : activeNav}</h1></div><div className="topbar-actions"><span className="kv-status">Storage status in Overview</span><span className="user-chip">{username.slice(0, 1).toUpperCase()}</span></div></header>
         <NoticeBar notice={notice} onClose={() => setNotice(null)} />
+        {activeNav === 'Overview' && <OverviewView />}
+        {activeNav === 'Library' && <ConfigurationLibraryView />}
+        {activeNav === 'Activity' && <ActivityView />}
         {activeNav === 'Devices' && <section className="workspace-grid">
           <section className="registry-panel surface">
             <div className="panel-heading"><div><span className="eyebrow">CONFIG PROFILES</span><h2>Devices <span className="heading-count">{devices.length.toString().padStart(2, '0')}</span></h2></div><div className="panel-actions"><button className="icon-button" onClick={() => void loadDevices()} title="Refresh devices" aria-label="Refresh devices"><RefreshCw size={17} /></button><button className="primary-button" onClick={() => setShowAdd(true)}><Plus size={17} /> Add device</button></div></div>
-            <PendingRequests requests={pendingRequests} onRegister={(deviceId) => { setPrefillDeviceId(deviceId); setShowAdd(true); }} />
+            <PendingRequests requests={pendingRequests} onRegister={(deviceId) => { setPrefillDeviceId(deviceId); setShowAdd(true); }} onDismiss={dismissPendingRequest} />
             {showAdd && <AddDeviceForm key={prefillDeviceId || 'new'} initialDeviceId={prefillDeviceId} onClose={() => { setShowAdd(false); setPrefillDeviceId(''); }} onSaved={(device) => { setShowAdd(false); setPrefillDeviceId(''); setNotice({ tone: 'success', text: `Device ${device.deviceId} created. It can now fetch configuration by Device ID.` }); void loadDevices(); setSelectedId(device.deviceId); setSelected({ ...device, config: emptyConfig(device.deviceId, device.model) }); }} />}
             {!loading && devices.length > 0 && <div className="registry-search">
               <label className="search-field">
@@ -272,7 +313,6 @@ function Dashboard({ username, setNotice, notice, onLogout }: { username: string
           </section>
           {selectedId && <DeviceEditor key={selectedId} device={selected} onSaved={(updated) => { setSelected(updated); setNotice({ tone: 'success', text: `${updated.deviceId} saved at config v${updated.config.configVersion}.` }); void loadDevices(); }} onDeleted={() => { setSelected(null); setSelectedId(null); setNotice({ tone: 'success', text: 'Device removed.' }); void loadDevices(); }} />}
         </section>}
-        {activeNav !== 'Devices' && <section className="placeholder-panel surface"><div className="empty-icon"><Settings2 size={24} /></div><h2>{activeNav} is quiet</h2><p>Operational history will appear here as devices report state.</p></section>}
       </main>
     </div>
   );
@@ -303,6 +343,7 @@ function DeviceEditor({ device, onSaved, onDeleted }: { device: DeviceRecord | n
   const [draft, setDraft] = useState<MinimumConfig | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [importMode, setImportMode] = useState<'preset' | 'device' | null>(null);
   useEffect(() => { if (device) { setLabel(device.label); setModel(device.model); setDraft(device.config); setError(''); } }, [device]);
   if (!device) return <section className="editor-panel surface loading-editor"><RefreshCw size={17} className="spin" />Loading profile...</section>;
   const currentDevice = device;
@@ -322,5 +363,6 @@ function DeviceEditor({ device, onSaved, onDeleted }: { device: DeviceRecord | n
     try { await api(`/api/devices/${currentDevice.deviceId}`, { method: 'DELETE' }); onDeleted(); }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not delete device'); }
   }
-  return <section className="editor-panel surface"><div className="editor-heading"><div className="editor-title"><span className="device-mark large"><RadioTower size={19} /></span><div><span className="eyebrow">DEVICE PROFILE</span><h2>{device.deviceId}</h2><span className="muted">{device.label}</span></div></div><div className="editor-actions"><span className="version-pill">v{device.config.configVersion}</span><button className="icon-button danger-icon" onClick={() => void remove()} title="Delete device" aria-label="Delete device"><Trash2 size={17} /></button></div></div><div className="editor-meta"><span><small>MODEL</small><strong>{model}</strong></span><span><small>LAST UPDATED</small><strong>{formatDate(device.updatedAt)}</strong></span><span><small>DEVICE API</small><strong className="green-text">Device ID lookup</strong></span></div><div className="editor-tabs"><span className="editor-tab active"><Settings2 size={15} /> Configuration</span></div><div className="config-editor"><div className="form-grid editor-basics"><Field label="Display label" value={label} onChange={setLabel} /><ModelProfileField value={model} onChange={handleModelChange} /></div>{draft && <ConfigEditorForm config={draft} model={model} onChange={setDraft} />}{error && <div className="form-error"><AlertCircle size={15} />{error}</div>}<div className="editor-footer"><span className="muted">Effective changes update the version automatically. Registered radios fetch updates automatically.</span><button className="primary-button" onClick={() => void save()} disabled={busy || !draft}><Save size={16} />{busy ? 'Saving...' : 'Save configuration'}</button></div></div></section>;
+  const delivery = currentDevice.deliveryStats;
+  return <section className="editor-panel surface"><div className="editor-heading"><div className="editor-title"><span className="device-mark large"><RadioTower size={19} /></span><div><span className="eyebrow">DEVICE PROFILE</span><h2>{device.deviceId}</h2><span className="muted">{device.label}</span></div></div><div className="editor-actions"><span className="version-pill">v{device.config.configVersion}</span><button className="icon-button danger-icon" onClick={() => void remove()} title="Delete device" aria-label="Delete device"><Trash2 size={17} /></button></div></div><div className="editor-meta"><span><small>MODEL</small><strong>{model}</strong></span><span><small>LAST UPDATED</small><strong>{formatDate(device.updatedAt)}</strong></span><span><small>DEVICE API</small><strong className="green-text">Device ID lookup</strong></span></div><div className="device-delivery-meta" aria-label="Configuration request and served metadata"><span><small>FIRST SUCCESSFUL REQUEST</small><strong>{delivery?.firstRequestAt ? formatDate(delivery.firstRequestAt) : '—'}</strong></span><span><small>LAST SUCCESSFUL REQUEST</small><strong>{delivery?.lastRequestAt ? formatDate(delivery.lastRequestAt) : '—'}</strong></span><span><small>LAST CONFIG VERSION SERVED</small><strong>{typeof delivery?.lastConfigVersionServed === 'number' ? `v${delivery.lastConfigVersionServed}` : 'Unknown'}</strong></span><span><small>CURRENT STORED VERSION</small><strong>v{currentDevice.config.configVersion}</strong></span><span><small>TOTAL SUCCESSFUL REQUESTS</small><strong>{delivery?.servedCount ?? 0}</strong></span></div><div className="editor-tabs"><span className="editor-tab active"><Settings2 size={15} /> Configuration</span></div><div className="config-editor"><div className="form-grid editor-basics"><Field label="Display label" value={label} onChange={setLabel} /><ModelProfileField value={model} onChange={handleModelChange} /></div>{draft && <ConfigEditorForm config={draft} model={model} onChange={setDraft} onOpenImport={setImportMode} />}{error && <div className="form-error"><AlertCircle size={15} />{error}</div>}<div className="editor-footer"><span className="muted">Effective changes update the version automatically. Registered radios fetch updates automatically.</span><button className="primary-button" onClick={() => void save()} disabled={busy || !draft}><Save size={16} />{busy ? 'Saving...' : 'Save configuration'}</button></div></div>{draft && <ConfigImportDialog open={importMode !== null} initialMode={importMode || 'preset'} targetDeviceId={currentDevice.deviceId} targetDraft={draft} onClose={() => setImportMode(null)} onApplied={(nextDraft) => { setDraft(nextDraft); setImportMode(null); setError(''); }} />}</section>;
 }

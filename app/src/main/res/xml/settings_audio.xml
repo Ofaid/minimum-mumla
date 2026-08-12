@@ -40,7 +40,7 @@
         android:summary="@string/audioInputVolumeSum"
         android:key="inputVolume"
         app:max="200"
-        android:defaultValue="100"
+        android:defaultValue="200"
         android:text="%"
         app:iconSpaceReserved="false"/>
 

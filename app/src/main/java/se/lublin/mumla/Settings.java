@@ -79,7 +79,7 @@ public class Settings {
     public static final int DEFAULT_INPUT_QUALITY = 40000;
 
     public static final String PREF_AMPLITUDE_BOOST = "inputVolume";
-    public static final Integer DEFAULT_AMPLITUDE_BOOST = 100;
+    public static final Integer DEFAULT_AMPLITUDE_BOOST = 200;
 
     public static final String PREF_CHAT_NOTIFY = "chatNotify";
     public static final Boolean DEFAULT_CHAT_NOTIFY = true;

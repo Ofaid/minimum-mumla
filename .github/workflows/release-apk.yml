@@ -136,6 +136,12 @@ jobs:
         run: |
           BUNDLE_NAME="minimum-provisioning-${RELEASE_TAG}"
           BUNDLE_DIR="$RUNNER_TEMP/$BUNDLE_NAME"
+          OUTPUT_ZIP="$GITHUB_WORKSPACE/$BUNDLE_NAME.zip"
+          EXTRACT_DIR="$RUNNER_TEMP/${BUNDLE_NAME}-extracted"
+          # Do not let a rerun package stale files or leave a previous artifact
+          # looking like the output of this invocation.
+          rm -rf -- "$BUNDLE_DIR" "$EXTRACT_DIR"
+          rm -f -- "$OUTPUT_ZIP" "$OUTPUT_ZIP.sha256"
           mkdir -p "$BUNDLE_DIR/scripts" "$BUNDLE_DIR/assets"
           cp "Provision Minimum Device.cmd" "$BUNDLE_DIR/"
           cp "minimum-${RELEASE_TAG}-foss.apk" "$BUNDLE_DIR/minimum-foss.apk"
@@ -147,28 +153,147 @@ jobs:
             "$BUNDLE_DIR/assets/t99-wifi-provisioner.apk"
           cp docs/PROVISIONING_BUNDLE_README.txt "$BUNDLE_DIR/README.txt"
           printf '%s\n' "$RELEASE_TAG" > "$BUNDLE_DIR/VERSION.txt"
-          (
-            cd "$RUNNER_TEMP"
-            zip -r "$GITHUB_WORKSPACE/$BUNDLE_NAME.zip" "$BUNDLE_NAME"
-          )
-          unzip -l "$BUNDLE_NAME.zip" | tee "$RUNNER_TEMP/provisioning-bundle-files.txt"
-          for required in \
+          expected_files="$RUNNER_TEMP/provisioning-bundle-expected-files.txt"
+          expected_dirs="$RUNNER_TEMP/provisioning-bundle-expected-dirs.txt"
+          printf '%s\n' \
             "$BUNDLE_NAME/Provision Minimum Device.cmd" \
-            "$BUNDLE_NAME/minimum-foss.apk" \
-            "$BUNDLE_NAME/scripts/provision-minimum-device.ps1" \
-            "$BUNDLE_NAME/scripts/prepare-t99.ps1" \
-            "$BUNDLE_NAME/scripts/prepare-t56.ps1" \
-            "$BUNDLE_NAME/scripts/prepare-ryks.ps1" \
-            "$BUNDLE_NAME/assets/t99-wifi-provisioner.apk" \
             "$BUNDLE_NAME/README.txt" \
-            "$BUNDLE_NAME/VERSION.txt"; do
-            grep -F "$required" "$RUNNER_TEMP/provisioning-bundle-files.txt"
-          done
-          if unzip -l "$BUNDLE_NAME.zip" | grep -E '(^|/)(\.secrets|signing\.gradle|.*\.jks)(/|$)'; then
-            echo "Provisioning bundle contains a forbidden secret/signing path." >&2
+            "$BUNDLE_NAME/VERSION.txt" \
+            "$BUNDLE_NAME/minimum-foss.apk" \
+            "$BUNDLE_NAME/scripts/prepare-ryks.ps1" \
+            "$BUNDLE_NAME/scripts/prepare-t56.ps1" \
+            "$BUNDLE_NAME/scripts/prepare-t99.ps1" \
+            "$BUNDLE_NAME/scripts/provision-minimum-device.ps1" \
+            "$BUNDLE_NAME/assets/t99-wifi-provisioner.apk" > "$expected_files"
+          sort -o "$expected_files" "$expected_files"
+          printf '%s\n' \
+            "$BUNDLE_NAME/" \
+            "$BUNDLE_NAME/assets/" \
+            "$BUNDLE_NAME/scripts/" > "$expected_dirs"
+          sort -o "$expected_dirs" "$expected_dirs"
+          find "$BUNDLE_DIR" -mindepth 1 \( -type l -o ! \( -type f -o -type d \) \) -print -quit > "$RUNNER_TEMP/provisioning-bundle-special-files.txt"
+          if [[ -s "$RUNNER_TEMP/provisioning-bundle-special-files.txt" ]]; then
+            echo "Provisioning bundle contains a symlink or non-regular entry (filename only):"
+            cat "$RUNNER_TEMP/provisioning-bundle-special-files.txt"
             exit 1
           fi
-          sha256sum "$BUNDLE_NAME.zip" > "$BUNDLE_NAME.zip.sha256"
+          find "$BUNDLE_DIR" -type f -printf '%P\n' | sed "s#^#$BUNDLE_NAME/#" | sort > "$RUNNER_TEMP/provisioning-bundle-staged-files.txt"
+          { echo "$BUNDLE_NAME/"; find "$BUNDLE_DIR" -mindepth 1 -type d -printf '%P/\n' | sed "s#^#$BUNDLE_NAME/#"; } | sort > "$RUNNER_TEMP/provisioning-bundle-staged-dirs.txt"
+          if ! diff -u "$expected_files" "$RUNNER_TEMP/provisioning-bundle-staged-files.txt"; then
+            echo "Provisioning bundle staged file manifest differs from the reviewed allowlist."
+            exit 1
+          fi
+          if ! diff -u "$expected_dirs" "$RUNNER_TEMP/provisioning-bundle-staged-dirs.txt"; then
+            echo "Provisioning bundle staged directory manifest differs from the reviewed allowlist."
+            exit 1
+          fi
+          text_pattern='BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|MINIMUM_(RELEASE_)?(KEYSTORE|STORE|KEY_PASSWORD|KEY_ALIAS)(_[A-Z0-9_]+)?=.+'
+          for text_root in "$BUNDLE_DIR"; do
+            while IFS= read -r text_file; do
+              if grep -IlE "$text_pattern" "$text_file" > /dev/null; then
+                echo "Credential-like content pattern found in staged text file (filename only): ${text_file#$BUNDLE_DIR/}"
+                exit 1
+              fi
+            done < <(find "$text_root" -type f \( -name '*.cmd' -o -name '*.ps1' -o -name '*.txt' \) -print)
+          done
+          (
+            cd "$RUNNER_TEMP"
+            zip -q -r "$OUTPUT_ZIP" "$BUNDLE_NAME"
+          )
+          # Compare the ZIP's raw member list, retaining duplicate lines, to
+          # the reviewed file+directory allowlist. Extracted-tree checks alone
+          # cannot detect duplicate archive members because extraction merges
+          # them into one path.
+          expected_members="$RUNNER_TEMP/provisioning-bundle-expected-members.txt"
+          cat "$expected_dirs" "$expected_files" | sort > "$expected_members"
+          unzip -Z1 "$OUTPUT_ZIP" | sort > "$RUNNER_TEMP/provisioning-bundle-paths.txt"
+          if ! diff -u "$expected_members" "$RUNNER_TEMP/provisioning-bundle-paths.txt"; then
+            echo "Provisioning ZIP raw member list differs from the reviewed allowlist (duplicates or extras are not allowed)."
+            exit 1
+          fi
+          if grep -Eq '(^/|(^|/)\.\.?(/|$)|(^|/)\.(secrets|git)(/|$))' "$RUNNER_TEMP/provisioning-bundle-paths.txt"; then
+            echo "Provisioning ZIP contains an absolute, traversal or hidden private path (path names only)." >&2
+            exit 1
+          fi
+          mkdir -p "$EXTRACT_DIR"
+          unzip -q "$OUTPUT_ZIP" -d "$EXTRACT_DIR"
+          extracted_root="$EXTRACT_DIR/$BUNDLE_NAME"
+          if [[ ! -d "$extracted_root" ]]; then
+            echo "Provisioning ZIP did not extract the expected root directory."
+            exit 1
+          fi
+          find "$extracted_root" -mindepth 1 \( -type l -o ! \( -type f -o -type d \) \) -print -quit > "$RUNNER_TEMP/provisioning-bundle-extracted-special-files.txt"
+          if [[ -s "$RUNNER_TEMP/provisioning-bundle-extracted-special-files.txt" ]]; then
+            echo "Extracted provisioning ZIP contains a symlink or non-regular entry (filename only):"
+            cat "$RUNNER_TEMP/provisioning-bundle-extracted-special-files.txt"
+            exit 1
+          fi
+          find "$extracted_root" -type f -printf '%P\n' | sed "s#^#$BUNDLE_NAME/#" | sort > "$RUNNER_TEMP/provisioning-bundle-extracted-files.txt"
+          { echo "$BUNDLE_NAME/"; find "$extracted_root" -mindepth 1 -type d -printf '%P/\n' | sed "s#^#$BUNDLE_NAME/#"; } | sort > "$RUNNER_TEMP/provisioning-bundle-extracted-dirs.txt"
+          if ! diff -u "$expected_files" "$RUNNER_TEMP/provisioning-bundle-extracted-files.txt"; then
+            echo "Freshly extracted provisioning ZIP file manifest differs from the reviewed allowlist."
+            exit 1
+          fi
+          if ! diff -u "$expected_dirs" "$RUNNER_TEMP/provisioning-bundle-extracted-dirs.txt"; then
+            echo "Freshly extracted provisioning ZIP directory manifest differs from the reviewed allowlist."
+            exit 1
+          fi
+          while IFS= read -r text_file; do
+            if grep -IlE "$text_pattern" "$text_file" > /dev/null; then
+              echo "Credential-like content pattern found in extracted text file (filename only): ${text_file#$extracted_root/}"
+              exit 1
+            fi
+          done < <(find "$extracted_root" -type f \( -name '*.cmd' -o -name '*.ps1' -o -name '*.txt' \) -print)
+          echo "Provisioning bundle verification passed: exact allowlist, regular files, no symlinks, safe paths, staged and extracted content checks."
+          sha256sum "$OUTPUT_ZIP" > "$OUTPUT_ZIP.sha256"
+      - name: Prepare reviewed release notes
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          notes="$RUNNER_TEMP/release-notes.md"
+          changes="$RUNNER_TEMP/release-changes.txt"
+          current_commit=$(git rev-parse --verify --quiet "refs/tags/$RELEASE_TAG^{commit}" || true)
+          previous_tag=""
+          if [[ -n "$current_commit" ]]; then
+            # Version sorting alone can select an unrelated tag from another
+            # branch. Consider only a tag that resolves to a commit reachable
+            # from the exact release tag before using a range.
+            while IFS= read -r candidate; do
+              [[ "$candidate" == "$RELEASE_TAG" ]] && continue
+              candidate_commit=$(git rev-parse --verify --quiet "refs/tags/$candidate^{commit}" || true)
+              if [[ -n "$candidate_commit" ]] && git merge-base --is-ancestor "$candidate_commit" "$current_commit"; then
+                previous_tag="$candidate"
+                break
+              fi
+            done < <(git tag --sort=-version:refname)
+          fi
+          if [[ -n "$previous_tag" ]] && git merge-base --is-ancestor "$previous_tag" "$RELEASE_TAG"; then
+            if ! git log --format='- %h %s' "$previous_tag..$RELEASE_TAG" > "$changes"; then
+              git log --format='- %h %s' -n 25 "$RELEASE_TAG" > "$changes"
+            fi
+          else
+            # A missing/mismatched tag or unusable range gets a bounded commit
+            # summary rather than causing release-note generation to fail.
+            git log --format='- %h %s' -n 25 "${current_commit:-HEAD}" > "$changes"
+          fi
+          sed -E -i 's/(token|password|secret|private[_ -]?key)[=:][^[:space:]]+/\1=<redacted>/Ig' "$changes"
+          {
+            echo "# Minimum $RELEASE_TAG"
+            echo
+            echo "## Reviewed support matrix"
+            echo "- T56: UNIPRO / ZX"
+            echo "- T99: Youdotech / QM011"
+            echo "- RYKS: ELINK / ym_258"
+            echo "- Unknown or ambiguous hardware is rejected before provisioning changes."
+            echo
+            echo "## Physical-test status and known limitations"
+            echo "- Physical acceptance is operator-gated; this workflow does not claim PTT, audio, room-switching or Location success without reviewed device evidence."
+            echo "- Provisioning PASS requires same-ID Ready after reboot; \`-SkipReboot\` is explicitly INCOMPLETE."
+            echo "- T56 network Location requires on-device consent within 120 seconds and remains subject to the documented manual safety boundary."
+            echo
+            echo "## Generated changes"
+            if [[ -s "$changes" ]]; then cat "$changes"; else echo "- No generated commit summary available."; fi
+          } > "$notes"
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -182,4 +307,4 @@ jobs:
             "minimum-${RELEASE_TAG}-foss.apk.sha256" \
             "minimum-provisioning-${RELEASE_TAG}.zip" \
             "minimum-provisioning-${RELEASE_TAG}.zip.sha256" \
-            --verify-tag --generate-notes --title "Minimum $RELEASE_TAG" "${prerelease_flag[@]}"
+            --verify-tag --notes-file "$RUNNER_TEMP/release-notes.md" --title "Minimum $RELEASE_TAG" "${prerelease_flag[@]}"

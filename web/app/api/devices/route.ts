@@ -1,8 +1,9 @@
 import { errorResponse, jsonResponse, readJson, requireAdmin, requireAdminMutation } from '@/lib/api';
+import { recordAdminActivity } from '@/lib/activity';
 import { assertDeviceConfig, emptyConfig, repairConfig } from '@/lib/config';
 import { validDeviceId } from '@/lib/security';
 import { validModelProfile } from '@/lib/model-profiles';
-import { deletePendingDeviceRequest, getDevice, listDevices, putDevice } from '@/lib/storage';
+import { clearDismissedPendingDevice, deletePendingDeviceRequest, getDevice, listDevices, putDevice } from '@/lib/storage';
 import type { DeviceSummary, MinimumConfig, StoredDevice } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -56,7 +57,19 @@ export async function POST(request: Request) {
   };
   try {
     await putDevice(device);
-    await deletePendingDeviceRequest(deviceId).catch(() => undefined);
+    // The device write is authoritative. Pending/marker cleanup is advisory
+    // under Cloudflare KV eventual consistency and must not undo registration;
+    // registered config delivery also self-heals any stale marker later.
+    await Promise.all([
+      deletePendingDeviceRequest(deviceId),
+      clearDismissedPendingDevice(deviceId)
+    ].map((operation) => operation.catch(() => undefined)));
+    await recordAdminActivity({
+      action: 'device.created',
+      administrator: auth.username,
+      resource: { type: 'device', id: deviceId, label, model },
+      configVersions: { current: config.configVersion }
+    }).catch(() => undefined);
     return jsonResponse({ device: summary(device) }, 201);
   } catch {
     return errorResponse('Device store unavailable', 503);

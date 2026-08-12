@@ -1,8 +1,9 @@
 import { errorResponse, jsonResponse, readJson, requireAdmin, requireAdminMutation } from '@/lib/api';
+import { recordAdminActivity, summarizeDeviceChange } from '@/lib/activity';
 import { assertDeviceConfig, prepareConfigForSave, repairConfig } from '@/lib/config';
 import { validDeviceId } from '@/lib/security';
 import { validModelProfile } from '@/lib/model-profiles';
-import { deleteDevice, getDevice, putDevice } from '@/lib/storage';
+import { deleteDevice, deleteDeviceDeliveryStats, getDevice, getDeviceDeliveryStats, putDevice } from '@/lib/storage';
 import type { MinimumConfig } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -16,7 +17,8 @@ export async function GET(request: Request, context: Context) {
   if (!validDeviceId(deviceId)) return errorResponse('Invalid device ID', 400);
   const device = await getDevice(deviceId);
   if (!device) return errorResponse('Device not found', 404);
-  return jsonResponse({ device: { ...device, config: repairConfig(device.config, deviceId, device.model) } });
+  const deliveryStats = await getDeviceDeliveryStats(deviceId).catch(() => undefined);
+  return jsonResponse({ device: { ...device, config: repairConfig(device.config, deviceId, device.model), ...(deliveryStats ? { deliveryStats } : {}) } });
 }
 
 export async function PATCH(request: Request, context: Context) {
@@ -42,7 +44,16 @@ export async function PATCH(request: Request, context: Context) {
   }
   const updated = { ...device, label, model, config, updatedAt: new Date().toISOString() };
   await putDevice(updated);
-  return jsonResponse({ device: updated });
+  const change = summarizeDeviceChange(device, updated);
+  if (change.sections.length > 0) await recordAdminActivity({
+      action: 'device.updated',
+      administrator: auth.username,
+      resource: { type: 'device', id: deviceId, label, model },
+      configVersions: { previous: device.config.configVersion, current: config.configVersion },
+      change
+    }).catch(() => undefined);
+  const deliveryStats = await getDeviceDeliveryStats(deviceId).catch(() => undefined);
+  return jsonResponse({ device: { ...updated, ...(deliveryStats ? { deliveryStats } : {}) } });
 }
 
 export async function DELETE(request: Request, context: Context) {
@@ -50,7 +61,14 @@ export async function DELETE(request: Request, context: Context) {
   if ('response' in auth) return auth.response;
   const { deviceId } = await context.params;
   if (!validDeviceId(deviceId)) return errorResponse('Invalid device ID', 400);
-  if (!(await getDevice(deviceId))) return errorResponse('Device not found', 404);
+  const device = await getDevice(deviceId);
+  if (!device) return errorResponse('Device not found', 404);
   await deleteDevice(deviceId);
+  await deleteDeviceDeliveryStats(deviceId).catch(() => undefined);
+  await recordAdminActivity({
+    action: 'device.deleted',
+    administrator: auth.username,
+    resource: { type: 'device', id: deviceId, label: device.label, model: device.model }
+  }).catch(() => undefined);
   return jsonResponse({ ok: true });
 }

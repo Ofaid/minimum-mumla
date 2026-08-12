@@ -160,7 +160,7 @@ function Show-GuidedSetupMenu {
     }
     Write-Host "  - configure lab Wi-Fi and managed Location"
     Write-Host "  - remove Zello for Android user 0"
-    Write-Host "  - open the Portal for registration and a hidden token prompt"
+    Write-Host "  - open the Portal to register the displayed Device ID"
     Write-Host "  - verify Ready, reboot, and verify Ready again"
     Write-Host ""
     while ($true) {
@@ -559,7 +559,7 @@ function Wait-MinimumReady {
                         $status.ActiveDeviceId -eq $ExpectedDeviceId -and
                         -not $status.Pending -and $status.ConfigVersion -gt 0 -and
                         $status.LastSuccessMs -gt 0) {
-                    Write-Host "PASS: Minimum reached Ready $Phase with managed config v$($status.ConfigVersion)."
+                    Write-Host "Checkpoint: Minimum reached Ready $Phase with managed config v$($status.ConfigVersion)."
                     return
                 }
             }
@@ -661,8 +661,40 @@ if ($target.Profile -eq "RYKS") {
         }
     }
 }
+
+function Install-MinimumApk {
+    param([Parameter(Mandatory)][string]$Path)
+
+    # Capture only the exit/result needed to classify installation failures. In particular, do not
+    # invoke `pm clear` or uninstall here: a failed signature upgrade must preserve app data.
+    $installArgs = $script:targetArgs + @("install", "-r", $Path)
+    # Windows PowerShell 5.1 can turn native stderr merged with 2>&1 into a
+    # terminating ErrorRecord when EAP is Stop. Temporarily keep native output
+    # non-terminating, then stringify ErrorRecord entries before classification.
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = @(& $adbPath @installArgs 2>&1)
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    $resultText = (($output | ForEach-Object {
+        if ($_ -is [System.Management.Automation.ErrorRecord]) {
+            $_.ToString()
+        } else {
+            [string]$_
+        }
+    }) -join "`n").Trim()
+    if ($exitCode -ne 0 -or $resultText -notmatch '(?im)^Success\s*$') {
+        if ($resultText -match 'INSTALL_FAILED_UPDATE_INCOMPATIBLE') {
+            throw "APK installation failed: INSTALL_FAILED_UPDATE_INCOMPATIBLE. The installed app and this APK use different signing keys. No app data was cleared; preserve the existing identity/configuration and obtain explicit approval before uninstalling the old build."
+        }
+        throw "APK installation failed (adb exit code $exitCode). No app data was cleared; correct the installation issue and retry."
+    }
+}
 Write-Host "Installing Minimum APK without clearing app data..."
-Invoke-TargetAdb -Arguments @("install", "-r", $resolvedApkPath) | Out-Null
+Install-MinimumApk -Path $resolvedApkPath
 $installed = Invoke-TargetAdb -Arguments @("shell", "pm", "path", $MinimumPackage)
 if (-not $installed) {
     throw "Minimum package verification failed after APK installation."
@@ -689,18 +721,21 @@ Invoke-TargetAdb -Arguments @("shell", "am", "start", "-n", $MinimumActivity) | 
 Wait-MinimumReady -Phase "before reboot" -ExpectedDeviceId $deviceId `
     -TimeoutSeconds $ReadyTimeoutSeconds
 
-if (-not $SkipReboot) {
-    $originalSerial = $target.Serial
-    $manufacturer = $target.Manufacturer
-    $model = $target.Model
-    Write-Host "Rebooting for unattended startup acceptance..."
-    Invoke-TargetAdb -Arguments @("reboot") | Out-Null
-    $returningTarget = Wait-ForReturningTarget -Manufacturer $manufacturer -Model $model `
-        -OriginalSerial $originalSerial -TimeoutSeconds $BootTimeoutSeconds
-    Set-Target -Record $returningTarget
-    Wait-AndroidBootCompleted -TimeoutSeconds $BootTimeoutSeconds
-    Wait-MinimumReady -Phase "after reboot" -ExpectedDeviceId $deviceId `
-        -TimeoutSeconds $ReadyTimeoutSeconds
+if ($SkipReboot) {
+    Write-Host "INCOMPLETE: reboot and same-ID Ready verification were skipped; final acceptance was not completed."
+    exit 2
 }
+
+$originalSerial = $target.Serial
+$manufacturer = $target.Manufacturer
+$model = $target.Model
+Write-Host "Rebooting for unattended startup acceptance..."
+Invoke-TargetAdb -Arguments @("reboot") | Out-Null
+$returningTarget = Wait-ForReturningTarget -Manufacturer $manufacturer -Model $model `
+    -OriginalSerial $originalSerial -TimeoutSeconds $BootTimeoutSeconds
+Set-Target -Record $returningTarget
+Wait-AndroidBootCompleted -TimeoutSeconds $BootTimeoutSeconds
+Wait-MinimumReady -Phase "after reboot" -ExpectedDeviceId $deviceId `
+    -TimeoutSeconds $ReadyTimeoutSeconds
 
 Write-Host "PASS: $($target.Profile) Device ID $deviceId is provisioned and Ready."
