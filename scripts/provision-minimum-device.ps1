@@ -3,7 +3,7 @@
     Provisions one supported Minimum radio from APK installation through reboot acceptance.
 
 .DESCRIPTION
-    This is the operator-facing one-shot workflow for known T99 and T56 hardware. It selects one
+    This is the operator-facing one-shot workflow for known T99, T56 and RYKS hardware. It selects one
     authorized ADB target, verifies the hardware model, optionally builds the FOSS debug APK,
     installs the APK without clearing app data, runs the guarded model preparation, installs the
     portal-issued device bearer credential without putting it on the command line, waits for Ready,
@@ -158,6 +158,9 @@ function Show-GuidedSetupMenu {
     Write-Host "Recommended setup will:"
     if ($SourceBuildAvailable) {
         Write-Host "  - build and install the latest Minimum test APK"
+    } elseif ($Profile -eq "RYKS") {
+        $script:SkipLocation = $true
+        Write-Host "Location tracking is not enabled for the RYKS profile."
     } else {
         Write-Host "  - install the signed Minimum APK included in this Release bundle"
     }
@@ -277,6 +280,8 @@ function Add-RecordHardwareIdentity {
         "T99"
     } elseif ($manufacturer -ieq "UNIPRO" -and $model -ieq "ZX") {
         "T56"
+    } elseif ($manufacturer -ieq "ELINK" -and $model -ieq "ym_258") {
+        "RYKS"
     } else {
         ""
     }
@@ -494,10 +499,10 @@ function Ensure-LabWifiCredential {
 
 function Invoke-ModelPreparation {
     param([Parameter(Mandatory)][string]$Profile)
-    $prepareScript = if ($Profile -eq "T56") {
-        Join-Path $PSScriptRoot "prepare-t56.ps1"
-    } else {
-        Join-Path $PSScriptRoot "prepare-t99.ps1"
+    $prepareScript = switch ($Profile) {
+        "T56" { Join-Path $PSScriptRoot "prepare-t56.ps1" }
+        "RYKS" { Join-Path $PSScriptRoot "prepare-ryks.ps1" }
+        default { Join-Path $PSScriptRoot "prepare-t99.ps1" }
     }
     $arguments = @(
         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $prepareScript,
@@ -711,6 +716,19 @@ if ($BuildApk -or -not (Test-Path -LiteralPath $ApkPath -PathType Leaf)) {
     Build-MinimumApk
 }
 $resolvedApkPath = (Resolve-Path -LiteralPath $ApkPath).Path
+if ($target.Profile -eq "RYKS") {
+    # ELINK's PackageManager accepts third-party APKs only when this documented build-policy
+    # property is 1. The property is absent on factory ym_258 images and resets on reboot.
+    $installPolicy = Get-RecordProperty -Record $target -Name "ro.build.install"
+    if ($installPolicy -ne "1") {
+        Write-Host "Enabling the RYKS OEM APK-install policy for this boot..."
+        Invoke-TargetAdb -Arguments @("shell", "setprop", "ro.build.install", "1") | Out-Null
+        $installPolicy = Get-RecordProperty -Record $target -Name "ro.build.install"
+        if ($installPolicy -ne "1") {
+            throw "RYKS firmware did not enable ro.build.install=1; APK installation remains blocked."
+        }
+    }
+}
 Write-Host "Installing Minimum APK without clearing app data..."
 Invoke-TargetAdb -Arguments @("install", "-r", $resolvedApkPath) | Out-Null
 $installed = Invoke-TargetAdb -Arguments @("shell", "pm", "path", $MinimumPackage)

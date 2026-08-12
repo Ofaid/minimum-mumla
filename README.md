@@ -1,7 +1,7 @@
 
 # Minimum — Public PoC Radio Client
 
-This repository is the Minimum managed-radio PoC built from Mumla/Humla for the T99 and T56.
+This repository is the Minimum managed-radio PoC built from Mumla/Humla for T99, T56 and RYKS.
 The project keeps the Mumble protocol, TLS, Opus, audio and foreground-service core while adding a
 hardware-first Android radio shell, device provisioning, managed Schema-3 configuration and
 T56-only APRS tracking. The private administrator portal is deployed at
@@ -24,6 +24,7 @@ Project status and T99 hardware notes:
 - [APRS tracking contract](docs/APRS_TRACKING.md)
 - [T99 device profile](docs/T99_DEVICE_PROFILE.md)
 - [T56 device profile](docs/T56_DEVICE_PROFILE.md)
+- [RYKS device profile](docs/RYKS_DEVICE_PROFILE.md)
 - [Static configuration backend](backend/README.md)
 
 # Software maintenance situation

@@ -1,6 +1,6 @@
 # Technical Brief gap analysis
 
-Last reviewed: 2026-08-09
+Last reviewed: 2026-08-12
 
 This document maps the supplied Public PoC Radio Client Technical Brief to the code that actually
 exists. `PROJECT_STATUS.md` remains the short hand-off source of truth; this file is the detailed
@@ -25,8 +25,8 @@ active radio config
 ```
 
 The remaining MVP risk is hardware and lifecycle acceptance rather than basic connection wiring:
-T56 supervised hardware/PTT evidence, multi-room traffic tests, extended lifecycle/audio evidence and
-release hardening.
+T56 and RYKS supervised hardware/PTT evidence, multi-room traffic tests, extended lifecycle/audio
+evidence and release hardening.
 
 The post-brief T56 tracking extension is operational: immutable T56-only capability gating,
 bounded GPS acquisition, configurable APRS Object identity with `VR-<DeviceID>` fallback, state
@@ -47,7 +47,7 @@ T99 rejects F2 as PTT. MediaSession remains an alternate headset/media path.
 | 2 — Device Identity | Mostly complete | Six-character `SecureRandom` identity, persistence, validation, tests and ADB/system-shell-protected Config Profile assignment | Add protected on-device admin UI/gesture for regeneration and acceptance tests across update/reboot/clear-data |
 | 3 — Remote Configuration | Mostly complete | Schema 3 keyed connections and per-channel auth, selected-channel persistence, embedded fallback, complete bearer-authenticated Vercel device fetch, portal model/device normalization, limits, validation, active/previous/pending cache, downgrade rejection, six-hour plus network-return refresh, service-owned RX/TX idle candidate trial, commit after channel join, explicit rollback and JVM/web tests | Config signature verification and physical success/failure candidate acceptance |
 | 4 — Rooms and Tokens | Mostly complete | Selected-channel public tokens feed Humla authentication without DB/preference/log persistence; channels can cross server/password/token boundaries and reconnect as needed; typed presets, exact full-path lookup, restored selection and one-second Up/Down hold; one live nested-channel T99 test passed | Multi-server live test, permission-denied/default-channel fallback evidence |
-| 5 — Hardware PTT | T99 core pass / T56 provisioned, PTT acceptance open | T99 ten-button map and T56 eleven-control input capture; T56 guarded provisioning and reboot-to-RadioShell pass; profile-specific PTT rules; private bounded diagnostics; dashboard recovery; throttled reconnect; deliberate exit; Activity/MediaSession paths; local warning; screen wake; TX timer; release paths and 120 s watchdog | T56 app-level side/power trace and physical foreground/screen-off PTT matrix, T99 dashboard-F1 acceptance, and OEM/vendor/global path only if a target requires it |
+| 5 — Hardware PTT | T99 core pass / T56 and RYKS provisioned, physical PTT acceptance open | T99 ten-button map, T56 eleven-control input capture and RYKS ELINK/ym_258 profile; guarded provisioning; profile-specific PTT rules; RYKS OEM `com.zello.ptt.down/up` receiver path and injected-path verification; private bounded diagnostics; dashboard recovery; throttled reconnect; deliberate exit; Activity/MediaSession paths; local warning; screen wake; TX timer; release paths and 120 s watchdog | T56 app-level side/power trace, RYKS labelled-button trace, and physical foreground/screen-off PTT matrices; T99 dashboard-F1 acceptance; OEM/vendor/global path only where required |
 | 6 — Hardening | Mostly implemented, acceptance incomplete | Automatic certificate/boot, transport-only 15/30/60-second reconnect with persisted 15-second attempt guard and rejection hold, guarded T99 network-loss PASS, process watchdog SIGKILL PASS, managed chat heads-up suppression, automatic preprocessor/half-duplex/TTS, teardown unmute, config rollback/downgrade and managed self-signed trust with optional pin | Long-outage/server/audio/wake evidence, battery optimization, bundled voice prompts, protected-token store, config signatures and sanitized diagnostics/security review |
 | 7 — Release | Integrated CI passed / release not accepted | Public GitHub repo, draft PR, GPLv3 source base, architecture/runbook/hardware docs, structured Issue/PR templates, Android/Web CI run `31306714812` passing on commit `6ee5c5e6`, and manual signed APK workflow with checksum/signature verification | Configure/protect release signing; run a tagged release candidate; approve release notes/known limitations; add instrumentation/device video and remaining LTE/Wi-Fi/screen-off/reconnect evidence |
 
@@ -65,7 +65,9 @@ integration coverage and continued public-location privacy review remain open.
   denied-room behavior remain unproven.
 - PTT: T99 physical screen-off PTT passed; the labelled button is captured as F1/scan 59/gpio-keys,
   F2 is EXIT and private key diagnostics are installed. Short accidental exits, five-second F2 hold
-  and one-second Up hold passed without TX. Physical F1-from-dashboard and T56 device acceptance
+  and one-second Up hold passed without TX. RYKS software/OEM injection confirms vendor keyCode 285
+  and both Zello-style down/up broadcasts reach Minimum without a crash; physical labelled-button and
+  display-off acceptance remain open. Physical F1-from-dashboard and T56 device acceptance also
   remain open; T56's primary PTT is vendor keyCode 261 and F1 is explicitly reserved for Menu.
 - Audio: no maintained LTE/Wi-Fi/Bluetooth/manual test report yet.
 - Lifecycle: actual T99 reboot-to-ready-room, short display-off persistence, 30-second network loss
@@ -78,8 +80,9 @@ integration coverage and continued public-location privacy review remain open.
 
 1. Continue `RECONNECT_TEST_PLAN.md` with server restart, long outage, reconnect visual, wake,
    half-duplex and supervised PTT-failure evidence; network and process-death cases already pass.
-2. Complete T56 app-private side/power capture, live-room and supervised PTT tests; do not copy T99
-   F1/F2 assumptions. Provisioning and reboot-to-RadioShell already pass.
+2. Complete T56 app-private side/power capture and RYKS labelled-button capture, live-room and
+   supervised foreground/display-off PTT tests; do not copy T99 F1/F2 assumptions. Guarded
+   provisioning exists for both models.
 3. Exercise multiple room presets, denied-room fallback and watchdog release with an operator present.
 4. Complete pending-config physical acceptance, then add signed config and hidden diagnostics.
 5. Complete the hardware/lifecycle/security acceptance matrix, then introduce the dedicated application

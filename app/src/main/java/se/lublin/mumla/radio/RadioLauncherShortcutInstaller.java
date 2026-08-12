@@ -29,7 +29,7 @@ public final class RadioLauncherShortcutInstaller {
 
     public static void ensureInstalled(Context context, SharedPreferences preferences, boolean force) {
         String profile = RadioDeviceProfile.detectCurrent();
-        if (!RadioDeviceProfile.T99.equals(profile) && !RadioDeviceProfile.T56.equals(profile)) {
+        if (!RadioPttKeyManager.isRadioProfile(profile)) {
             return;
         }
         if (!force && preferences.getBoolean(PREF_SHORTCUT_REQUESTED, false)) {

@@ -104,6 +104,7 @@ public final class RadioShellActivity extends AppCompatActivity {
     private boolean connectOnPttRequest;
     private int pendingExitKey = KeyEvent.KEYCODE_UNKNOWN;
     private int pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
+    private int pendingRoomDirection;
     private long pendingExitStartedAt = -1L;
     private long pendingRoomStartedAt = -1L;
     private int pendingIdentityKey = KeyEvent.KEYCODE_UNKNOWN;
@@ -129,10 +130,10 @@ public final class RadioShellActivity extends AppCompatActivity {
         }
     };
     private final Runnable roomChangeAction = () -> {
-        int keyCode = pendingRoomKey;
+        int direction = pendingRoomDirection;
         pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
+        pendingRoomDirection = 0;
         pendingRoomStartedAt = -1L;
-        int direction = RadioKeyActionPolicy.roomDirection(keyCode);
         if (direction != 0) {
             selectRelativeRoom(direction);
         }
@@ -429,7 +430,7 @@ public final class RadioShellActivity extends AppCompatActivity {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (RadioPttKeyManager.isConfiguredPttKey(keyCode, settings)
+        if (RadioPttKeyManager.isConfiguredPttEvent(event, settings)
                 && !RadioPttKeyManager.isMediaStyleKey(keyCode)) {
             if (event.getRepeatCount() == 0) {
                 if (RadioPttRecoveryGuard.isReleaseRequired()) {
@@ -446,8 +447,10 @@ public final class RadioShellActivity extends AppCompatActivity {
             }
             return true;
         }
-        if (RadioKeyActionPolicy.isRoomChangeKey(keyCode)) {
-            beginRoomChange(keyCode, event);
+        int roomDirection = RadioKeyActionPolicy.roomDirection(
+                RadioDeviceProfile.detectCurrent(), event);
+        if (roomDirection != 0) {
+            beginRoomChange(keyCode, roomDirection, event);
             return true;
         }
         if (isIdentityToggleKey(keyCode)) {
@@ -474,14 +477,16 @@ public final class RadioShellActivity extends AppCompatActivity {
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (RadioPttKeyManager.isConfiguredPttKey(keyCode, settings)
+        if (RadioPttKeyManager.isConfiguredPttEvent(event, settings)
                 && !RadioPttKeyManager.isMediaStyleKey(keyCode)) {
             RadioPttRecoveryGuard.noteRelease();
             releasePtt();
             return true;
         }
-        if (RadioKeyActionPolicy.isRoomChangeKey(keyCode)) {
-            finishRoomChange(keyCode, event);
+        int roomDirection = RadioKeyActionPolicy.roomDirection(
+                RadioDeviceProfile.detectCurrent(), event);
+        if (roomDirection != 0) {
+            finishRoomChange(keyCode, roomDirection, event);
             return true;
         }
         if (isIdentityToggleKey(keyCode)) {
@@ -1287,25 +1292,26 @@ public final class RadioShellActivity extends AppCompatActivity {
         }
     }
 
-    private void beginRoomChange(int keyCode, KeyEvent event) {
+    private void beginRoomChange(int keyCode, int direction, KeyEvent event) {
         if (event.getRepeatCount() != 0 || pendingRoomKey == keyCode) {
             return;
         }
         cancelPendingHardwareActions(false);
         pendingRoomKey = keyCode;
+        pendingRoomDirection = direction;
         pendingRoomStartedAt = event.getEventTime();
         setStatus(COLOR_BUSY, getString(R.string.radio_hold_to_change_room));
         uiHandler.postDelayed(roomChangeAction, RadioKeyActionPolicy.ROOM_CHANGE_HOLD_MS);
     }
 
-    private void finishRoomChange(int keyCode, KeyEvent event) {
-        if (pendingRoomKey != keyCode) {
+    private void finishRoomChange(int keyCode, int direction, KeyEvent event) {
+        if (pendingRoomKey != keyCode || pendingRoomDirection != direction) {
             return;
         }
-        int direction = RadioKeyActionPolicy.roomDirection(keyCode);
         boolean completed = RadioKeyActionPolicy.heldLongEnough(pendingRoomStartedAt,
                 event.getEventTime(), RadioKeyActionPolicy.ROOM_CHANGE_HOLD_MS);
         pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
+        pendingRoomDirection = 0;
         pendingRoomStartedAt = -1L;
         uiHandler.removeCallbacks(roomChangeAction);
         if (completed && direction != 0) {
@@ -1376,6 +1382,7 @@ public final class RadioShellActivity extends AppCompatActivity {
                 || pendingIdentityKey != KeyEvent.KEYCODE_UNKNOWN;
         pendingExitKey = KeyEvent.KEYCODE_UNKNOWN;
         pendingRoomKey = KeyEvent.KEYCODE_UNKNOWN;
+        pendingRoomDirection = 0;
         pendingExitStartedAt = -1L;
         pendingRoomStartedAt = -1L;
         pendingIdentityKey = KeyEvent.KEYCODE_UNKNOWN;

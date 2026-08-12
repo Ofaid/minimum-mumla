@@ -142,6 +142,7 @@ jobs:
           cp scripts/provision-minimum-device.ps1 "$BUNDLE_DIR/scripts/"
           cp scripts/prepare-t99.ps1 "$BUNDLE_DIR/scripts/"
           cp scripts/prepare-t56.ps1 "$BUNDLE_DIR/scripts/"
+          cp scripts/prepare-ryks.ps1 "$BUNDLE_DIR/scripts/"
           cp tools/t99-wifi-provisioner/app/build/outputs/apk/debug/app-debug.apk \
             "$BUNDLE_DIR/assets/t99-wifi-provisioner.apk"
           cp docs/PROVISIONING_BUNDLE_README.txt "$BUNDLE_DIR/README.txt"
@@ -157,6 +158,7 @@ jobs:
             "$BUNDLE_NAME/scripts/provision-minimum-device.ps1" \
             "$BUNDLE_NAME/scripts/prepare-t99.ps1" \
             "$BUNDLE_NAME/scripts/prepare-t56.ps1" \
+            "$BUNDLE_NAME/scripts/prepare-ryks.ps1" \
             "$BUNDLE_NAME/assets/t99-wifi-provisioner.apk" \
             "$BUNDLE_NAME/README.txt" \
             "$BUNDLE_NAME/VERSION.txt"; do

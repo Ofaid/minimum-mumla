@@ -464,7 +464,7 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
         // Media-style keys are handled by MumlaService's MediaSession so they continue to work
         // when the Activity loses focus or the screen turns off. Keeping them out of this path
         // also prevents toggle-PTT from receiving the same key twice while the screen is on.
-        if (mService != null && RadioPttKeyManager.isConfiguredPttKey(keyCode, mSettings)
+        if (mService != null && RadioPttKeyManager.isConfiguredPttEvent(event, mSettings)
                 && !isMediaPttKey(keyCode)) {
             mService.onTalkKeyDown();
             return true;
@@ -474,7 +474,7 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (mService != null && RadioPttKeyManager.isConfiguredPttKey(keyCode, mSettings)
+        if (mService != null && RadioPttKeyManager.isConfiguredPttEvent(event, mSettings)
                 && !isMediaPttKey(keyCode)) {
             mService.onTalkKeyUp();
             return true;

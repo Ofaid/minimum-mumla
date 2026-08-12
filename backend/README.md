@@ -30,7 +30,7 @@ Tracking is also disabled by default in public data. APRS passcodes, private end
 cached positions and Health telemetry must remain device-private. On verified T56 hardware the app
 accepts an optional public `tracking.aprs.objectName` label of 1-9 safe ASCII characters. If absent,
 it derives the Object name locally as `VR-` plus the six-character Device ID. The backend must not
-enable tracking for T99/generic profiles. The full wire, receipt and privacy contract is in
+enable tracking for T99/RYKS/generic profiles. The full wire, receipt and privacy contract is in
 [APRS_TRACKING.md](../docs/APRS_TRACKING.md).
 
 Connection-level `autoTrustServerCertificate` defaults to `true`. If normal Android TLS validation rejects a

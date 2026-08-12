@@ -170,7 +170,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- T56 firmware emits these even when keyguard consumes the raw key event. -->
+        <!-- Supported radio firmware emits these even when keyguard consumes the raw event. -->
         <receiver
             android:name=".radio.RadioHardwareKeyReceiver"
             android:enabled="true"
@@ -179,6 +179,8 @@
                 <action android:name="unipro.hotkey.ptt.down" />
                 <action android:name="unipro.hotkey.ptt.up" />
                 <action android:name="unipro.hotkey.p2.long" />
+                <action android:name="com.zello.ptt.down" />
+                <action android:name="com.zello.ptt.up" />
             </intent-filter>
         </receiver>
 

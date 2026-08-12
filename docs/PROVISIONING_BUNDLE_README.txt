@@ -1,7 +1,7 @@
 Minimum device provisioning bundle
 ==================================
 
-This bundle prepares one supported T99 or T56 radio on Windows.
+This bundle prepares one supported T99, T56 or RYKS radio on Windows.
 
 Requirements
 ------------
@@ -45,4 +45,4 @@ switching a lab device from debug signing to release signing.
 
 The included APK is signed and versioned by the GitHub Release workflow. Verify the SHA-256 files
 on the Release page before use. This prerelease still requires physical acceptance on the target
-T99/T56 hardware before it is promoted as a stable field release.
+T99/T56/RYKS hardware before it is promoted as a stable field release.

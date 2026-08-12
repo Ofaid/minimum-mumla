@@ -25,6 +25,8 @@ public class DeviceIdentityManagerTest {
                 RadioDeviceProfile.detect("Youdotech", "QM011"));
         org.junit.Assert.assertEquals(RadioDeviceProfile.T56,
                 RadioDeviceProfile.detect("UNIPRO", "ZX"));
+        org.junit.Assert.assertEquals(RadioDeviceProfile.RYKS,
+                RadioDeviceProfile.detect("ELINK", "ym_258"));
         org.junit.Assert.assertEquals(RadioDeviceProfile.GENERIC,
                 RadioDeviceProfile.detect("unknown", "phone"));
     }
@@ -33,6 +35,7 @@ public class DeviceIdentityManagerTest {
     public void locationTrackingIsAllowedOnlyOnAcceptedHardware() {
         assertTrue(RadioDeviceProfile.supportsLocationTracking(RadioDeviceProfile.T56));
         assertFalse(RadioDeviceProfile.supportsLocationTracking(RadioDeviceProfile.T99));
+        assertFalse(RadioDeviceProfile.supportsLocationTracking(RadioDeviceProfile.RYKS));
         assertFalse(RadioDeviceProfile.supportsLocationTracking(RadioDeviceProfile.GENERIC));
         assertFalse(RadioDeviceProfile.supportsLocationTracking(null));
     }

@@ -19,6 +19,7 @@ public class RadioPttKeyManagerTest {
     public void recognizesRadioProfilesForAutomaticDefaults() {
         assertTrue(RadioPttKeyManager.isRadioProfile(RadioDeviceProfile.T99));
         assertTrue(RadioPttKeyManager.isRadioProfile(RadioDeviceProfile.T56));
+        assertTrue(RadioPttKeyManager.isRadioProfile(RadioDeviceProfile.RYKS));
         assertFalse(RadioPttKeyManager.isRadioProfile(RadioDeviceProfile.GENERIC));
     }
 
@@ -41,11 +42,30 @@ public class RadioPttKeyManagerTest {
     }
 
     @Test
+    public void ryksAcceptsBothFirmwarePttScansAndRejectsTheF7SideKey() {
+        assertTrue(RadioPttKeyManager.isRyksPrimaryPttEvent(
+                RadioDeviceProfile.RYKS_PTT_KEY_CODE,
+                RadioDeviceProfile.RYKS_PTT_SCAN_CODE));
+        assertFalse(RadioPttKeyManager.isRyksPrimaryPttEvent(
+                RadioDeviceProfile.RYKS_PTT_KEY_CODE,
+                RadioDeviceProfile.RYKS_SIDE_DOWN_SCAN_CODE));
+        assertTrue(RadioPttKeyManager.isRyksPrimaryPttEvent(
+                RadioDeviceProfile.RYKS_PTT_KEY_CODE,
+                RadioDeviceProfile.RYKS_SECONDARY_PTT_SCAN_CODE));
+        assertTrue(RadioPttKeyManager.isProfileDefaultPttKey(
+                RadioDeviceProfile.RYKS, RadioDeviceProfile.RYKS_PTT_KEY_CODE));
+        assertTrue(RadioPttKeyManager.isProfileDefaultPttKey(
+                RadioDeviceProfile.RYKS, KeyEvent.KEYCODE_HEADSETHOOK));
+    }
+
+    @Test
     public void managedRadiosAlwaysSuppressNormalPttConfirmationSound() {
         assertFalse(RadioPttKeyManager.shouldEnablePttConfirmationSound(
                 RadioDeviceProfile.T99, true));
         assertFalse(RadioPttKeyManager.shouldEnablePttConfirmationSound(
                 RadioDeviceProfile.T56, true));
+        assertFalse(RadioPttKeyManager.shouldEnablePttConfirmationSound(
+                RadioDeviceProfile.RYKS, true));
         assertTrue(RadioPttKeyManager.shouldEnablePttConfirmationSound(
                 RadioDeviceProfile.GENERIC, true));
         assertFalse(RadioPttKeyManager.shouldEnablePttConfirmationSound(

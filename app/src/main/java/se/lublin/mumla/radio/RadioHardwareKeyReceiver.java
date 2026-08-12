@@ -15,19 +15,23 @@ import android.content.Intent;
 
 import se.lublin.mumla.service.MumlaService;
 
-/** Receives the T56 firmware PTT broadcasts that remain available while keyguard owns the key. */
+/** Receives OEM PTT broadcasts that remain available while keyguard owns the physical key. */
 public final class RadioHardwareKeyReceiver extends BroadcastReceiver {
     public static final String ACTION_T56_PTT_DOWN = "unipro.hotkey.ptt.down";
     public static final String ACTION_T56_PTT_UP = "unipro.hotkey.ptt.up";
     public static final String ACTION_T56_IDENTITY_LONG = "unipro.hotkey.p2.long";
+    public static final String ACTION_RYKS_PTT_DOWN = "com.zello.ptt.down";
+    public static final String ACTION_RYKS_PTT_UP = "com.zello.ptt.up";
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (context == null || intent == null
-                || !RadioDeviceProfile.T56.equals(RadioDeviceProfile.detectCurrent())) {
+        if (context == null || intent == null) {
             return;
         }
-        if (ACTION_T56_IDENTITY_LONG.equals(intent.getAction())) {
+        String profile = RadioDeviceProfile.detectCurrent();
+        String action = intent.getAction();
+        if (RadioDeviceProfile.T56.equals(profile)
+                && ACTION_T56_IDENTITY_LONG.equals(action)) {
             try {
                 context.startActivity(new Intent(context, RadioShellActivity.class)
                         .putExtra(RadioShellActivity.EXTRA_TOGGLE_IDENTITY, true)
@@ -40,9 +44,9 @@ public final class RadioHardwareKeyReceiver extends BroadcastReceiver {
             return;
         }
         String serviceAction;
-        if (ACTION_T56_PTT_DOWN.equals(intent.getAction())) {
+        if (isPttDownAction(profile, action)) {
             serviceAction = MumlaService.ACTION_RADIO_PTT_DOWN;
-        } else if (ACTION_T56_PTT_UP.equals(intent.getAction())) {
+        } else if (isPttUpAction(profile, action)) {
             serviceAction = MumlaService.ACTION_RADIO_PTT_UP;
         } else {
             return;
@@ -52,5 +56,15 @@ public final class RadioHardwareKeyReceiver extends BroadcastReceiver {
         } catch (RuntimeException ignored) {
             // The next hardware press can retry after a transient service-start failure.
         }
+    }
+
+    static boolean isPttDownAction(String profile, String action) {
+        return (RadioDeviceProfile.T56.equals(profile) && ACTION_T56_PTT_DOWN.equals(action))
+                || (RadioDeviceProfile.RYKS.equals(profile) && ACTION_RYKS_PTT_DOWN.equals(action));
+    }
+
+    static boolean isPttUpAction(String profile, String action) {
+        return (RadioDeviceProfile.T56.equals(profile) && ACTION_T56_PTT_UP.equals(action))
+                || (RadioDeviceProfile.RYKS.equals(profile) && ACTION_RYKS_PTT_UP.equals(action));
     }
 }

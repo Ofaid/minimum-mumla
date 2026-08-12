@@ -36,9 +36,15 @@ public final class RadioPttKeyManager {
                 .putBoolean(Settings.PREF_PTT_SOUND, false);
         if (RadioDeviceProfile.T99.equals(profile)
                 || RadioDeviceProfile.T56.equals(profile)
+                || RadioDeviceProfile.RYKS.equals(profile)
                 || !preferences.contains(Settings.PREF_PUSH_KEY)) {
-            editor.putInt(Settings.PREF_PUSH_KEY, RadioDeviceProfile.T56.equals(profile)
-                    ? RadioDeviceProfile.T56_PTT_KEY_CODE : KeyEvent.KEYCODE_F1);
+            int pttKeyCode = KeyEvent.KEYCODE_F1;
+            if (RadioDeviceProfile.T56.equals(profile)) {
+                pttKeyCode = RadioDeviceProfile.T56_PTT_KEY_CODE;
+            } else if (RadioDeviceProfile.RYKS.equals(profile)) {
+                pttKeyCode = RadioDeviceProfile.RYKS_PTT_KEY_CODE;
+            }
+            editor.putInt(Settings.PREF_PUSH_KEY, pttKeyCode);
         }
         editor.apply();
     }
@@ -55,10 +61,35 @@ public final class RadioPttKeyManager {
             // T56 Menu is F1. Only the captured vendor DTT_PTT code may be the hardware PTT.
             return isProfileDefaultPttKey(profile, keyCode);
         }
+        if (RadioDeviceProfile.RYKS.equals(profile)) {
+            return keyCode == RadioDeviceProfile.RYKS_PTT_KEY_CODE
+                    || isMediaStyleKey(keyCode);
+        }
         if (settings != null && keyCode == settings.getPushToTalkKey()) {
             return true;
         }
         return isProfileDefaultPttKey(profile, keyCode);
+    }
+
+    /** Raw Activity path, including scan-code disambiguation required by RYKS firmware. */
+    public static boolean isConfiguredPttEvent(KeyEvent event, Settings settings) {
+        if (event == null) {
+            return false;
+        }
+        String profile = RadioDeviceProfile.detectCurrent();
+        if (RadioDeviceProfile.RYKS.equals(profile)) {
+            if (isMediaStyleKey(event.getKeyCode())) {
+                return true;
+            }
+            return isRyksPrimaryPttEvent(event.getKeyCode(), event.getScanCode());
+        }
+        return isConfiguredPttKey(event.getKeyCode(), settings);
+    }
+
+    static boolean isRyksPrimaryPttEvent(int keyCode, int scanCode) {
+        return keyCode == RadioDeviceProfile.RYKS_PTT_KEY_CODE
+                && (scanCode == RadioDeviceProfile.RYKS_PTT_SCAN_CODE
+                || scanCode == RadioDeviceProfile.RYKS_SECONDARY_PTT_SCAN_CODE);
     }
 
     public static boolean isProfileDefaultPttKey(String profile, int keyCode) {
@@ -67,6 +98,10 @@ public final class RadioPttKeyManager {
         }
         if (RadioDeviceProfile.T56.equals(profile)) {
             return keyCode == RadioDeviceProfile.T56_PTT_KEY_CODE
+                    || isMediaStyleKey(keyCode);
+        }
+        if (RadioDeviceProfile.RYKS.equals(profile)) {
+            return keyCode == RadioDeviceProfile.RYKS_PTT_KEY_CODE
                     || isMediaStyleKey(keyCode);
         }
         return false;
@@ -83,7 +118,9 @@ public final class RadioPttKeyManager {
     }
 
     public static boolean isRadioProfile(String profile) {
-        return RadioDeviceProfile.T99.equals(profile) || RadioDeviceProfile.T56.equals(profile);
+        return RadioDeviceProfile.T99.equals(profile)
+                || RadioDeviceProfile.T56.equals(profile)
+                || RadioDeviceProfile.RYKS.equals(profile);
     }
 
     public static boolean shouldEnablePttConfirmationSound(String profile,
@@ -95,10 +132,14 @@ public final class RadioPttKeyManager {
         return keyCode == KeyEvent.KEYCODE_POWER
                 || keyCode == KeyEvent.KEYCODE_F1
                 || keyCode == KeyEvent.KEYCODE_F2
+                || keyCode == KeyEvent.KEYCODE_F3
+                || keyCode == KeyEvent.KEYCODE_F7
+                || keyCode == KeyEvent.KEYCODE_F8
                 || keyCode == KeyEvent.KEYCODE_VOLUME_UP
                 || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
                 || keyCode == KeyEvent.KEYCODE_MENU
                 || keyCode == KeyEvent.KEYCODE_BACK
+                || keyCode == KeyEvent.KEYCODE_CALL
                 || keyCode == KeyEvent.KEYCODE_DPAD_CENTER
                 || keyCode == KeyEvent.KEYCODE_DPAD_UP
                 || keyCode == KeyEvent.KEYCODE_DPAD_DOWN

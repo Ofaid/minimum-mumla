@@ -115,7 +115,7 @@ original settings, and never presses PTT:
 The full fault matrix and the distinction between local audio handoff and server receipt are in
 `docs/RECONNECT_TEST_PLAN.md`.
 
-T99/T56 builds keep a bounded app-private hardware trace. It contains key metadata only and can be
+T99/T56/RYKS builds keep a bounded app-private hardware trace. It contains key metadata only and can be
 read without exposing radio config or tokens:
 
 ```powershell
@@ -154,7 +154,7 @@ The receiver is enabled by default through `Settings.PREF_AUTO_START`. A valid s
 1. Launch the app once so Android has started the package normally.
 2. Kill the app process without stopping the package.
 3. Send `android.intent.action.BOOT_COMPLETED`.
-4. On T99/T56, check `dumpsys activity activities` for
+4. On T99/T56/RYKS, check `dumpsys activity activities` for
    `se.lublin.mumla/.radio.RadioShellActivity`; generic Android retains
    `se.lublin.mumla/.app.MumlaActivity`.
 
@@ -165,7 +165,7 @@ new-device support.
 ## One-shot provisioning for a known radio
 
 Use the repository-root `Provision Minimum Device.cmd` for a factory-reset or newly received
-T99/T56. The normal operator double-clicks this file and does not enter PowerShell parameters. The
+T99/T56/RYKS. The normal operator double-clicks this file and does not enter PowerShell parameters. The
 guided flow detects the active ADB port, explains how to authorize USB debugging, offers a numbered
 device menu when several radios are attached, and shows recommended/custom setup choices. It keeps
 the window open on PASS or failure so the result is not lost.
@@ -193,7 +193,7 @@ device automatically; if both servers are active or no device is visible, it pre
 the USB-debugging/authorization checklist. Advanced automation may still call the underlying
 PowerShell script with parameters, but field operators should use the launcher.
 
-The script displays only the six-character Device ID and detected Portal model (`t99` or `t56`).
+The script displays only the six-character Device ID and detected Portal model (`t99`, `t56` or `ryks`).
 Register that ID under **Devices** at `https://minimum.vra.or.th/` with the displayed model, issue
 its one-time token, and paste the token into the hidden prompt in the same running script. The
 transient token file is removed from both Windows and
@@ -297,7 +297,7 @@ provides two swipe pages: the large Minimum icon and Android Settings. With a co
 not accept the data-installed Minimum
 activity as a usable default HOME choice, so the app deliberately does not register as HOME. The
 script requests a legacy Minimum shortcut in Launcher3, launches a real system HOME intent and
-fails if ResolverActivity appears. At boot, T99/T56 profiles launch the radio client directly;
+fails if ResolverActivity appears. At boot, T99/T56/RYKS profiles launch the radio client directly;
 generic Android continues to launch MumlaActivity. Back from the radio client opens the recovery
 dashboard instead of exiting to an uncertain launcher state.
 
@@ -341,6 +341,23 @@ it with `run-as` as described for T99 when the target image provides that tool, 
 update `docs/T56_DEVICE_PROFILE.md`. Never commit serials, certificates, tokens or personal Wi-Fi
 details.
 
+## RYKS preparation and capture procedure
+
+RYKS is detected only as `ELINK/ym_258`. Its factory PackageManager requires the one-shot
+provisioner to set and verify `ro.build.install=1` for the current boot before installing the APK.
+The wrapper then uses the same guarded Zello, microphone, shortcut and HOME verification flow:
+
+```powershell
+.\scripts\prepare-ryks.ps1 -ReportOnly
+.\scripts\prepare-ryks.ps1 -WhatIf
+.\scripts\prepare-ryks.ps1 -Force -SkipLabWifi
+```
+
+The OEM framework maps both GPIO `CHAT` scans 216 and 249 to vendor keyCode 285 and emits
+`com.zello.ptt.down/up`; both controls therefore remain PTT. Scan 65/F7 is the safe room-selection
+control. Rotary volume remains Android-native. See [RYKS_DEVICE_PROFILE.md](RYKS_DEVICE_PROFILE.md)
+for the evidence and the remaining labelled-button/display-off physical acceptance.
+
 ## APRS tracking verification
 
 The complete packet and privacy contract is [APRS_TRACKING.md](APRS_TRACKING.md). Use this bounded
@@ -380,7 +397,7 @@ active config as `previous-config.json`.
 
 Read [GITHUB_RELEASE_WORKFLOW.md](GITHUB_RELEASE_WORKFLOW.md) before triaging field Issues, marking
 PR #1 ready, or publishing an APK. The repository CI and manual signed-release workflows do not
-replace the physical T99/T56 acceptance gates.
+replace the physical T99/T56/RYKS acceptance gates.
 
 ```powershell
 Set-Location D:\VR Android App\mumla

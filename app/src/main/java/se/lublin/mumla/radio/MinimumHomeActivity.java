@@ -107,11 +107,20 @@ public final class MinimumHomeActivity extends Activity {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (RadioPttKeyManager.isConfiguredPttKey(keyCode, settings)
+        RadioKeyDiagnostics.record(this, "home", event);
+        if (RadioPttKeyManager.isConfiguredPttEvent(event, settings)
                 && !RadioPttKeyManager.isMediaStyleKey(keyCode)) {
             if (event.getRepeatCount() == 0) {
                 playPttRecoveryAlert();
                 launchRadioForPttRecovery();
+            }
+            return true;
+        }
+        int roomDirection = RadioKeyActionPolicy.roomDirection(
+                RadioDeviceProfile.detectCurrent(), event);
+        if (roomDirection != 0) {
+            if (event.getRepeatCount() == 0) {
+                showPage(roomDirection < 0 ? PAGE_MINIMUM : PAGE_SETTINGS);
             }
             return true;
         }
@@ -143,9 +152,14 @@ public final class MinimumHomeActivity extends Activity {
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (RadioPttKeyManager.isConfiguredPttKey(keyCode, settings)
+        RadioKeyDiagnostics.record(this, "home", event);
+        if (RadioPttKeyManager.isConfiguredPttEvent(event, settings)
                 && !RadioPttKeyManager.isMediaStyleKey(keyCode)) {
             signalPttReleased();
+            return true;
+        }
+        if (RadioKeyActionPolicy.isRoomChangeEvent(
+                RadioDeviceProfile.detectCurrent(), event)) {
             return true;
         }
         if (RadioKeyActionPolicy.isIdentityToggleEvent(

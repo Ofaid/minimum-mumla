@@ -1,6 +1,6 @@
 # Minimum project status (source of truth)
 
-Last reviewed: 2026-08-09
+Last reviewed: 2026-08-12
 
 This is the canonical hand-off document for the `awatchar/minimum` public PoC. If another
 document disagrees with this file, verify the code and update this file first.
@@ -174,6 +174,14 @@ document disagrees with this file, verify the code and update this file first.
   Zello user-0 removal, Minimum Device ID creation, Launcher3 shortcut/HOME chooser check and
   private embedded-config import all passed. The APK was then reboot-tested; boot returned directly
   to RadioShell without a chooser.
+- Commissioned the connected RYKS build identity as `ELINK/ym_258`, Android 8.1/API 27, 160x128.
+  Added the managed `ryks` Android/Web profile, guarded one-shot/provisioning support and release-
+  bundle inclusion. Kernel/device-tree evidence identifies rotary volume scans 115/114, two OEM
+  `CHAT` PTT scans 216/249 and F7 scan 65. The modified PhoneWindowManager maps CHAT to vendor
+  keyCode 285 and, with `ro.build.ptt_type=ANYPTT`, emits `com.zello.ptt.down/up`; Minimum now gates
+  those RYKS-only actions into the service-owned PTT path. The debug APK was installed through the
+  verified per-boot `ro.build.install=1` policy, Zello was removed for user 0, recovery/HOME checks
+  passed and injected vendor-key DOWN/UP produced both OEM broadcasts without a crash.
 - Added a protected receiver provisioning fallback for Android builds without `/system/bin/run-as`.
   It reports the non-secret Device ID and validates/installs a temporary ADB config through the
   `android.permission.DUMP`-protected receiver, preserving active/previous config semantics.
@@ -188,6 +196,13 @@ document disagrees with this file, verify the code and update this file first.
   provisioner and protected config-import additions.
 
 ## Known limitations / not falsely marked complete
+
+- RYKS physical labelled-button acceptance is pending because no operator key press was captured
+  during the commissioning windows. GPIO and OEM-framework mappings are verified, including the
+  fact that scans 216 and 249 both become PTT and cannot safely be split by the broadcast path.
+  Green/CALL, menu/MENU, red/BACK, F7 room selection, rotary volume and real display-off PTT still
+  need direct operator verification. The injected keyCode-285 path proves firmware broadcast
+  delivery, not a physical screen-off press.
 
 - Physical PTT while the T99 display is off has passed an operator test. A subsequent physical trace
   classified the labelled control as `KEYCODE_F1` 131 / scan 59 / deviceId 4 / source `0x101` /
@@ -293,13 +308,15 @@ document disagrees with this file, verify the code and update this file first.
    keylayout/OEM path for unrelated foreground apps.
 2. Execute the supervised server-restart, long-outage, reconnect visual, wake-screen, half-duplex
    and PTT-failure portions of `RECONNECT_TEST_PLAN.md`.
-3. Complete T56 app-private side/power trace, room and supervised PTT tests without copying T99's
+3. Complete RYKS labelled-button and real display-off PTT acceptance, then verify its F7 room action
+   against at least two live configured rooms.
+4. Complete T56 app-private side/power trace, room and supervised PTT tests without copying T99's
    F1 mapping.
-4. Exercise two or more room presets, denied-room fallback and safe room switching during traffic.
-5. Run physical failed-candidate rollback acceptance, then add config signatures.
-6. Extend the new private key diagnostics with config/audio health, then decide the dedicated radio
+5. Exercise two or more room presets, denied-room fallback and safe room switching during traffic.
+6. Run physical failed-candidate rollback acceptance, then add config signatures.
+7. Extend the new private key diagnostics with config/audio health, then decide the dedicated radio
    flavor/application ID.
-7. Use the maintained GitHub Issue forms and triage labels for field-test reports. Before merging
+8. Use the maintained GitHub Issue forms and triage labels for field-test reports. Before merging
    or publishing an APK, follow the separate gates in
    [GITHUB_RELEASE_WORKFLOW.md](GITHUB_RELEASE_WORKFLOW.md); a passing debug build alone is not a
    signed release.
@@ -319,6 +336,8 @@ The detailed Technical Brief comparison and implementation order are maintained 
   `transport_id` to disambiguate identical units and use Minimum Device ID for app identity.
 - Keep T99 F2 permanently reserved for physical EXIT. Keep T56 F1 permanently reserved from PTT;
   T56's captured primary PTT is vendor keyCode 261.
+- Keep RYKS scans 216 and 249 as PTT while the OEM broadcast has no scan-code extra; assigning scan
+  249 to another action could cause an unintended transmission.
 - Keep the normal Mumla build working while the radio interface is developed.
 - Do not merge PR #1 without explicit user approval.
 - Do not publish an APK as a GitHub Release until the signing identity, CI artifact provenance,

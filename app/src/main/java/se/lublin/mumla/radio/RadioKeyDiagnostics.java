@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Locale;
 
-/** Stores a small app-private hardware-key trace for T99/T56 commissioning. */
+/** Stores a small app-private hardware-key trace for managed-radio commissioning. */
 public final class RadioKeyDiagnostics {
     public static final String RELATIVE_LOG_PATH = "radio-diagnostics/key-events.log";
     static final int MAX_LOG_BYTES = 32 * 1024;
@@ -33,7 +33,9 @@ public final class RadioKeyDiagnostics {
     public static void record(Context context, String path, KeyEvent event) {
         if (context == null || event == null
                 || !RadioPttKeyManager.isRadioProfile(RadioDeviceProfile.detectCurrent())
-                || !RadioPttKeyManager.isDiagnosticHardwareKey(event.getKeyCode())) {
+                || (!RadioPttKeyManager.isDiagnosticHardwareKey(event.getKeyCode())
+                && !(RadioDeviceProfile.RYKS.equals(RadioDeviceProfile.detectCurrent())
+                && event.getScanCode() > 0))) {
             return;
         }
         if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() > 1) {

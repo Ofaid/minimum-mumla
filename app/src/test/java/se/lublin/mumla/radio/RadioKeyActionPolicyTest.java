@@ -26,6 +26,8 @@ public class RadioKeyActionPolicyTest {
                 RadioDeviceProfile.T56, KeyEvent.KEYCODE_BACK));
         assertFalse(RadioKeyActionPolicy.isProtectedExitKey(
                 RadioDeviceProfile.T56, KeyEvent.KEYCODE_F2));
+        assertTrue(RadioKeyActionPolicy.isProtectedExitKey(
+                RadioDeviceProfile.RYKS, KeyEvent.KEYCODE_BACK));
     }
 
     @Test
@@ -49,6 +51,19 @@ public class RadioKeyActionPolicyTest {
                 RadioDeviceProfile.T56, KeyEvent.KEYCODE_STEM_PRIMARY));
         assertFalse(RadioKeyActionPolicy.isIdentityToggleKey(
                 RadioDeviceProfile.T56, KeyEvent.KEYCODE_STEM_2));
+        assertTrue(RadioKeyActionPolicy.isIdentityToggleKey(
+                RadioDeviceProfile.RYKS, KeyEvent.KEYCODE_MENU));
+    }
+
+    @Test
+    public void ryksF7SideButtonMovesToTheNextRoomWithoutUsingPttScans() {
+        assertEquals(1, RadioKeyActionPolicy.roomDirection(RadioDeviceProfile.RYKS,
+                KeyEvent.KEYCODE_F7, RadioDeviceProfile.RYKS_SIDE_DOWN_SCAN_CODE));
+        assertEquals(0, RadioKeyActionPolicy.roomDirection(RadioDeviceProfile.RYKS,
+                KeyEvent.KEYCODE_UNKNOWN, RadioDeviceProfile.RYKS_PTT_SCAN_CODE));
+        assertEquals(0, RadioKeyActionPolicy.roomDirection(RadioDeviceProfile.RYKS,
+                RadioDeviceProfile.RYKS_PTT_KEY_CODE,
+                RadioDeviceProfile.RYKS_SECONDARY_PTT_SCAN_CODE));
     }
 
     @Test

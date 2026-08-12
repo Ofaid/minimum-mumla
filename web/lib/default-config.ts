@@ -8,13 +8,36 @@ type HardwareProfile = ConfigObject & {
   pttKeyCode: number;
   pttScanCode: number;
   pttKeyCodes: number[];
+  pttScanCodes?: number[];
   locationTrackingSupported: boolean;
   p1KeyCode: number;
   p2KeyCode: number;
   p3KeyCode: number;
+  p1ScanCode?: number;
+  p2ScanCode?: number;
+  p3ScanCode?: number;
+  greenKeyCode?: number;
+  menuKeyCode?: number;
+  redKeyCode?: number;
 };
 
 export const HARDWARE_BY_MODEL: Record<ModelProfile, HardwareProfile> = {
+  ryks: {
+    profile: 'ryks-elink-ym-258',
+    pttKeyCode: 285,
+    pttScanCode: 216,
+    pttKeyCodes: [285, 85, 79],
+    pttScanCodes: [216, 249],
+    locationTrackingSupported: false,
+    p1KeyCode: 137,
+    p1ScanCode: 65,
+    p2KeyCode: 0,
+    p2ScanCode: 0,
+    p3KeyCode: 0,
+    greenKeyCode: 5,
+    menuKeyCode: 82,
+    redKeyCode: 4
+  },
   t56: {
     profile: 't56-unipro-zx-l809',
     pttKeyCode: 261,
@@ -48,6 +71,7 @@ export const HARDWARE_BY_MODEL: Record<ModelProfile, HardwareProfile> = {
 };
 
 export const SERVICE_NAME_BY_MODEL: Record<ModelProfile, string> = {
+  ryks: 'Minimum RYKS',
   t56: 'Minimum T56',
   t99: 'Minimum T99',
   'generic-radio': 'Minimum Radio'

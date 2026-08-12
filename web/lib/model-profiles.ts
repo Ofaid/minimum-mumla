@@ -1,4 +1,5 @@
 export const MODEL_PROFILES = [
+  { value: 'ryks', label: 'RYKS' },
   { value: 't56', label: 'T56' },
   { value: 't99', label: 'T99' },
   { value: 'generic-radio', label: 'Generic radio' }

@@ -17,10 +17,19 @@ import java.util.Locale;
 public final class RadioDeviceProfile {
     public static final String T99 = "t99";
     public static final String T56 = "t56";
+    public static final String RYKS = "ryks";
     public static final String GENERIC = "generic-radio";
 
     /** Vendor DTT_PTT from the T56 OEM keylayout is delivered to apps as keyCode 261. */
     public static final int T56_PTT_KEY_CODE = 261;
+
+    /** ELINK's modified Android framework maps its vendor-only CHAT label to keyCode 285. */
+    public static final int RYKS_PTT_KEY_CODE = 285;
+    public static final int RYKS_PTT_SCAN_CODE = 216;
+    /** A second physical gpio PTT uses the same vendor keyCode with scan 249. */
+    public static final int RYKS_SECONDARY_PTT_SCAN_CODE = 249;
+    /** The remaining lower side key is Linux F7 and is available for room selection. */
+    public static final int RYKS_SIDE_DOWN_SCAN_CODE = 65;
 
     private RadioDeviceProfile() {
     }
@@ -42,6 +51,9 @@ public final class RadioDeviceProfile {
         }
         if ("unipro".equals(normalizedManufacturer) && "zx".equals(normalizedModel)) {
             return T56;
+        }
+        if ("elink".equals(normalizedManufacturer) && "ym_258".equals(normalizedModel)) {
+            return RYKS;
         }
         return GENERIC;
     }

@@ -48,18 +48,25 @@ describe('Minimum config validation', () => {
   it('builds model-specific hardware baselines from supported profile choices', () => {
     const t56 = emptyConfig('AB12C3', 't56');
     const t99 = emptyConfig('ZX98Y7', 't99');
+    const ryks = emptyConfig('RYK258', 'ryks');
     expect((t56.hardware as { profile: string }).profile).toBe('t56-unipro-zx-l809');
     expect((t99.hardware as { profile: string }).profile).toBe('t99-qm011');
+    expect((ryks.hardware as { profile: string }).profile).toBe('ryks-elink-ym-258');
     expect(t56.modelProfile).toBe('t56');
     expect(t99.modelProfile).toBe('t99');
+    expect(ryks.modelProfile).toBe('ryks');
     expect((t56.hardware as { locationTrackingSupported: boolean }).locationTrackingSupported).toBe(true);
     expect((t99.hardware as { locationTrackingSupported: boolean }).locationTrackingSupported).toBe(false);
+    expect((ryks.hardware as { pttScanCode: number }).pttScanCode).toBe(216);
+    expect((ryks.hardware as { pttScanCodes: number[] }).pttScanCodes).toEqual([216, 249]);
+    expect((ryks.hardware as { p1ScanCode: number }).p1ScanCode).toBe(65);
+    expect(validModelProfile('ryks')).toBe(true);
     expect(validModelProfile('t56')).toBe(true);
     expect(validModelProfile('T-56 typo')).toBe(false);
   });
 
   it('creates every canonical section without enabling tracking or APRS', () => {
-    for (const model of ['t56', 't99', 'generic-radio'] as const) {
+    for (const model of ['ryks', 't56', 't99', 'generic-radio'] as const) {
       const config = emptyConfig('AB12C3', model);
       expect(config).toMatchObject({
         schemaVersion: 3,

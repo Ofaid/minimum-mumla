@@ -16,6 +16,7 @@ import android.util.Log;
 
 import se.lublin.mumla.Settings;
 import se.lublin.mumla.radio.RadioDeviceProfile;
+import se.lublin.mumla.radio.RadioPttKeyManager;
 import se.lublin.mumla.radio.RadioProcessWatchdog;
 import se.lublin.mumla.radio.RadioShellActivity;
 
@@ -34,8 +35,7 @@ public class MumlaBootReceiver extends BroadcastReceiver {
         }
 
         String profile = RadioDeviceProfile.detectCurrent();
-        boolean radioProfile = RadioDeviceProfile.T99.equals(profile)
-                || RadioDeviceProfile.T56.equals(profile);
+        boolean radioProfile = RadioPttKeyManager.isRadioProfile(profile);
         if (radioProfile) {
             RadioProcessWatchdog.arm(context);
         }

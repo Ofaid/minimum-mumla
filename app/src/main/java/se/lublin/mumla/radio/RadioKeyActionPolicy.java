@@ -32,8 +32,10 @@ public final class RadioKeyActionPolicy {
                 || keyCode == KeyEvent.KEYCODE_BACK
                 || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT;
         }
-        // T56 exposes a dedicated BACK control; require the same deliberate recovery hold.
-        return RadioDeviceProfile.T56.equals(profile) && keyCode == KeyEvent.KEYCODE_BACK;
+        // T56 and RYKS expose a dedicated BACK/red control; require the same deliberate hold.
+        return (RadioDeviceProfile.T56.equals(profile)
+                || RadioDeviceProfile.RYKS.equals(profile))
+                && keyCode == KeyEvent.KEYCODE_BACK;
     }
 
     public static boolean isRoomChangeKey(int keyCode) {
@@ -51,6 +53,27 @@ public final class RadioKeyActionPolicy {
         return 0;
     }
 
+    public static boolean isRoomChangeEvent(String profile, KeyEvent event) {
+        return roomDirection(profile, event) != 0;
+    }
+
+    /** Uses the one non-PTT side scan on RYKS for forward room selection. */
+    public static int roomDirection(String profile, KeyEvent event) {
+        if (event == null) {
+            return 0;
+        }
+        return roomDirection(profile, event.getKeyCode(), event.getScanCode());
+    }
+
+    static int roomDirection(String profile, int keyCode, int scanCode) {
+        if (RadioDeviceProfile.RYKS.equals(profile)) {
+            if (scanCode == RadioDeviceProfile.RYKS_SIDE_DOWN_SCAN_CODE) {
+                return 1;
+            }
+        }
+        return roomDirection(keyCode);
+    }
+
     /** Maps the deliberately-held identity control for each captured radio profile. */
     public static boolean isIdentityToggleKey(String profile, int keyCode) {
         if (RadioDeviceProfile.T99.equals(profile)) {
@@ -58,6 +81,9 @@ public final class RadioKeyActionPolicy {
         }
         if (RadioDeviceProfile.T56.equals(profile)) {
             return keyCode == KeyEvent.KEYCODE_DPAD_LEFT;
+        }
+        if (RadioDeviceProfile.RYKS.equals(profile)) {
+            return keyCode == KeyEvent.KEYCODE_MENU;
         }
         return false;
     }
