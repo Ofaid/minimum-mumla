@@ -33,6 +33,7 @@ param(
     [switch]$SkipMinimumHome,
     [switch]$SkipLabWifi,
     [switch]$SkipLocation,
+    [switch]$DisableDataRoaming,
     [switch]$RequestNetworkLocationConsent,
     [switch]$RefreshLabWifi,
     [string]$LabWifiSsid = "..@EmergencyTU",
@@ -511,6 +512,7 @@ function Invoke-ModelPreparation {
     if ($SkipMinimumHome) { $arguments += "-SkipMinimumHome" }
     if ($SkipLabWifi) { $arguments += "-SkipLabWifi" }
     if ($SkipLocation) { $arguments += "-SkipLocation" }
+    if ($DisableDataRoaming) { $arguments += "-DisableDataRoaming" }
     if ($RequestNetworkLocationConsent) { $arguments += "-RequestNetworkLocationConsent" }
     if ($RefreshLabWifi) { $arguments += "-RefreshLabWifi" }
     if ($LabWifiCredentialPath) {
@@ -735,6 +737,25 @@ $returningTarget = Wait-ForReturningTarget -Manufacturer $manufacturer -Model $m
     -OriginalSerial $originalSerial -TimeoutSeconds $BootTimeoutSeconds
 Set-Target -Record $returningTarget
 Wait-AndroidBootCompleted -TimeoutSeconds $BootTimeoutSeconds
+if ($target.Profile -eq "T56") {
+    $cellularScript = Join-Path $PSScriptRoot "manage-cellular.ps1"
+    $cellularArguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+        $cellularScript, "-AdbPort", "$AdbPort")
+    if ($returningTarget.TransportId -gt 0) {
+        $cellularArguments += @("-TransportId", "$($returningTarget.TransportId)")
+    } else {
+        $cellularArguments += @("-Serial", $returningTarget.Serial)
+    }
+    if ($DisableDataRoaming) { $cellularArguments += "-DisableDataRoaming" }
+    Write-Host "Reapplying idempotent T56 cellular policy and checking readbacks after reboot..."
+    & powershell.exe @cellularArguments
+    $cellularExit = $LASTEXITCODE
+    if ($cellularExit -eq 2) {
+        Write-Warning "Post-reboot cellular settings persisted; readiness remains WARN."
+    } elseif ($cellularExit -ne 0) {
+        throw "Post-reboot T56 cellular verification failed with exit code $cellularExit."
+    }
+}
 Wait-MinimumReady -Phase "after reboot" -ExpectedDeviceId $deviceId `
     -TimeoutSeconds $ReadyTimeoutSeconds
 

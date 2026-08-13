@@ -1,5 +1,9 @@
 # T56 device profile
 
+Managed cellular provisioning and its roaming-cost opt-out are documented in
+[CELLULAR_PROVISIONING.md](CELLULAR_PROVISIONING.md). T56 uses an automatic LTE-capable mode with
+legacy fallback; LTE-only is never provisioned.
+
 Last captured: 2026-08-07
 
 T56 is the project name for the UNIPRO/ZX Android PTT radio identified below. It is the maintained

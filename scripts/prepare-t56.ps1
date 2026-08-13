@@ -19,6 +19,7 @@ param(
     [switch]$SkipMinimumHome,
     [switch]$SkipLabWifi,
     [switch]$SkipLocation,
+    [switch]$DisableDataRoaming,
     [switch]$RequestNetworkLocationConsent,
     [switch]$RefreshLabWifi,
     [switch]$ReportOnly,
@@ -62,6 +63,7 @@ $forward = @{
     SkipMinimumHome = $SkipMinimumHome
     SkipLabWifi = $SkipLabWifi
     SkipLocation = $SkipLocation
+    DisableDataRoaming = $DisableDataRoaming
     RequestNetworkLocationConsent = $RequestNetworkLocationConsent
     RefreshLabWifi = $RefreshLabWifi
     ReportOnly = $ReportOnly

@@ -80,8 +80,11 @@ public final class AprsTrackingManager {
                         : signalStrengthDbm(signalStrength);
                 mobileRssiDbm = dbm == 0 || dbm == Integer.MAX_VALUE
                         ? AprsHealthSnapshot.UNKNOWN : dbm;
+                mobileRssiElapsedRealtime = mobileRssiDbm == AprsHealthSnapshot.UNKNOWN
+                        ? 0L : SystemClock.elapsedRealtime();
             } catch (RuntimeException ignored) {
                 mobileRssiDbm = AprsHealthSnapshot.UNKNOWN;
+                mobileRssiElapsedRealtime = 0L;
             }
         }
     };
@@ -112,6 +115,7 @@ public final class AprsTrackingManager {
     private volatile AprsTrackingConfig config = AprsTrackingConfig.disabled();
     private volatile boolean stopped;
     private volatile int mobileRssiDbm = AprsHealthSnapshot.UNKNOWN;
+    private volatile long mobileRssiElapsedRealtime;
     private TelephonyManager telephonyManager;
     private AprsBeaconCoordinator.MovementState requestedState;
 
@@ -278,7 +282,7 @@ public final class AprsTrackingManager {
         final String packetObjectName = objectName;
         final String packet;
         try {
-            String healthComment = AprsHealthSnapshot.capture(context, mobileRssiDbm)
+            String healthComment = AprsHealthSnapshot.capture(context, freshMobileRssiDbm())
                     .toAprsComment(beacon.getMovementState(), beacon.getFix().getAccuracyMeters());
             packet = AprsPacketEncoder.encodeObject(packetConfig.getSourceCallsign(), packetObjectName,
                     beacon.getFix(), APRS_SYMBOL_TABLE,
@@ -421,6 +425,8 @@ public final class AprsTrackingManager {
         if (telephonyManager == null) {
             return;
         }
+        mobileRssiDbm = AprsHealthSnapshot.UNKNOWN;
+        mobileRssiElapsedRealtime = 0L;
         try {
             telephonyManager.listen(phoneStateListener, PhoneStateListener.LISTEN_SIGNAL_STRENGTHS);
         } catch (SecurityException ignored) {
@@ -429,21 +435,36 @@ public final class AprsTrackingManager {
     }
 
     private static int signalStrengthDbm(SignalStrength signalStrength) {
+        Integer reflectedDbm = null;
         try {
             java.lang.reflect.Method method = SignalStrength.class.getMethod("getDbm");
             Object value = method.invoke(signalStrength);
             if (value instanceof Integer) {
-                return (Integer) value;
+                reflectedDbm = (Integer) value;
             }
         } catch (Exception ignored) {
             // API-22 has no public getDbm method on all vendor builds.
         }
         try {
             int asu = signalStrength.getGsmSignalStrength();
-            return asu >= 0 && asu < 32 ? -113 + (2 * asu) : AprsHealthSnapshot.UNKNOWN;
+            return normalizeSignalDbm(reflectedDbm, asu);
         } catch (RuntimeException ignored) {
             return AprsHealthSnapshot.UNKNOWN;
         }
+    }
+
+    static int normalizeSignalDbm(Integer reflectedDbm, int gsmAsu) {
+        if (reflectedDbm != null && reflectedDbm >= -140 && reflectedDbm <= -40) {
+            return reflectedDbm;
+        }
+        return gsmAsu >= 0 && gsmAsu < 32
+                ? -113 + (2 * gsmAsu) : AprsHealthSnapshot.UNKNOWN;
+    }
+
+    private int freshMobileRssiDbm() {
+        long age = SystemClock.elapsedRealtime() - mobileRssiElapsedRealtime;
+        return mobileRssiElapsedRealtime > 0L && age >= 0L && age <= 2L * 60L * 1000L
+                ? mobileRssiDbm : AprsHealthSnapshot.UNKNOWN;
     }
 
     private void stopMobileSignalListener() {
@@ -455,6 +476,8 @@ public final class AprsTrackingManager {
         } catch (SecurityException ignored) {
             // Nothing to unregister when phone state permission was revoked.
         }
+        mobileRssiDbm = AprsHealthSnapshot.UNKNOWN;
+        mobileRssiElapsedRealtime = 0L;
     }
 
     private void schedulePoll(long delayMillis) {
