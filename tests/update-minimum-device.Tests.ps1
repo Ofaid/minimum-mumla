@@ -96,6 +96,7 @@ Test-Case "debug to release signer mismatch is refused before install" {
 Test-Case "matching signer accepted" {
     $signer = "168F42ED412DA80ADAF27BED0984DBEE191168E9DF04F08AFA240A3F9DE45972"
     Assert-SignerCompatibility @($signer) $signer
+    Assert-ThrowsCode { Assert-SignerCompatibility @($signer, $signer) $signer } "SIGNER_MISMATCH" "duplicate signer refused"
 }
 
 Test-Case "apksigner output parser requires verified signer digest" {
@@ -190,6 +191,205 @@ if (Test-Path -LiteralPath $realApkPath -PathType Leaf) {
         Assert-True ($signers.Count -ge 1) "real APK signer count"
         Assert-True (@($signers | Where-Object { $_ -notmatch '^[0-9A-F]{64}$' }).Count -eq 0) "real APK signer format"
     }
+}
+
+function New-UpdaterStatus {
+    param([string]$Level = "EXTENDED", [string]$DeviceId = "A1B2C3", [int]$ConfigVersion = 14,
+        [bool]$Pending = $false, [long]$LastSuccessMs = 123)
+    [pscustomobject]@{
+        SnapshotLevel = $Level; DeviceId = $DeviceId; ActiveDeviceId = $DeviceId
+        ConfigVersion = $ConfigVersion; Pending = $Pending; LastSuccessMs = $LastSuccessMs
+        SelectedChannel = if ($Level -ceq "EXTENDED") { "ops" } else { "UNAVAILABLE_LEGACY" }
+        ActiveConfigSha256 = if ($Level -ceq "EXTENDED") { "A" * 64 } else { "UNAVAILABLE_LEGACY" }
+        SafeSettingsSha256 = if ($Level -ceq "EXTENDED") { "B" * 64 } else { "UNAVAILABLE_LEGACY" }
+    }
+}
+
+function New-UpdaterBundle {
+    [pscustomobject]@{
+        ApkPath = "fixture.apk"
+        Manifest = [pscustomobject]@{
+            versionName = "3.7.3-minimum.2"; versionCode = 3070301; signerSha256 = "A" * 64
+            rebootRequired = $false
+            migrations = @([pscustomobject]@{
+                id = "CELLULAR_POLICY_V1_T56"; fromVersionCodeMax = 3070300
+                toVersionCode = 3070301; profiles = @("T56"); rebootRequired = $true; irreversible = $false
+            })
+        }
+    }
+}
+
+function Set-UpdaterScenarioMocks {
+    param([hashtable]$Scenario)
+    $global:UpdaterScenario = $Scenario
+    Set-Item Function:\Get-AdbRecords { @([pscustomobject]@{ Serial="usb"; State="device"; TransportId=7 }) }
+    Set-Item Function:\Add-HardwareIdentity {
+        param($Target)
+        [pscustomobject]@{ Serial=$Target.Serial; State="device"; TransportId=7; Manufacturer=$global:UpdaterScenario.Manufacturer; Model=$global:UpdaterScenario.Model; Profile=$global:UpdaterScenario.Profile }
+    }
+    Set-Item Function:\Get-BatteryState { [pscustomobject]@{ Level=90; Powered=$true } }
+    Set-Item Function:\Get-InstalledPackageState {
+        $global:UpdaterScenario.PackageReads++
+        $code = if ($global:UpdaterScenario.Installed -and -not $global:UpdaterScenario.PostVersionMismatch) { 3070301 } else { $global:UpdaterScenario.InstalledCode }
+        $name = if ($code -eq 3070301) { "3.7.3-minimum.2" } else { "3.7.3-minimum.1" }
+        [pscustomobject]@{ VersionCode=[long]$code; VersionName=$name; BaseApkPath="/data/app/base.apk" }
+    }
+    Set-Item Function:\Get-ProvisioningStatus {
+        $global:UpdaterScenario.Transcript.Add("STATUS")
+        return $global:UpdaterScenario.Before
+    }
+    Set-Item Function:\Get-Identity {
+        param([switch]$Legacy)
+        $global:UpdaterScenario.IdentityCalls++
+        $global:UpdaterScenario.Transcript.Add($(if ($Legacy) { "IDENTITY_LEGACY" } else { "IDENTITY_EXISTING" }))
+        return $global:UpdaterScenario.Before.DeviceId
+    }
+    Set-Item Function:\Get-ReadyState { $true }
+    Set-Item Function:\Get-InstalledSignerDigests { param([string]$RemoteApkPath); @($global:UpdaterScenario.InstalledSigners) }
+    Set-Item Function:\Invoke-RequiredMigration {
+        param($Migration, [switch]$VerifyOnly)
+        $global:UpdaterScenario.MigrationCalls++
+        New-MigrationResult -Id $Migration.id -Outcome $(if ($VerifyOnly) { "ALREADY_OK" } else { "APPLIED" })
+    }
+    Set-Item Function:\Ensure-RyksInstallPolicy {
+        if ($global:UpdaterScenario.Profile -ceq "RYKS") { $global:UpdaterScenario.RyksCalls++; New-MigrationResult -Id "RYKS_INSTALL_POLICY" -Outcome "APPLIED" }
+    }
+    Set-Item Function:\Install-InPlace {
+        param([string]$ApkPath, [switch]$Downgrade)
+        $global:UpdaterScenario.InstallCalls++; $global:UpdaterScenario.Installed = $true
+    }
+    Set-Item Function:\Invoke-TargetAdb {
+        param([string[]]$Arguments, [switch]$AllowFailure)
+        if ((@($Arguments) -join " ") -match 'am start') { $global:UpdaterScenario.StartCalls++ }
+        [pscustomobject]@{ ExitCode=0; Output="Success" }
+    }
+    Set-Item Function:\Wait-MinimumReady { param([string]$ExpectedDeviceId, [int]$TimeoutSeconds); return $global:UpdaterScenario.After }
+    Set-Item Function:\Wait-ReturningTarget {
+        param($OriginalTarget, [string]$ExpectedDeviceId, [int]$TimeoutSeconds)
+        if ($global:UpdaterScenario.RebootFailure) { $script:CurrentTarget = $null; Throw-UpdateError "REBOOT_TARGET_AMBIGUOUS" "mocked timeout" }
+        $OriginalTarget | Add-Member CorrelatedDeviceId $ExpectedDeviceId -Force
+        return $OriginalTarget
+    }
+    Set-Item Function:\Wait-BootCompleted { param([int]$TimeoutSeconds) }
+}
+
+function New-UpdaterScenario {
+    param([string]$Profile = "T99", [string]$Level = "EXTENDED")
+    $hardware = switch ($Profile) {
+        "T56" { @("UNIPRO", "ZX") }
+        "T99" { @("Youdotech", "QM011") }
+        "RYKS" { @("ELINK", "ym_258") }
+    }
+    @{
+        Profile=$Profile; Manufacturer=$hardware[0]; Model=$hardware[1]; InstalledCode=3070300
+        Before=(New-UpdaterStatus -Level $Level); After=(New-UpdaterStatus -Level "EXTENDED")
+        InstalledSigners=@("A" * 64); Installed=$false; PostVersionMismatch=$false; RebootFailure=$false
+        InstallCalls=0; IdentityCalls=0; MigrationCalls=0; RyksCalls=0; StartCalls=0; PackageReads=0
+        Transcript=[Collections.Generic.List[string]]::new()
+    }
+}
+
+$ReportOnly = $false
+$NonInteractive = $true
+$ConfirmNotTransmitting = $true
+$AllowDowngrade = $false
+$FullRebootAcceptance = $false
+$Serial = ""
+$TransportId = 0
+$ReadyTimeoutSeconds = 30
+$BootTimeoutSeconds = 30
+$WhatIfPreference = $false
+
+Test-Case "legacy 3070300 to 3070301 state-machine bootstraps expanded evidence" {
+    $scenario = New-UpdaterScenario -Profile "T56" -Level "LEGACY"
+    Set-UpdaterScenarioMocks $scenario
+    $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "LEGACYOK"
+    Assert-Equal "PASS" $result.Result "result ($($result.ErrorCategory): $($result.Detail))"
+    Assert-Equal "BOOTSTRAPPED_POST_UPDATE" $result.PreservationEvidence "bootstrap evidence"
+    Assert-Equal @("STATUS", "IDENTITY_LEGACY") @($scenario.Transcript) "status before legacy identity"
+    Assert-Equal 1 $scenario.InstallCalls "install count"
+    Assert-Equal 2 $scenario.MigrationCalls "apply plus post-reboot verify"
+}
+
+Test-Case "legacy unprovisioned state is rejected without identity or install" {
+    $scenario = New-UpdaterScenario -Level "LEGACY"
+    $scenario.Before.ActiveDeviceId = "*"; $scenario.Before.ConfigVersion = 0; $scenario.Before.LastSuccessMs = 0
+    Set-UpdaterScenarioMocks $scenario
+    $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "LEGACYNO"
+    Assert-Equal "LEGACY_NOT_PROVISIONED" $result.ErrorCategory "category"
+    Assert-Equal 0 $scenario.IdentityCalls "identity calls"
+    Assert-Equal 0 $scenario.InstallCalls "install count"
+    Assert-Equal @("STATUS") @($scenario.Transcript) "status-only transcript"
+}
+
+Test-Case "legacy signer mismatch is reached preinstall without mutation" {
+    $scenario = New-UpdaterScenario -Level "LEGACY"
+    $scenario.InstalledSigners = @("B" * 64)
+    Set-UpdaterScenarioMocks $scenario
+    $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "SIGNERNO"
+    Assert-Equal "SIGNER_MISMATCH" $result.ErrorCategory "category"
+    Assert-Equal 1 $scenario.IdentityCalls "identity after status proof"
+    Assert-Equal 0 $scenario.InstallCalls "install count"
+}
+
+Test-Case "ReportOnly uses existing identity and never installs" {
+    $scenario = New-UpdaterScenario
+    Set-UpdaterScenarioMocks $scenario
+    $ReportOnly = $true
+    try { $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "REPORT" } finally { $ReportOnly = $false }
+    Assert-Equal "PASS" $result.Result "result"
+    Assert-Equal 0 $scenario.InstallCalls "install count"
+    Assert-Equal @("STATUS", "IDENTITY_EXISTING") @($scenario.Transcript) "read-only transcript"
+}
+
+Test-Case "post-install failure relaunches and reports verified recovery" {
+    $scenario = New-UpdaterScenario
+    $scenario.PostVersionMismatch = $true
+    Set-UpdaterScenarioMocks $scenario
+    $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "RECOVER"
+    Assert-Equal "POST_VERSION_MISMATCH" $result.ErrorCategory "category"
+    Assert-True ($result.Detail -match 'RECOVERY_VERIFIED') "recovery evidence"
+    Assert-Equal 1 $scenario.InstallCalls "install count"
+    Assert-Equal 1 $scenario.StartCalls "recovery relaunch"
+}
+
+Test-Case "T99 and RYKS route only their approved state-machine paths" {
+    $t99 = New-UpdaterScenario -Profile "T99"; Set-UpdaterScenarioMocks $t99
+    $t99Result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "T99"
+    Assert-Equal "PASS" $t99Result.Result "T99 result"; Assert-Equal 0 $t99.MigrationCalls "T99 cellular skip"; Assert-Equal 0 $t99.RyksCalls "T99 RYKS skip"
+    $ryks = New-UpdaterScenario -Profile "RYKS"; Set-UpdaterScenarioMocks $ryks
+    $ryksResult = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "RYKS"
+    Assert-Equal "PASS" $ryksResult.Result "RYKS result"; Assert-Equal 0 $ryks.MigrationCalls "RYKS cellular skip"; Assert-Equal 1 $ryks.RyksCalls "RYKS policy"
+}
+
+Test-Case "reboot timeout clears correlation and forbids wrong-target recovery" {
+    $scenario = New-UpdaterScenario -Profile "T56" -Level "LEGACY"
+    $scenario.RebootFailure = $true
+    Set-UpdaterScenarioMocks $scenario
+    $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "REBOOTNO"
+    Assert-Equal "REBOOT_TARGET_AMBIGUOUS" $result.ErrorCategory "category"
+    Assert-Equal $null $script:CurrentTarget "cleared target"
+    Assert-Equal 1 $scenario.StartCalls "only pre-reboot launch"
+    Assert-True ($result.Detail -notmatch 'RECOVERY_') "no wrong-target recovery"
+}
+
+Test-Case "partial sequential session continues after a failed device" {
+    $first = New-UpdaterScenario; $first.InstalledSigners = @("B" * 64); Set-UpdaterScenarioMocks $first
+    $failed = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "BATCH"
+    $second = New-UpdaterScenario -Profile "RYKS"; Set-UpdaterScenarioMocks $second
+    $passed = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "BATCH"
+    $summary = Format-SessionSummary @($failed, $passed) "3.7.3-minimum.2"
+    Assert-Equal "FAIL" $failed.Result "first result"; Assert-Equal "PASS" $passed.Result "second result"
+    Assert-True ($summary -match 'Totals: 1 PASS, 0 WARN, 1 FAIL') "partial session summary"
+}
+
+Test-Case "Resolve-ApkSigner tolerates unset Linux-style SDK environment" {
+    $oldLocal = $env:LOCALAPPDATA; $oldHome = $env:ANDROID_HOME; $oldRoot = $env:ANDROID_SDK_ROOT
+    try {
+        $env:LOCALAPPDATA = $null; $env:ANDROID_HOME = $null; $env:ANDROID_SDK_ROOT = $null
+        try { $resolved = Resolve-ApkSigner; Assert-True ([bool]$resolved) "resolved signer" }
+        catch { if ($_.Exception.Message -notmatch '^\[APKSIGNER_MISSING\]') { throw } }
+    } finally { $env:LOCALAPPDATA = $oldLocal; $env:ANDROID_HOME = $oldHome; $env:ANDROID_SDK_ROOT = $oldRoot }
 }
 
 Write-Host "Updater tests: $script:Passed passed, $script:Failed failed"

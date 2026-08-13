@@ -6,7 +6,7 @@
 | FOSS debug APK build | PASS | `:app:assembleFossDebug` |
 | FOSS release APK assembly | PASS LOCALLY / UNSIGNED | `:app:assembleFossRelease`; signing and tagged GitHub provenance remain open. |
 | Android full Lint | FAIL (PRE-EXISTING BASELINE) | Clean `lintFossDebug` and `lintFossRelease` each report 32 errors/343 warnings across legacy permissions, receiver flags, layouts, locale plurals and other existing code. The first is the unchanged `AprsTrackingManager.removeUpdates` permission finding. No Lint baseline is committed. |
-| Existing-device updater integration | PASS IN STATIC/AUTOMATED TESTS / PHYSICAL OPEN | PowerShell AST, 14 updater policy/fixture tests, cellular policy verifier, exact workflow allowlists and full `apksigner` contract; E7ROW7 same-debug-signer update and T99/RYKS physical acceptance remain open. |
+| Existing-device updater integration | PASS IN STATIC/AUTOMATED TESTS / PHYSICAL OPEN | PowerShell 5.1 AST and 24 policy/fixture/state-machine tests cover the legacy bridge, signer/no-mutation, recovery, model routing, reboot correlation and partial sessions; cellular verifier, exact workflow allowlists and full `apksigner` contract also pass. E7ROW7 same-debug-signer update and T99/RYKS physical acceptance remain open. |
 | GitHub Actions integrated CI | PASS | Run `31306714812` on commit `6ee5c5e6`: Android unit tests/debug APK/unsigned release assembly and Portal tests/type-check/production build all passed. |
 | T99 ADB install | PASS | T99 serial `12344321` |
 | T99 Device ID format/persistence | PASS | `DeviceIdentityManagerTest`; startup integration added |

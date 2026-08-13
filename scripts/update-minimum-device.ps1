@@ -31,7 +31,8 @@ $ErrorActionPreference = "Stop"
 $MinimumPackage = "se.lublin.mumla"
 $MinimumActivity = "se.lublin.mumla/.radio.RadioShellActivity"
 $ProvisionReceiver = "se.lublin.mumla/.radio.RadioProvisionReceiver"
-$IdentityReportAction = "se.lublin.mumla.action.PROVISION_REPORT_EXISTING_IDENTITY"
+$ExistingIdentityReportAction = "se.lublin.mumla.action.PROVISION_REPORT_EXISTING_IDENTITY"
+$LegacyIdentityReportAction = "se.lublin.mumla.action.PROVISION_REPORT_IDENTITY"
 $ProvisionStatusAction = "se.lublin.mumla.action.PROVISION_REPORT_STATUS"
 $script:AdbExecutable = ""
 $script:ServerArguments = @()
@@ -329,8 +330,10 @@ function Read-ReleaseBundle {
 function Resolve-ApkSigner {
     $command = Get-Command apksigner, apksigner.bat -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($command) { return $command.Source }
-    $sdkRoots = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT,
-        (Join-Path $env:LOCALAPPDATA "Android\Sdk")) | Where-Object { $_ }
+    $sdkRoots = @(@($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT) | Where-Object { $_ })
+    if ($env:LOCALAPPDATA) {
+        $sdkRoots += Join-Path $env:LOCALAPPDATA "Android\Sdk"
+    }
     foreach ($sdkRoot in $sdkRoots) {
         $buildTools = Join-Path $sdkRoot "build-tools"
         if (-not (Test-Path -LiteralPath $buildTools -PathType Container)) { continue }
@@ -346,7 +349,7 @@ function Parse-ApkSignerOutput {
     param([string]$Text)
     $digests = @([regex]::Matches($Text,
         '(?im)^Signer #\d+ certificate SHA-256 digest:\s*([0-9a-f]{64})\s*$') |
-        ForEach-Object { $_.Groups[1].Value.ToUpperInvariant() } | Sort-Object -Unique)
+        ForEach-Object { $_.Groups[1].Value.ToUpperInvariant() })
     if ($digests.Count -eq 0) {
         Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner did not report a verified signing certificate."
     }
@@ -371,7 +374,8 @@ function Get-ApkSignerDigests {
 
 function Assert-SignerCompatibility {
     param([string[]]$InstalledDigests, [Parameter(Mandatory)][string]$TargetDigest)
-    if (@($InstalledDigests | Where-Object { $_ -ceq $TargetDigest.ToUpperInvariant() }).Count -ne 1) {
+    $installed = @($InstalledDigests)
+    if ($installed.Count -ne 1 -or $installed[0] -cne $TargetDigest.ToUpperInvariant()) {
         Throw-UpdateError "SIGNER_MISMATCH" "Installed Minimum and the Release APK use different signing certificates. No uninstall or data clear was attempted. A debug-to-release switch requires an explicitly reviewed manual recovery."
     }
 }
@@ -449,17 +453,32 @@ function Parse-PackageState {
 
 function Parse-ProvisioningStatus {
     param([string]$Text)
-    $match = [regex]::Match($Text, 'data="?deviceId=([A-Z0-9]{6});activeDeviceId=([A-Z0-9*]{1,6});configVersion=(-?\d+);pending=(true|false);lastSuccessMs=(\d+);selectedChannel=([a-zA-Z0-9._-]{0,64});activeConfigSha256=([0-9A-F]{64});safeSettingsSha256=([0-9A-F]{64})"?')
-    if (-not $match.Success) { return $null }
+    $corePattern = 'data="?deviceId=([A-Z0-9]{6});activeDeviceId=([A-Z0-9*]{1,6});configVersion=(-?\d+);pending=(true|false);lastSuccessMs=(\d+)'
+    $core = [regex]::Match($Text, $corePattern)
+    if (-not $core.Success) { return $null }
+    $extended = [regex]::Match($Text, $corePattern + ';selectedChannel=([a-zA-Z0-9._-]{0,64});activeConfigSha256=([0-9A-F]{64});safeSettingsSha256=([0-9A-F]{64})"?')
     return [pscustomobject]@{
-        DeviceId = $match.Groups[1].Value
-        ActiveDeviceId = $match.Groups[2].Value
-        ConfigVersion = [int]$match.Groups[3].Value
-        Pending = $match.Groups[4].Value -eq "true"
-        LastSuccessMs = [long]$match.Groups[5].Value
-        SelectedChannel = $match.Groups[6].Value
-        ActiveConfigSha256 = $match.Groups[7].Value
-        SafeSettingsSha256 = $match.Groups[8].Value
+        SnapshotLevel = if ($extended.Success) { "EXTENDED" } else { "LEGACY" }
+        DeviceId = $core.Groups[1].Value
+        ActiveDeviceId = $core.Groups[2].Value
+        ConfigVersion = [int]$core.Groups[3].Value
+        Pending = $core.Groups[4].Value -eq "true"
+        LastSuccessMs = [long]$core.Groups[5].Value
+        SelectedChannel = if ($extended.Success) { $extended.Groups[6].Value } else { "UNAVAILABLE_LEGACY" }
+        ActiveConfigSha256 = if ($extended.Success) { $extended.Groups[7].Value } else { "UNAVAILABLE_LEGACY" }
+        SafeSettingsSha256 = if ($extended.Success) { $extended.Groups[8].Value } else { "UNAVAILABLE_LEGACY" }
+    }
+}
+
+function Assert-LegacyBridgeEligible {
+    param($Status, [long]$InstalledVersionCode, [long]$TargetVersionCode)
+    if (-not $Status -or $Status.SnapshotLevel -cne "LEGACY" -or
+            $Status.ActiveDeviceId -ceq "*" -or $Status.ActiveDeviceId -notmatch '^[A-Z0-9]{6}$' -or
+            $Status.Pending -or $Status.ConfigVersion -le 0 -or $Status.LastSuccessMs -le 0) {
+        Throw-UpdateError "LEGACY_NOT_PROVISIONED" "Legacy Minimum did not prove an existing active identity and Last Known Good configuration; the identity action was not called."
+    }
+    if ($InstalledVersionCode -gt 3070300 -or $TargetVersionCode -ne 3070301) {
+        Throw-UpdateError "LEGACY_BRIDGE_UNSUPPORTED" "The limited legacy preservation bridge is approved only for an installed build at or below 3070300 updating to 3070301."
     }
 }
 
@@ -468,12 +487,22 @@ function Assert-PreservedState {
     if ($After.DeviceId -cne $Before.DeviceId -or
             $After.ActiveDeviceId -cne $Before.ActiveDeviceId -or
             $After.Pending -or $After.ConfigVersion -lt $Before.ConfigVersion -or
-            $After.LastSuccessMs -le 0 -or
+            $After.LastSuccessMs -le 0) {
+        Throw-UpdateError "STATE_PRESERVATION_FAILED" "Identity or Last Known Good configuration regressed $Phase."
+    }
+    if ($Before.SnapshotLevel -ceq "LEGACY") {
+        if ($After.SnapshotLevel -cne "EXTENDED") {
+            Throw-UpdateError "STATE_PRESERVATION_FAILED" "The updated app did not provide the required expanded preservation report $Phase."
+        }
+        return "BOOTSTRAPPED_POST_UPDATE"
+    }
+    if ($After.SnapshotLevel -cne "EXTENDED" -or
             $After.SelectedChannel -cne $Before.SelectedChannel -or
             $After.ActiveConfigSha256 -cne $Before.ActiveConfigSha256 -or
             $After.SafeSettingsSha256 -cne $Before.SafeSettingsSha256) {
         Throw-UpdateError "STATE_PRESERVATION_FAILED" "Identity, selected channel, safe device settings or Last Known Good configuration changed $Phase."
     }
+    return "PRESERVED_EXTENDED"
 }
 
 function Get-RequiredMigrations {
@@ -653,7 +682,9 @@ function Add-HardwareIdentity {
 }
 
 function Get-Identity {
-    $result = Invoke-TargetAdb -Arguments @("shell", "am", "broadcast", "-W", "-a", $IdentityReportAction, "-n", $ProvisionReceiver)
+    param([switch]$Legacy)
+    $action = if ($Legacy) { $LegacyIdentityReportAction } else { $ExistingIdentityReportAction }
+    $result = Invoke-TargetAdb -Arguments @("shell", "am", "broadcast", "-W", "-a", $action, "-n", $ProvisionReceiver)
     $match = [regex]::Match($result.Output, 'data="?([A-Z0-9]{6})"?')
     if (-not $match.Success) { Throw-UpdateError "IDENTITY_UNREADABLE" "Minimum did not return its existing six-character Device ID." }
     return $match.Groups[1].Value
@@ -757,29 +788,40 @@ function Ensure-RyksInstallPolicy {
 function Wait-ReturningTarget {
     param($OriginalTarget, [string]$ExpectedDeviceId, [int]$TimeoutSeconds)
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    while ((Get-Date) -lt $deadline) {
-        Start-Sleep -Seconds 2
-        $candidates = @()
-        foreach ($record in @(Get-AdbRecords | Where-Object { $_.State -eq "device" })) {
-            $script:CurrentTarget = $record
-            try { $candidates += Add-HardwareIdentity -Target $record } catch { }
+    try {
+        while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+            $candidates = @()
+            foreach ($record in @(Get-AdbRecords | Where-Object { $_.State -eq "device" })) {
+                $script:CurrentTarget = $record
+                try { $candidates += Add-HardwareIdentity -Target $record } catch { }
+            }
+            # A serial or model match is only a candidate. Recovery commands are permitted only
+            # after the installed app reports the expected existing Device ID on that candidate.
+            foreach ($record in @($candidates | Where-Object {
+                $_.Manufacturer -ieq $OriginalTarget.Manufacturer -and $_.Model -ieq $OriginalTarget.Model
+            })) {
+                $script:CurrentTarget = $record
+                try {
+                    $identity = Get-Identity
+                    $record | Add-Member DeviceId $identity -Force
+                    if ($identity -ceq $ExpectedDeviceId) {
+                        $record | Add-Member CorrelatedDeviceId $identity -Force
+                    }
+                } catch { }
+            }
+            $candidate = Find-ReturningCandidate -Records $candidates -Manufacturer $OriginalTarget.Manufacturer `
+                -Model $OriginalTarget.Model -OriginalSerial "" -ExpectedDeviceId $ExpectedDeviceId
+            if ($candidate) {
+                $script:CurrentTarget = $candidate
+                return $candidate
+            }
         }
-        $candidate = Find-ReturningCandidate -Records $candidates -Manufacturer $OriginalTarget.Manufacturer `
-            -Model $OriginalTarget.Model -OriginalSerial $OriginalTarget.Serial
-        if ($candidate) { return $candidate }
-        # A changed/ambiguous serial is never accepted from model identity alone. Query the narrow
-        # non-secret app identity on each same-model candidate and require exactly one Device-ID match.
-        foreach ($record in @($candidates | Where-Object {
-            $_.Manufacturer -ieq $OriginalTarget.Manufacturer -and $_.Model -ieq $OriginalTarget.Model
-        })) {
-            $script:CurrentTarget = $record
-            try { $record | Add-Member DeviceId (Get-Identity) -Force } catch { }
-        }
-        $candidate = Find-ReturningCandidate -Records $candidates -Manufacturer $OriginalTarget.Manufacturer `
-            -Model $OriginalTarget.Model -OriginalSerial "" -ExpectedDeviceId $ExpectedDeviceId
-        if ($candidate) { return $candidate }
+        Throw-UpdateError "REBOOT_TARGET_AMBIGUOUS" "The same supported profile and Device ID could not be correlated uniquely after reboot."
+    } catch {
+        $script:CurrentTarget = $null
+        throw
     }
-    Throw-UpdateError "REBOOT_TARGET_AMBIGUOUS" "The same supported profile could not be re-identified uniquely after reboot."
 }
 
 function Wait-BootCompleted {
@@ -821,6 +863,7 @@ function Write-SanitizedReports {
         "Target version: $($Result.TargetVersion)",
         "Artifact verification: $($Result.ArtifactVerification)",
         "Migrations: $migrationSummary",
+        "Preservation evidence: $($Result.PreservationEvidence)",
         "Pre-update Ready: $($Result.PreReady)",
         "Post-update Ready: $($Result.PostReady)",
         "Reboot acceptance: $($Result.RebootAcceptance)",
@@ -853,6 +896,7 @@ function Invoke-OneUpdate {
         TargetVersion = [string]$Bundle.Manifest.versionName; ArtifactVerification = "VERIFIED"
         Migrations = @(); PreReady = $false; PostReady = $false; RebootAcceptance = "NOT_REQUIRED"
         RollbackAssessment = "NOT_AUTOMATED; old APK is not included and no data migration is declared"
+        PreservationEvidence = "NOT_CAPTURED"
         ConfigVersionBefore = -1; ConfigVersionAfter = -1; Result = "FAIL"
         ErrorCategory = ""; Detail = ""
     }
@@ -874,22 +918,6 @@ function Invoke-OneUpdate {
         }
         $installed = Get-InstalledPackageState
         $result.PreviousVersion = $installed.VersionName
-        $deviceId = Get-Identity
-        $result.DeviceId = $deviceId
-        if ($CompletedDeviceIds.ContainsKey($deviceId)) {
-            if ($NonInteractive) { Throw-UpdateError "SESSION_DUPLICATE" "This Device ID was already completed in the current session." }
-            $answer = (Read-Host "Device ID $deviceId was already completed in this session. Type RECHECK to verify it again").Trim()
-            if ($answer -cne "RECHECK") { Throw-UpdateError "SESSION_DUPLICATE" "Operator declined to recheck an already-completed Device ID." }
-        }
-        $before = Get-ProvisioningStatus
-        if (-not $before -or $before.DeviceId -cne $deviceId -or $before.ActiveDeviceId -cne $deviceId -or
-                $before.Pending -or $before.ConfigVersion -le 0 -or $before.LastSuccessMs -le 0) {
-            Throw-UpdateError "CONFIG_UNVERIFIED" "Existing identity, active configuration or last-known-good state could not be verified."
-        }
-        $result.ConfigVersionBefore = $before.ConfigVersion
-        $result.PreReady = [bool](Get-ReadyState)
-        $installedSigner = @(Get-InstalledSignerDigests -RemoteApkPath $installed.BaseApkPath)
-        Assert-SignerCompatibility -InstalledDigests $installedSigner -TargetDigest ([string]$Bundle.Manifest.signerSha256).ToUpperInvariant()
         $comparison = Compare-VersionCode -Installed $installed.VersionCode -Target ([long]$Bundle.Manifest.versionCode)
         if ($comparison -gt 0 -and -not $AllowDowngrade) {
             Throw-UpdateError "DOWNGRADE_REFUSED" "Installed Minimum is newer than this bundle. Use a newer reviewed bundle; downgrade is refused by default."
@@ -897,6 +925,40 @@ function Invoke-OneUpdate {
         $requiredMigrations = @(Get-RequiredMigrations -ManifestMigrations @($Bundle.Manifest.migrations) `
             -InstalledVersionCode $installed.VersionCode -TargetVersionCode ([long]$Bundle.Manifest.versionCode) `
             -Profile $script:CurrentTarget.Profile)
+        # Status is deliberately queried before either identity action. A legacy identity action
+        # may call getOrCreate, so it is permitted only after legacy status proves that this is an
+        # already-provisioned radio with an active LKG and stable active Device ID.
+        $before = Get-ProvisioningStatus
+        if (-not $before) {
+            Throw-UpdateError "CONFIG_UNVERIFIED" "Minimum did not return a recognized provisioning status."
+        }
+        if ($before.SnapshotLevel -ceq "LEGACY") {
+            Assert-LegacyBridgeEligible -Status $before -InstalledVersionCode $installed.VersionCode `
+                -TargetVersionCode ([long]$Bundle.Manifest.versionCode)
+            $deviceId = Get-Identity -Legacy
+            if ($deviceId -cne $before.ActiveDeviceId -or $before.DeviceId -cne $deviceId) {
+                Throw-UpdateError "LEGACY_IDENTITY_MISMATCH" "Legacy identity did not match the already-active managed configuration."
+            }
+            $result.PreservationEvidence = "LEGACY_LIMITED_BASELINE"
+        } else {
+            $deviceId = Get-Identity
+            if ($before.DeviceId -cne $deviceId -or $before.ActiveDeviceId -cne $deviceId -or
+                    $before.Pending -or $before.ConfigVersion -le 0 -or $before.LastSuccessMs -le 0) {
+                Throw-UpdateError "CONFIG_UNVERIFIED" "Existing identity, active configuration or Last Known Good state could not be verified."
+            }
+            $result.PreservationEvidence = "EXTENDED_BASELINE"
+        }
+        $script:CurrentTarget | Add-Member CorrelatedDeviceId $deviceId -Force
+        $result.DeviceId = $deviceId
+        if ($CompletedDeviceIds.ContainsKey($deviceId)) {
+            if ($NonInteractive) { Throw-UpdateError "SESSION_DUPLICATE" "This Device ID was already completed in the current session." }
+            $answer = (Read-Host "Device ID $deviceId was already completed in this session. Type RECHECK to verify it again").Trim()
+            if ($answer -cne "RECHECK") { Throw-UpdateError "SESSION_DUPLICATE" "Operator declined to recheck an already-completed Device ID." }
+        }
+        $result.ConfigVersionBefore = $before.ConfigVersion
+        $result.PreReady = [bool](Get-ReadyState)
+        $installedSigner = @(Get-InstalledSignerDigests -RemoteApkPath $installed.BaseApkPath)
+        Assert-SignerCompatibility -InstalledDigests $installedSigner -TargetDigest ([string]$Bundle.Manifest.signerSha256).ToUpperInvariant()
         if (-not $ReportOnly -and -not $WhatIfPreference -and -not $ConfirmNotTransmitting) {
             if ($NonInteractive) {
                 Throw-UpdateError "TX_CONFIRMATION_REQUIRED" "Non-interactive mutation requires -ConfirmNotTransmitting."
@@ -905,8 +967,10 @@ function Invoke-OneUpdate {
             if ($answer -cne "UPDATE") { Throw-UpdateError "OPERATOR_CANCELLED" "Operator did not confirm the non-transmitting update boundary." }
         }
         if ($ReportOnly -or $WhatIfPreference) {
-            $result.Result = "PASS"
-            $result.Detail = "REPORT_ONLY; compatible, no mutation performed"
+            $result.Result = if ($before.SnapshotLevel -ceq "LEGACY") { "WARN" } else { "PASS" }
+            $result.Detail = if ($before.SnapshotLevel -ceq "LEGACY") {
+                "REPORT_ONLY; compatible, no mutation performed; legacy preservation baseline is limited"
+            } else { "REPORT_ONLY; compatible, no mutation performed" }
             $result.PostReady = $result.PreReady
             return [pscustomobject]$result
         }
@@ -936,7 +1000,7 @@ function Invoke-OneUpdate {
         $after = Wait-MinimumReady -ExpectedDeviceId $deviceId -TimeoutSeconds $ReadyTimeoutSeconds
         $result.PostReady = $true
         $result.ConfigVersionAfter = $after.ConfigVersion
-        Assert-PreservedState -Before $before -After $after -Phase "after the in-place update"
+        $result.PreservationEvidence = Assert-PreservedState -Before $before -After $after -Phase "after the in-place update"
         $needsReboot = [bool]$Bundle.Manifest.rebootRequired -or $FullRebootAcceptance -or
             @($requiredMigrations | Where-Object { [bool]$_.rebootRequired }).Count -gt 0
         if ($needsReboot) {
@@ -945,7 +1009,10 @@ function Invoke-OneUpdate {
             $script:CurrentTarget = Wait-ReturningTarget -OriginalTarget $original -ExpectedDeviceId $deviceId -TimeoutSeconds $BootTimeoutSeconds
             Wait-BootCompleted -TimeoutSeconds $BootTimeoutSeconds
             $afterReboot = Wait-MinimumReady -ExpectedDeviceId $deviceId -TimeoutSeconds $ReadyTimeoutSeconds
-            Assert-PreservedState -Before $before -After $afterReboot -Phase "after reboot"
+            $rebootEvidence = Assert-PreservedState -Before $before -After $afterReboot -Phase "after reboot"
+            if ($result.PreservationEvidence -cne "BOOTSTRAPPED_POST_UPDATE") {
+                $result.PreservationEvidence = $rebootEvidence
+            }
             foreach ($migration in @($requiredMigrations | Where-Object { [bool]$_.rebootRequired })) {
                 $result.Migrations += Invoke-RequiredMigration -Migration $migration -VerifyOnly
             }
@@ -965,12 +1032,14 @@ function Invoke-OneUpdate {
         $message = ConvertTo-SafeMessage -Text $_.Exception.Message
         $result.ErrorCategory = Get-ErrorCategory -Message $message
         $result.Detail = [regex]::Replace($message, '^\[[A-Z0-9_]+\]\s*', '')
-        if ($mutationStarted -and $deviceId -and $before) {
+        if ($mutationStarted -and $deviceId -and $before -and $script:CurrentTarget -and
+                $script:CurrentTarget.PSObject.Properties.Name -contains "CorrelatedDeviceId" -and
+                $script:CurrentTarget.CorrelatedDeviceId -ceq $deviceId) {
             try {
                 $recoveryPackage = Get-InstalledPackageState
                 Invoke-TargetAdb -Arguments @("shell", "am", "start", "-n", $MinimumActivity) | Out-Null
                 $recovered = Wait-MinimumReady -ExpectedDeviceId $deviceId -TimeoutSeconds ([Math]::Min($ReadyTimeoutSeconds, 90))
-                Assert-PreservedState -Before $before -After $recovered -Phase "during failure recovery"
+                $result.PreservationEvidence = Assert-PreservedState -Before $before -After $recovered -Phase "during failure recovery"
                 $result.PostReady = $true
                 $result.ConfigVersionAfter = $recovered.ConfigVersion
                 $result.Detail += "; RECOVERY_VERIFIED: installed $($recoveryPackage.VersionName) returned to same-ID Ready with preserved state"
@@ -997,8 +1066,9 @@ try {
         Throw-UpdateError "APK_IDENTITY_BINDING" "The APK package/version does not match the exact release manifest."
     }
     $targetSigners = @(Get-ApkSignerDigests -ApkPath $bundle.ApkPath)
-    if (@($targetSigners | Where-Object { $_ -ceq ([string]$bundle.Manifest.signerSha256).ToUpperInvariant() }).Count -ne 1) {
-        Throw-UpdateError "APK_SIGNER_BINDING" "The APK signer does not match the exact release manifest."
+    $reviewedSigner = ([string]$bundle.Manifest.signerSha256).ToUpperInvariant()
+    if ($targetSigners.Count -ne 1 -or $targetSigners[0] -cne $reviewedSigner) {
+        Throw-UpdateError "APK_SIGNER_BINDING" "The APK must contain exactly the one reviewed signer from the release manifest; missing or extra signers are refused."
     }
     try { $script:AdbExecutable = (Get-Command adb -ErrorAction Stop).Source } catch {
         Throw-UpdateError "ADB_MISSING" "ADB was not found. Install Android Platform Tools or add adb.exe to PATH."
@@ -1011,7 +1081,8 @@ try {
         SessionId = $sessionId; Profile = ""; DeviceId = ""; PreviousVersion = "unknown"
         TargetVersion = "unknown"; ArtifactVerification = "FAILED"; Migrations = @()
         PreReady = $false; PostReady = $false; RebootAcceptance = "NOT_RUN"
-        RollbackAssessment = "NO_MUTATION"; ConfigVersionBefore = -1; ConfigVersionAfter = -1
+        RollbackAssessment = "NO_MUTATION"; PreservationEvidence = "NOT_CAPTURED"
+        ConfigVersionBefore = -1; ConfigVersionAfter = -1
         Result = "FAIL"; ErrorCategory = Get-ErrorCategory -Message $safe
         Detail = [regex]::Replace($safe, '^\[[A-Z0-9_]+\]\s*', '')
     }

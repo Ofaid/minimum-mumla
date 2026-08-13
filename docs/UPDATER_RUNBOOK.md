@@ -31,8 +31,8 @@ Do not use a bundle whose ZIP checksum does not match the checksum on its exact 
 5. Keep it connected until `PASS` or an actionable `FAIL` appears.
 
 The updater inventories battery/power, supported model, installed version, Device ID, managed
-configuration and Ready state. It compares the installed APK certificate with the bundled APK
-certificate before any installation. It rejects an unintended downgrade. It uses only an in-place
+configuration and Ready state. It requires the installed APK and bundled APK each to have exactly
+the one reviewed signing certificate before any installation; extra signers fail closed. It rejects an unintended downgrade. It uses only an in-place
 `adb install -r` (or explicitly authorized `-r -d`) and contains no uninstall or clear-data path.
 
 `PASS` means the exact target package/version is installed and the original Device ID, non-pending
@@ -46,6 +46,14 @@ T56 also runs the exact reversible `CELLULAR_POLICY_V1_T56` migration before APK
 applies the guarded roaming/mobile-data/automatic-LTE policy, then requires a reboot and verifies
 the same policy again. A carrier/APN readiness warning produces overall `WARN`, not a false PASS.
 T99 and RYKS skip this model-gated migration.
+
+The `3070300` receiver exposes only the five-field legacy status. For this single
+`3070300`-or-older to `3070301` bridge, the updater queries status first and rejects an unprovisioned,
+pending, inactive or missing-LKG radio without calling the legacy identity action. Only after that
+proof may it read the legacy identity. Selected channel, LKG digest and safe-settings digest are
+recorded as `UNAVAILABLE_LEGACY`; after installation the new expanded report is mandatory and those
+fields are marked `BOOTSTRAPPED_POST_UPDATE`, not falsely claimed as pre/post preservation proof.
+Subsequent updates use the expanded report and require exact preservation of all reported fields.
 
 ## Safe advanced modes
 
@@ -81,6 +89,8 @@ is not automated; the old APK is not included in the bundle.
 - `INSUFFICIENT_STORAGE`: free non-Minimum storage and rerun. Do not clear Minimum data.
 - `IDENTITY_UNREADABLE` or `CONFIG_UNVERIFIED`: do not update. Relaunch the existing app, restore
   connectivity if safe, and use the sanitized report for diagnosis.
+- `LEGACY_NOT_PROVISIONED` or `LEGACY_BRIDGE_UNSUPPORTED`: no identity read or install was allowed;
+  provision the radio through the reviewed provisioning path or use the exact approved bridge.
 - `READY_TIMEOUT`, `BOOT_TIMEOUT`, `REBOOT_TARGET_AMBIGUOUS`: keep the intended unit isolated,
   restore USB authorization/connectivity and rerun. A successful install alone is never PASS.
 - Interrupted USB: reconnect the same radio and rerun. Verification and migrations are designed to

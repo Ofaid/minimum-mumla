@@ -121,11 +121,12 @@ jobs:
           set -o pipefail
           APK=app/build/outputs/apk/foss/release/mumla-foss-release.apk
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/apk-signature.txt"
-          signer_sha=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/apk-signature.txt")
-          if [[ ! "$signer_sha" =~ ^[0-9a-fA-F]{64}$ ]]; then
-            echo "Could not bind exactly one APK signing certificate SHA-256 digest." >&2
+          mapfile -t signer_shas < <(sed -n 's/^Signer #[0-9][0-9]* certificate SHA-256 digest: //p' "$RUNNER_TEMP/apk-signature.txt")
+          if [[ ${#signer_shas[@]} -ne 1 || ! "${signer_shas[0]}" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "Release APK must have exactly one reviewed signing certificate; missing or extra signers are refused." >&2
             exit 1
           fi
+          signer_sha=${signer_shas[0]}
           echo "MINIMUM_APK_SIGNER_SHA256=${signer_sha^^}" >> "$GITHUB_ENV"
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee "$RUNNER_TEMP/apk-badging.txt"
           grep -F "package: name='$EXPECTED_APPLICATION_ID'" "$RUNNER_TEMP/apk-badging.txt"
@@ -295,7 +296,7 @@ jobs:
             fi
           done < <(find "$extracted_root" -type f \( -name '*.cmd' -o -name '*.ps1' -o -name '*.txt' -o -name '*.md' -o -name '*.json' \) -print)
           pwsh -NoLogo -NoProfile -Command \
-            ". '$extracted_root/scripts/update-minimum-device.ps1' -LibraryOnly; Read-ReleaseBundle -Root '$extracted_root' | Out-Null; \$identity = Get-ApkManifestIdentity -ApkPath '$extracted_root/minimum-foss.apk'; if (\$identity.ApplicationId -cne 'se.lublin.mumla' -or \$identity.VersionName -cne '$RELEASE_TAG') { throw 'Extracted updater APK identity verification failed.' }; \$signers = @(Get-ApkSignerDigests -ApkPath '$extracted_root/minimum-foss.apk'); if ('$MINIMUM_APK_SIGNER_SHA256' -notin \$signers) { throw 'Extracted updater APK signer verification failed.' }"
+            ". '$extracted_root/scripts/update-minimum-device.ps1' -LibraryOnly; Read-ReleaseBundle -Root '$extracted_root' | Out-Null; \$identity = Get-ApkManifestIdentity -ApkPath '$extracted_root/minimum-foss.apk'; if (\$identity.ApplicationId -cne 'se.lublin.mumla' -or \$identity.VersionName -cne '$RELEASE_TAG') { throw 'Extracted updater APK identity verification failed.' }; \$signers = @(Get-ApkSignerDigests -ApkPath '$extracted_root/minimum-foss.apk'); if (\$signers.Count -ne 1 -or \$signers[0] -cne '$MINIMUM_APK_SIGNER_SHA256') { throw 'Extracted updater APK signer-set verification failed.' }"
           echo "Provisioning bundle verification passed: exact allowlist, regular files, no symlinks, safe paths, staged and extracted content checks."
           sha256sum "$OUTPUT_ZIP" > "$OUTPUT_ZIP.sha256"
       - name: Prepare reviewed release notes

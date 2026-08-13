@@ -12,9 +12,14 @@ Choose the correct workflow
 
 The updater is deliberately separate. It does not rerun model provisioning, remove apps, rewrite
 Wi-Fi, reopen Location consent or require Portal registration. It verifies the Release manifest,
-all bundle file hashes, APK checksum/package/version/signer, installed signer compatibility,
+all bundle file hashes, APK checksum/package/version/exactly-one-reviewed-signer, installed signer compatibility,
 identity/config preservation and Ready. Read "UPDATER-README.md" in this bundle for advanced
 modes and recovery guidance.
+
+For the one-time 3070300-to-3070301 compatibility bridge, legacy status must first prove an
+already-provisioned, active, non-pending configuration with Last Known Good evidence. Only then is
+legacy identity read. Fields unavailable in 3070300 are marked BOOTSTRAPPED_POST_UPDATE after the
+new expanded report; they are not falsely reported as preserved from the legacy baseline.
 
 The bundle also includes "CELLULAR-README.md" and "scripts\manage-cellular.ps1". On the reviewed
 3.7.3-minimum.2 / versionCode 3070301 update, T56 devices crossing from versionCode 3070300 or
