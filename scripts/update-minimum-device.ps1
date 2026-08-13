@@ -358,37 +358,41 @@ function Find-ApkSignerInSdkRoots {
 
 function Parse-ApkSignerOutput {
     param([string]$Text)
-    # PowerShell 7 wraps some extensionless native-command output as ErrorRecord text on Linux,
-    # which can prefix the original line. Strip terminal control sequences and locate the exact
-    # apksigner label without requiring it to begin the rendered PowerShell line.
+    # Process capture returns raw streams; accept only anchored apksigner structural
+    # lines after removing terminal controls. PEM certificates are authoritative.
     $normalized = [regex]::Replace($Text, '\x1B\[[0-?]*[ -/]*[@-~]', '')
-    $digests = @([regex]::Matches($normalized,
-        '(?i)Signer #\d+ certificate SHA-256 digest:\s*([0-9a-f]{64})(?![0-9a-f])') |
+    $textDigests = @([regex]::Matches($normalized,
+        '(?im)^Signer #\d+ certificate SHA-256 digest:\s*([0-9a-f]{64})\s*$') |
         ForEach-Object { $_.Groups[1].Value.ToUpperInvariant() })
-    if ($digests.Count -eq 0) {
-        # Some apksigner/launcher combinations omit the human digest labels from
-        # redirected output. PEM blocks still bind the verified signer certificate
-        # itself, so compute the same SHA-256 digest over its DER representation.
-        $pemBlocks = @([regex]::Matches($normalized,
-            '(?s)-----BEGIN CERTIFICATE-----\s*(.*?)\s*-----END CERTIFICATE-----'))
-        $digests = @($pemBlocks | ForEach-Object {
-            try {
-                $der = [Convert]::FromBase64String(([regex]::Replace($_.Groups[1].Value, '\s', '')))
-                $certificate = New-Object Security.Cryptography.X509Certificates.X509Certificate2 -ArgumentList @(,$der)
-                $sha256 = [Security.Cryptography.SHA256]::Create()
-                try { ([BitConverter]::ToString($sha256.ComputeHash($certificate.RawData))).Replace('-', '') }
-                finally { $sha256.Dispose(); $certificate.Dispose() }
-            } catch {
-                Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner returned an invalid signer certificate."
-            }
-        })
-    }
-    $reportedCount = [regex]::Match($normalized, '(?im)^Number of signers:\s*([0-9]+)\s*$')
-    if ($digests.Count -eq 0 -or -not $reportedCount.Success -or
-            [int]$reportedCount.Groups[1].Value -ne $digests.Count) {
+    $pemBlocks = @([regex]::Matches($normalized,
+        '(?s)-----BEGIN CERTIFICATE-----\s*(.*?)\s*-----END CERTIFICATE-----'))
+    $pemDigests = @($pemBlocks | ForEach-Object {
+        try {
+            $der = [Convert]::FromBase64String(([regex]::Replace($_.Groups[1].Value, '\s', '')))
+            $certificate = New-Object Security.Cryptography.X509Certificates.X509Certificate2 -ArgumentList @(,$der)
+            $sha256 = [Security.Cryptography.SHA256]::Create()
+            try { ([BitConverter]::ToString($sha256.ComputeHash($certificate.RawData))).Replace('-', '') }
+            finally { $sha256.Dispose(); $certificate.Dispose() }
+        } catch {
+            Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner returned an invalid signer certificate."
+        }
+    })
+    $countLines = @([regex]::Matches($normalized, '(?im)^Number of signers:\s*([0-9]+)\s*$'))
+    if ($countLines.Count -ne 1 -or $pemDigests.Count -eq 0 -or
+            [int]$countLines[0].Groups[1].Value -ne $pemDigests.Count -or
+            @($pemDigests | Select-Object -Unique).Count -ne $pemDigests.Count) {
         Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner did not report an exact verified signer certificate set."
     }
-    return $digests
+    if ($textDigests.Count -gt 0) {
+        $textSet = @($textDigests | Sort-Object)
+        $pemSet = @($pemDigests | Sort-Object)
+        if ($textDigests.Count -ne $pemDigests.Count -or
+                @($textDigests | Select-Object -Unique).Count -ne $textDigests.Count -or
+                (Compare-Object $textSet $pemSet)) {
+            Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner textual and certificate signer sets disagree."
+        }
+    }
+    return $pemDigests
 }
 
 function Stop-ApkSignerProcess {
