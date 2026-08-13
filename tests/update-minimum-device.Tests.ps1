@@ -99,6 +99,15 @@ Test-Case "matching signer accepted" {
     Assert-ThrowsCode { Assert-SignerCompatibility @($signer, $signer) $signer } "SIGNER_MISMATCH" "duplicate signer refused"
 }
 
+Test-Case "returning target switches to its correlated ADB port" {
+    $old = $script:ServerArguments
+    try {
+        $target = [pscustomobject]@{ Serial="same"; State="device"; TransportId=7; AdbPort=5041 }
+        Set-TargetServerArguments $target
+        Assert-Equal @("-P", "5041") $script:ServerArguments "returning ADB port"
+    } finally { $script:ServerArguments = $old }
+}
+
 Test-Case "apksigner output parser requires verified signer digest" {
     $digest = "168F42ED412DA80ADAF27BED0984DBEE191168E9DF04F08AFA240A3F9DE45972"
     Assert-Equal $digest (Parse-ApkSignerOutput "Signer #1 certificate SHA-256 digest: $digest") "apksigner digest"

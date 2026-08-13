@@ -650,6 +650,27 @@ function Get-AdbRecords {
     return @(Convert-AdbDeviceLines -Lines ($result.Output -split "`r?`n"))
 }
 
+function Get-ReturningAdbRecords {
+    # Reviewed T56 firmware can return on the alternate local ADB server after reboot.
+    $records = @()
+    foreach ($port in @(5037, 5041)) {
+        $result = Invoke-AdbRaw -Arguments @("-P", "$port", "devices", "-l")
+        if ($result.ExitCode -ne 0) { continue }
+        foreach ($record in @(Convert-AdbDeviceLines -Lines ($result.Output -split "`r?`n"))) {
+            $record | Add-Member AdbPort $port -Force
+            $records += $record
+        }
+    }
+    return @($records)
+}
+
+function Set-TargetServerArguments {
+    param([Parameter(Mandatory)]$Target)
+    if ($Target.PSObject.Properties.Name -contains "AdbPort" -and $Target.AdbPort -gt 0) {
+        $script:ServerArguments = @("-P", "$($Target.AdbPort)")
+    }
+}
+
 function Select-AdbPort {
     if ($AdbPort -gt 0) { return $AdbPort }
     $listening = @(Get-ListeningAdbPorts)
@@ -803,8 +824,9 @@ function Wait-ReturningTarget {
         while ((Get-Date) -lt $deadline) {
             Start-Sleep -Seconds 2
             $candidates = @()
-            foreach ($record in @(Get-AdbRecords | Where-Object { $_.State -eq "device" })) {
+            foreach ($record in @(Get-ReturningAdbRecords | Where-Object { $_.State -eq "device" })) {
                 $script:CurrentTarget = $record
+                Set-TargetServerArguments -Target $record
                 try { $candidates += Add-HardwareIdentity -Target $record } catch { }
             }
             # A serial or model match is only a candidate. Recovery commands are permitted only
@@ -813,6 +835,7 @@ function Wait-ReturningTarget {
                 $_.Manufacturer -ieq $OriginalTarget.Manufacturer -and $_.Model -ieq $OriginalTarget.Model
             })) {
                 $script:CurrentTarget = $record
+                Set-TargetServerArguments -Target $record
                 try {
                     $identity = Get-Identity
                     $record | Add-Member DeviceId $identity -Force
@@ -824,6 +847,7 @@ function Wait-ReturningTarget {
             $candidate = Find-ReturningCandidate -Records $candidates -Manufacturer $OriginalTarget.Manufacturer `
                 -Model $OriginalTarget.Model -OriginalSerial "" -ExpectedDeviceId $ExpectedDeviceId
             if ($candidate) {
+                Set-TargetServerArguments -Target $candidate
                 $script:CurrentTarget = $candidate
                 return $candidate
             }
