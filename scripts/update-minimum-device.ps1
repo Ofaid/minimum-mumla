@@ -358,8 +358,12 @@ function Find-ApkSignerInSdkRoots {
 
 function Parse-ApkSignerOutput {
     param([string]$Text)
-    $digests = @([regex]::Matches($Text,
-        '(?im)^Signer #\d+ certificate SHA-256 digest:\s*([0-9a-f]{64})\s*$') |
+    # PowerShell 7 wraps some extensionless native-command output as ErrorRecord text on Linux,
+    # which can prefix the original line. Strip terminal control sequences and locate the exact
+    # apksigner label without requiring it to begin the rendered PowerShell line.
+    $normalized = [regex]::Replace($Text, '\x1B\[[0-?]*[ -/]*[@-~]', '')
+    $digests = @([regex]::Matches($normalized,
+        '(?i)Signer #\d+ certificate SHA-256 digest:\s*([0-9a-f]{64})(?![0-9a-f])') |
         ForEach-Object { $_.Groups[1].Value.ToUpperInvariant() })
     if ($digests.Count -eq 0) {
         Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner did not report a verified signing certificate."
