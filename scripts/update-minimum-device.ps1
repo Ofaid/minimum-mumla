@@ -366,7 +366,27 @@ function Parse-ApkSignerOutput {
         '(?i)Signer #\d+ certificate SHA-256 digest:\s*([0-9a-f]{64})(?![0-9a-f])') |
         ForEach-Object { $_.Groups[1].Value.ToUpperInvariant() })
     if ($digests.Count -eq 0) {
-        Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner did not report a verified signing certificate."
+        # Some apksigner/launcher combinations omit the human digest labels from
+        # redirected output. PEM blocks still bind the verified signer certificate
+        # itself, so compute the same SHA-256 digest over its DER representation.
+        $pemBlocks = @([regex]::Matches($normalized,
+            '(?s)-----BEGIN CERTIFICATE-----\s*(.*?)\s*-----END CERTIFICATE-----'))
+        $digests = @($pemBlocks | ForEach-Object {
+            try {
+                $der = [Convert]::FromBase64String(([regex]::Replace($_.Groups[1].Value, '\s', '')))
+                $certificate = New-Object Security.Cryptography.X509Certificates.X509Certificate2 -ArgumentList @(,$der)
+                $sha256 = [Security.Cryptography.SHA256]::Create()
+                try { ([BitConverter]::ToString($sha256.ComputeHash($certificate.RawData))).Replace('-', '') }
+                finally { $sha256.Dispose(); $certificate.Dispose() }
+            } catch {
+                Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner returned an invalid signer certificate."
+            }
+        })
+    }
+    $reportedCount = [regex]::Match($normalized, '(?im)^Number of signers:\s*([0-9]+)\s*$')
+    if ($digests.Count -eq 0 -or -not $reportedCount.Success -or
+            [int]$reportedCount.Groups[1].Value -ne $digests.Count) {
+        Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner did not report an exact verified signer certificate set."
     }
     return $digests
 }
@@ -424,7 +444,7 @@ function Invoke-ApkSignerProcess {
             Throw-UpdateError "APKSIGNER_MISSING" "The Windows command processor required for apksigner.bat is unavailable."
         }
         $start.FileName = $env:ComSpec
-        $start.Arguments = "/d /s /v:off /c `"`"$ApkSigner`" verify --verbose --print-certs `"$ApkPath`"`""
+        $start.Arguments = "/d /s /v:off /c `"`"$ApkSigner`" verify --verbose --print-certs --print-certs-pem `"$ApkPath`"`""
     } else {
         $start.FileName = $ApkSigner
         if ($start.PSObject.Properties["ArgumentList"]) {
@@ -433,11 +453,12 @@ function Invoke-ApkSignerProcess {
             $start.ArgumentList.Add("verify")
             $start.ArgumentList.Add("--verbose")
             $start.ArgumentList.Add("--print-certs")
+            $start.ArgumentList.Add("--print-certs-pem")
             $start.ArgumentList.Add($ApkPath)
         } else {
             # Windows PowerShell 5.1 has no ArgumentList; extensionless launchers
             # are unusual there, but retain safe quote-delimited compatibility.
-            $start.Arguments = "verify --verbose --print-certs `"$ApkPath`""
+            $start.Arguments = "verify --verbose --print-certs --print-certs-pem `"$ApkPath`""
         }
     }
     $process = New-Object System.Diagnostics.Process

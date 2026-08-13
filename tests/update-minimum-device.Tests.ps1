@@ -110,9 +110,9 @@ Test-Case "returning target switches to its correlated ADB port" {
 
 Test-Case "apksigner output parser requires verified signer digest" {
     $digest = "168F42ED412DA80ADAF27BED0984DBEE191168E9DF04F08AFA240A3F9DE45972"
-    Assert-Equal $digest (Parse-ApkSignerOutput "Signer #1 certificate SHA-256 digest: $digest") "apksigner digest"
+    Assert-Equal $digest (Parse-ApkSignerOutput "Number of signers: 1`nSigner #1 certificate SHA-256 digest: $digest") "apksigner digest"
     $escape = [char]27
-    $linuxWrapped = "NativeCommandError: ${escape}[36mSigner #1 certificate SHA-256 digest: $($digest.ToLowerInvariant())${escape}[0m"
+    $linuxWrapped = "Number of signers: 1`nNativeCommandError: ${escape}[36mSigner #1 certificate SHA-256 digest: $($digest.ToLowerInvariant())${escape}[0m"
     Assert-Equal $digest (Parse-ApkSignerOutput $linuxWrapped) "PowerShell Linux wrapped digest"
     Assert-ThrowsCode { Parse-ApkSignerOutput "DOES NOT VERIFY" } "APK_SIGNATURE_INVALID" "missing signer digest"
 }
