@@ -1,0 +1,884 @@
+<#
+.SYNOPSIS
+    Securely updates one already-provisioned Minimum radio in place.
+
+.DESCRIPTION
+    Validates the extracted Release bundle and signed APK, selects one supported radio, verifies
+    the installed package/signer/version and managed identity, performs an in-place update, runs
+    only approved version/model-gated migrations, and verifies same-ID Ready. Reports never persist
+    Android/USB serials, subscriber identifiers, credentials, certificate fingerprints or logs.
+#>
+
+[CmdletBinding(SupportsShouldProcess = $true)]
+param(
+    [string]$Serial = "",
+    [int]$TransportId = 0,
+    [ValidateRange(0, 65535)][int]$AdbPort = 0,
+    [string]$BundleRoot = "",
+    [string]$ReportDirectory = "",
+    [switch]$UpdateSession,
+    [switch]$ReportOnly,
+    [switch]$AllowDowngrade,
+    [switch]$FullRebootAcceptance,
+    [switch]$ConfirmNotTransmitting,
+    [switch]$NonInteractive,
+    [ValidateRange(30, 900)][int]$ReadyTimeoutSeconds = 180,
+    [ValidateRange(30, 900)][int]$BootTimeoutSeconds = 180,
+    [Parameter(DontShow = $true)][switch]$LibraryOnly
+)
+
+$ErrorActionPreference = "Stop"
+$MinimumPackage = "se.lublin.mumla"
+$MinimumActivity = "se.lublin.mumla/.radio.RadioShellActivity"
+$ProvisionReceiver = "se.lublin.mumla/.radio.RadioProvisionReceiver"
+$IdentityReportAction = "se.lublin.mumla.action.PROVISION_REPORT_IDENTITY"
+$ProvisionStatusAction = "se.lublin.mumla.action.PROVISION_REPORT_STATUS"
+$script:AdbExecutable = ""
+$script:ServerArguments = @()
+$script:CurrentTarget = $null
+
+function Get-DeviceProfile {
+    param([string]$Manufacturer, [string]$Model)
+    if ($Manufacturer -ieq "UNIPRO" -and $Model -ieq "ZX") { return "T56" }
+    if ($Manufacturer -ieq "Youdotech" -and $Model -ieq "QM011") { return "T99" }
+    if ($Manufacturer -ieq "ELINK" -and $Model -ieq "ym_258") { return "RYKS" }
+    return ""
+}
+
+function ConvertTo-SafeMessage {
+    param([AllowNull()][string]$Text)
+    if (-not $Text) { return "" }
+    $safe = $Text
+    $safe = [regex]::Replace($safe, '(?i)\b(serial|imei|imsi|iccid|phone|token|password|secret)\s*[=:]\s*[^\s;,]+', '$1=<redacted>')
+    $safe = [regex]::Replace($safe, '(?i)\b(?:[0-9a-f]{2}:){31}[0-9a-f]{2}\b', '<redacted-fingerprint>')
+    $safe = [regex]::Replace($safe, '(?i)\b(?:gh[pousr]_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._~-]+)\b', '<redacted-token>')
+    return $safe
+}
+
+function Get-ErrorCategory {
+    param([string]$Message)
+    $match = [regex]::Match($Message, '^\[([A-Z0-9_]+)\]\s*')
+    if ($match.Success) { return $match.Groups[1].Value }
+    return "UNEXPECTED_FAILURE"
+}
+
+function Throw-UpdateError {
+    param([Parameter(Mandatory)][string]$Code, [Parameter(Mandatory)][string]$Message)
+    throw "[$Code] $Message"
+}
+
+function Get-FileSha256 {
+    param([Parameter(Mandatory)][string]$Path)
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant()
+}
+
+function Test-Sha256Value {
+    param([string]$Expected, [string]$Actual)
+    return $Expected -match '^[0-9A-Fa-f]{64}$' -and $Actual -match '^[0-9A-Fa-f]{64}$' -and
+        $Expected.ToUpperInvariant() -ceq $Actual.ToUpperInvariant()
+}
+
+function Read-UInt16LittleEndian {
+    param([byte[]]$Bytes, [int]$Offset)
+    return [BitConverter]::ToUInt16($Bytes, $Offset)
+}
+
+function Read-UInt32LittleEndian {
+    param([byte[]]$Bytes, [int]$Offset)
+    return [BitConverter]::ToUInt32($Bytes, $Offset)
+}
+
+function Read-AxmlLength8 {
+    param([byte[]]$Bytes, [ref]$Offset)
+    $value = [int]$Bytes[$Offset.Value]
+    $Offset.Value++
+    if (($value -band 0x80) -ne 0) {
+        $value = (($value -band 0x7f) -shl 8) -bor [int]$Bytes[$Offset.Value]
+        $Offset.Value++
+    }
+    return $value
+}
+
+function Read-AxmlLength16 {
+    param([byte[]]$Bytes, [ref]$Offset)
+    $value = [int](Read-UInt16LittleEndian -Bytes $Bytes -Offset $Offset.Value)
+    $Offset.Value += 2
+    if (($value -band 0x8000) -ne 0) {
+        $second = [int](Read-UInt16LittleEndian -Bytes $Bytes -Offset $Offset.Value)
+        $Offset.Value += 2
+        $value = (($value -band 0x7fff) -shl 16) -bor $second
+    }
+    return $value
+}
+
+function Read-AxmlStringPool {
+    param([byte[]]$Bytes, [int]$ChunkOffset)
+    $headerSize = [int](Read-UInt16LittleEndian -Bytes $Bytes -Offset ($ChunkOffset + 2))
+    $chunkSize = [int](Read-UInt32LittleEndian -Bytes $Bytes -Offset ($ChunkOffset + 4))
+    $count = [int](Read-UInt32LittleEndian -Bytes $Bytes -Offset ($ChunkOffset + 8))
+    $flags = [int](Read-UInt32LittleEndian -Bytes $Bytes -Offset ($ChunkOffset + 16))
+    $stringsStart = [int](Read-UInt32LittleEndian -Bytes $Bytes -Offset ($ChunkOffset + 20))
+    if ($headerSize -lt 28 -or $chunkSize -lt $headerSize -or $count -lt 1 -or $count -gt 100000) {
+        Throw-UpdateError "APK_IDENTITY_INVALID" "The APK binary manifest has an invalid string pool."
+    }
+    $utf8 = ($flags -band 0x100) -ne 0
+    $values = New-Object System.Collections.Generic.List[string]
+    for ($index = 0; $index -lt $count; $index++) {
+        $relative = [int](Read-UInt32LittleEndian -Bytes $Bytes -Offset ($ChunkOffset + $headerSize + 4 * $index))
+        $cursor = $ChunkOffset + $stringsStart + $relative
+        if ($cursor -lt 0 -or $cursor -ge $Bytes.Length) {
+            Throw-UpdateError "APK_IDENTITY_INVALID" "The APK binary manifest contains an invalid string offset."
+        }
+        if ($utf8) {
+            [void](Read-AxmlLength8 -Bytes $Bytes -Offset ([ref]$cursor))
+            $byteLength = Read-AxmlLength8 -Bytes $Bytes -Offset ([ref]$cursor)
+            if ($cursor + $byteLength -gt $Bytes.Length) { Throw-UpdateError "APK_IDENTITY_INVALID" "The APK manifest string is truncated." }
+            $values.Add([Text.Encoding]::UTF8.GetString($Bytes, $cursor, $byteLength))
+        } else {
+            $charLength = Read-AxmlLength16 -Bytes $Bytes -Offset ([ref]$cursor)
+            $byteLength = $charLength * 2
+            if ($cursor + $byteLength -gt $Bytes.Length) { Throw-UpdateError "APK_IDENTITY_INVALID" "The APK manifest string is truncated." }
+            $values.Add([Text.Encoding]::Unicode.GetString($Bytes, $cursor, $byteLength))
+        }
+    }
+    return $values.ToArray()
+}
+
+function Get-AxmlString {
+    param([string[]]$Pool, [uint32]$Index)
+    if ($Index -eq [uint32]::MaxValue) { return $null }
+    if ($Index -ge $Pool.Count) { Throw-UpdateError "APK_IDENTITY_INVALID" "The APK manifest references an invalid string." }
+    return $Pool[[int]$Index]
+}
+
+function Get-ApkManifestIdentity {
+    param([Parameter(Mandatory)][string]$ApkPath)
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::OpenRead($ApkPath)
+    try {
+        $entry = $archive.GetEntry("AndroidManifest.xml")
+        if (-not $entry) { Throw-UpdateError "APK_IDENTITY_INVALID" "The APK has no AndroidManifest.xml." }
+        $stream = $entry.Open()
+        $memory = New-Object IO.MemoryStream
+        try { $stream.CopyTo($memory); $bytes = $memory.ToArray() } finally { $stream.Dispose(); $memory.Dispose() }
+    } finally { $archive.Dispose() }
+    if ($bytes.Length -lt 16 -or (Read-UInt16LittleEndian -Bytes $bytes -Offset 0) -ne 3) {
+        Throw-UpdateError "APK_IDENTITY_INVALID" "AndroidManifest.xml is not a valid binary XML document."
+    }
+    $declaredSize = [int](Read-UInt32LittleEndian -Bytes $bytes -Offset 4)
+    if ($declaredSize -gt $bytes.Length -or $declaredSize -lt 8) { Throw-UpdateError "APK_IDENTITY_INVALID" "The APK manifest size is invalid." }
+    $pool = $null
+    $offset = [int](Read-UInt16LittleEndian -Bytes $bytes -Offset 2)
+    while ($offset + 8 -le $declaredSize) {
+        $type = [int](Read-UInt16LittleEndian -Bytes $bytes -Offset $offset)
+        $header = [int](Read-UInt16LittleEndian -Bytes $bytes -Offset ($offset + 2))
+        $size = [int](Read-UInt32LittleEndian -Bytes $bytes -Offset ($offset + 4))
+        if ($header -lt 8 -or $size -lt $header -or $offset + $size -gt $declaredSize) {
+            Throw-UpdateError "APK_IDENTITY_INVALID" "The APK manifest contains an invalid chunk."
+        }
+        if ($type -eq 1) { $pool = @(Read-AxmlStringPool -Bytes $bytes -ChunkOffset $offset) }
+        if ($type -eq 0x0102 -and $pool) {
+            $elementName = Get-AxmlString -Pool $pool -Index (Read-UInt32LittleEndian -Bytes $bytes -Offset ($offset + 20))
+            if ($elementName -ceq "manifest") {
+                $attributeStart = [int](Read-UInt16LittleEndian -Bytes $bytes -Offset ($offset + 24))
+                $attributeSize = [int](Read-UInt16LittleEndian -Bytes $bytes -Offset ($offset + 26))
+                $attributeCount = [int](Read-UInt16LittleEndian -Bytes $bytes -Offset ($offset + 28))
+                if ($attributeSize -lt 20 -or $attributeCount -gt 256) { Throw-UpdateError "APK_IDENTITY_INVALID" "The APK manifest attributes are invalid." }
+                $values = @{}
+                for ($index = 0; $index -lt $attributeCount; $index++) {
+                    $attributeOffset = $offset + 16 + $attributeStart + ($index * $attributeSize)
+                    if ($attributeOffset + 20 -gt $offset + $size) { Throw-UpdateError "APK_IDENTITY_INVALID" "The APK manifest attribute is truncated." }
+                    $name = Get-AxmlString -Pool $pool -Index (Read-UInt32LittleEndian -Bytes $bytes -Offset ($attributeOffset + 4))
+                    $rawIndex = Read-UInt32LittleEndian -Bytes $bytes -Offset ($attributeOffset + 8)
+                    $dataType = [int]$bytes[$attributeOffset + 15]
+                    $data = Read-UInt32LittleEndian -Bytes $bytes -Offset ($attributeOffset + 16)
+                    if ($rawIndex -ne [uint32]::MaxValue) { $value = Get-AxmlString -Pool $pool -Index $rawIndex }
+                    elseif ($dataType -eq 3) { $value = Get-AxmlString -Pool $pool -Index $data }
+                    elseif ($dataType -in @(0x10, 0x11)) { $value = [string]$data }
+                    else { continue }
+                    $values[$name] = $value
+                }
+                if (-not $values.ContainsKey("package") -or -not $values.ContainsKey("versionCode") -or -not $values.ContainsKey("versionName")) {
+                    Throw-UpdateError "APK_IDENTITY_INVALID" "The APK manifest identity fields are incomplete."
+                }
+                return [pscustomobject]@{ ApplicationId = $values["package"]; VersionCode = [long]$values["versionCode"]; VersionName = $values["versionName"] }
+            }
+        }
+        $offset += $size
+    }
+    Throw-UpdateError "APK_IDENTITY_INVALID" "The APK manifest element could not be verified."
+}
+
+function Assert-SafeRelativePath {
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not $Path -or $Path -match '\\' -or $Path.StartsWith('/') -or
+            $Path -match '(^|/)\.\.?(/|$)' -or $Path -match '(^|/)\.(?:git|secrets)(/|$)' -or
+            [IO.Path]::IsPathRooted($Path)) {
+        Throw-UpdateError "BUNDLE_PATH_UNSAFE" "Release manifest contains an unsafe bundle path."
+    }
+}
+
+function Read-ReleaseBundle {
+    param([Parameter(Mandatory)][string]$Root)
+    $resolvedRoot = (Resolve-Path -LiteralPath $Root).Path
+    $manifestPath = Join-Path $resolvedRoot "RELEASE-MANIFEST.json"
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        Throw-UpdateError "MANIFEST_MISSING" "RELEASE-MANIFEST.json is missing. Use a complete reviewed Release ZIP."
+    }
+    try {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        Throw-UpdateError "MANIFEST_INVALID" "The release manifest is not valid JSON."
+    }
+    $required = @("schemaVersion", "releaseTag", "applicationId", "versionCode", "versionName",
+        "apkFile", "apkSha256", "signerSha256", "rebootRequired", "migrations", "files")
+    $names = @($manifest.PSObject.Properties.Name)
+    if (@($required | Where-Object { $_ -notin $names }).Count -gt 0 -or
+            @($names | Where-Object { $_ -notin $required }).Count -gt 0) {
+        Throw-UpdateError "MANIFEST_SCHEMA" "The release manifest schema does not match the reviewed updater contract."
+    }
+    if ([int]$manifest.schemaVersion -ne 1 -or
+            [string]$manifest.applicationId -cne "se.lublin.mumla" -or
+            [string]$manifest.releaseTag -cne [string]$manifest.versionName -or
+            [string]$manifest.releaseTag -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:[-.][0-9A-Za-z.-]+)?$' -or
+            [long]$manifest.versionCode -le 0 -or
+            [string]$manifest.apkFile -cne "minimum-foss.apk" -or
+            [string]$manifest.apkSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+            [string]$manifest.signerSha256 -notmatch '^[0-9A-Fa-f]{64}$') {
+        Throw-UpdateError "MANIFEST_IDENTITY" "The release manifest has an invalid package, version, APK or signer identity."
+    }
+    $versionText = (Get-Content -LiteralPath (Join-Path $resolvedRoot "VERSION.txt") -Raw).Trim()
+    if ($versionText -cne [string]$manifest.releaseTag) {
+        Throw-UpdateError "VERSION_BINDING" "VERSION.txt does not match the exact release tag in the manifest."
+    }
+    $listed = @{}
+    foreach ($entry in @($manifest.files)) {
+        $entryNames = @($entry.PSObject.Properties.Name)
+        if ($entryNames.Count -ne 2 -or "path" -notin $entryNames -or "sha256" -notin $entryNames) {
+            Throw-UpdateError "MANIFEST_FILES" "A release-manifest file entry has an unexpected shape."
+        }
+        $relative = [string]$entry.path
+        Assert-SafeRelativePath -Path $relative
+        if ($listed.ContainsKey($relative)) {
+            Throw-UpdateError "MANIFEST_FILES" "The release manifest contains a duplicate file path."
+        }
+        if ([string]$entry.sha256 -notmatch '^[0-9A-Fa-f]{64}$') {
+            Throw-UpdateError "MANIFEST_FILES" "A release-manifest file checksum is invalid."
+        }
+        $listed[$relative] = ([string]$entry.sha256).ToUpperInvariant()
+    }
+    $approvedFiles = @(
+        "Provision Minimum Device.cmd",
+        "README.txt",
+        "UPDATER-README.md",
+        "Update Minimum Device.cmd",
+        "VERSION.txt",
+        "assets/t99-wifi-provisioner.apk",
+        "minimum-foss.apk",
+        "minimum-foss.apk.sha256",
+        "scripts/prepare-ryks.ps1",
+        "scripts/prepare-t56.ps1",
+        "scripts/prepare-t99.ps1",
+        "scripts/provision-minimum-device.ps1",
+        "scripts/update-minimum-device.ps1"
+    ) | Sort-Object
+    $manifestFiles = @($listed.Keys | Sort-Object)
+    if (($manifestFiles -join "`n") -cne ($approvedFiles -join "`n")) {
+        Throw-UpdateError "BUNDLE_ALLOWLIST" "Release manifest files differ from the updater's exact reviewed allowlist."
+    }
+    $specialEntry = Get-ChildItem -LiteralPath $resolvedRoot -Recurse -Force | Where-Object {
+        $_.Attributes -band [IO.FileAttributes]::ReparsePoint
+    } | Select-Object -First 1
+    if ($specialEntry) {
+        Throw-UpdateError "BUNDLE_SPECIAL_FILE" "The extracted bundle contains a link or reparse point."
+    }
+    $actual = @(Get-ChildItem -LiteralPath $resolvedRoot -Recurse -Force -File | ForEach-Object {
+        $_.FullName.Substring($resolvedRoot.Length).TrimStart('\', '/').Replace('\', '/')
+    } | Where-Object { $_ -cne "RELEASE-MANIFEST.json" } | Sort-Object)
+    $expected = $manifestFiles
+    if (($actual -join "`n") -cne ($expected -join "`n")) {
+        Throw-UpdateError "BUNDLE_ALLOWLIST" "Extracted bundle files differ from the exact release manifest allowlist."
+    }
+    foreach ($relative in $expected) {
+        $path = Join-Path $resolvedRoot $relative.Replace('/', '\')
+        $item = Get-Item -LiteralPath $path -Force
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            Throw-UpdateError "BUNDLE_SPECIAL_FILE" "The extracted bundle contains a link or reparse-point file."
+        }
+        $actualHash = Get-FileSha256 -Path $path
+        if (-not (Test-Sha256Value -Expected $listed[$relative] -Actual $actualHash)) {
+            Throw-UpdateError "BUNDLE_CHECKSUM" "A bundled file does not match the exact release manifest checksum: $relative"
+        }
+    }
+    $apkPath = Join-Path $resolvedRoot ([string]$manifest.apkFile)
+    $apkHash = Get-FileSha256 -Path $apkPath
+    if (-not (Test-Sha256Value -Expected ([string]$manifest.apkSha256) -Actual $apkHash)) {
+        Throw-UpdateError "APK_CHECKSUM" "minimum-foss.apk does not match the manifest checksum."
+    }
+    $checksumLine = (Get-Content -LiteralPath (Join-Path $resolvedRoot "minimum-foss.apk.sha256") -Raw).Trim()
+    $checksumMatch = [regex]::Match($checksumLine, '^([0-9A-Fa-f]{64})\s+\*?minimum-foss\.apk$')
+    if (-not $checksumMatch.Success -or
+            -not (Test-Sha256Value -Expected $checksumMatch.Groups[1].Value -Actual $apkHash)) {
+        Throw-UpdateError "APK_CHECKSUM_FILE" "minimum-foss.apk.sha256 is not an exact checksum binding for minimum-foss.apk."
+    }
+    return [pscustomobject]@{ Root = $resolvedRoot; Manifest = $manifest; ApkPath = $apkPath }
+}
+
+function Get-ApkV1SignerDigests {
+    param([Parameter(Mandatory)][string]$ApkPath)
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    Add-Type -AssemblyName System.Security
+    $archive = [IO.Compression.ZipFile]::OpenRead($ApkPath)
+    try {
+        $signatureEntries = @($archive.Entries | Where-Object {
+            $_.FullName -match '^META-INF/[^/]+\.(RSA|DSA|EC)$'
+        })
+        if ($signatureEntries.Count -eq 0) {
+            Throw-UpdateError "APK_V1_SIGNATURE_REQUIRED" "The APK has no JAR signing block; this standalone updater cannot verify its signer."
+        }
+        $digests = New-Object System.Collections.Generic.List[string]
+        foreach ($entry in $signatureEntries) {
+            $stream = $entry.Open()
+            $memory = New-Object IO.MemoryStream
+            try {
+                $stream.CopyTo($memory)
+                $cms = New-Object System.Security.Cryptography.Pkcs.SignedCms
+                $cms.Decode($memory.ToArray())
+                foreach ($certificate in $cms.Certificates) {
+                    $sha = [Security.Cryptography.SHA256]::Create()
+                    try {
+                        $digest = ([BitConverter]::ToString($sha.ComputeHash($certificate.RawData))).Replace('-', '')
+                        if (-not $digests.Contains($digest)) { $digests.Add($digest) }
+                    } finally { $sha.Dispose() }
+                }
+            } finally {
+                $stream.Dispose()
+                $memory.Dispose()
+            }
+        }
+        return @($digests)
+    } catch {
+        if ($_.Exception.Message -match '^\[[A-Z0-9_]+\]') { throw }
+        Throw-UpdateError "APK_SIGNATURE_INVALID" "The APK signing certificate could not be verified."
+    } finally {
+        $archive.Dispose()
+    }
+}
+
+function Assert-SignerCompatibility {
+    param([string[]]$InstalledDigests, [Parameter(Mandatory)][string]$TargetDigest)
+    if (@($InstalledDigests | Where-Object { $_ -ceq $TargetDigest.ToUpperInvariant() }).Count -ne 1) {
+        Throw-UpdateError "SIGNER_MISMATCH" "Installed Minimum and the Release APK use different signing certificates. No uninstall or data clear was attempted. A debug-to-release switch requires an explicitly reviewed manual recovery."
+    }
+}
+
+function Compare-VersionCode {
+    param([long]$Installed, [long]$Target)
+    if ($Installed -lt $Target) { return -1 }
+    if ($Installed -gt $Target) { return 1 }
+    return 0
+}
+
+function Convert-AdbDeviceLines {
+    param([string[]]$Lines)
+    $records = foreach ($line in $Lines) {
+        if ($line -match '^([^\s]+)\s+(device|unauthorized|offline|recovery)(?:\s|$)') {
+            $recordSerial = $Matches[1]
+            $recordState = $Matches[2]
+            $transport = 0
+            if ($line -match '\btransport_id:(\d+)\b') { $transport = [int]$Matches[1] }
+            [pscustomobject]@{ Serial = $recordSerial; State = $recordState; TransportId = $transport }
+        }
+    }
+    return @($records)
+}
+
+function Select-TargetRecord {
+    param([object[]]$Records, [string]$RequestedSerial = "", [int]$RequestedTransportId = 0)
+    $authorized = @($Records | Where-Object { $_.State -eq "device" })
+    if ($RequestedTransportId -gt 0) {
+        $matches = @($authorized | Where-Object { $_.TransportId -eq $RequestedTransportId })
+        if ($matches.Count -ne 1) { Throw-UpdateError "TARGET_NOT_FOUND" "The selected authorized ADB transport was not found exactly once." }
+        return $matches[0]
+    }
+    if ($RequestedSerial) {
+        $matches = @($authorized | Where-Object { $_.Serial -ceq $RequestedSerial })
+        if ($matches.Count -ne 1) { Throw-UpdateError "SERIAL_AMBIGUOUS" "The selected ADB serial was not found exactly once; use -TransportId for a duplicate serial." }
+        return $matches[0]
+    }
+    if ($authorized.Count -ne 1) {
+        if ($authorized.Count -eq 0 -and @($Records).Count -gt 0) {
+            Throw-UpdateError "TARGET_NOT_AUTHORIZED" "No device is in the authorized normal Android state. Unlock it and authorize USB debugging."
+        }
+        Throw-UpdateError "TARGET_COUNT" "Connect exactly one authorized radio, or use -Serial/-TransportId explicitly."
+    }
+    return $authorized[0]
+}
+
+function Find-ReturningCandidate {
+    param([object[]]$Records, [string]$Manufacturer, [string]$Model, [string]$OriginalSerial)
+    $sameSerial = @($Records | Where-Object {
+        $_.State -eq "device" -and $_.Serial -ceq $OriginalSerial -and
+        $_.Manufacturer -ieq $Manufacturer -and $_.Model -ieq $Model
+    })
+    if ($sameSerial.Count -eq 1) { return $sameSerial[0] }
+    $sameModel = @($Records | Where-Object {
+        $_.State -eq "device" -and $_.Manufacturer -ieq $Manufacturer -and $_.Model -ieq $Model
+    })
+    if ($sameModel.Count -eq 1) { return $sameModel[0] }
+    return $null
+}
+
+function Parse-PackageState {
+    param([string]$Text)
+    $code = [regex]::Match($Text, '(?m)^\s*versionCode=(\d+)\b')
+    $name = [regex]::Match($Text, '(?m)^\s*versionName=([^\r\n]+)$')
+    if (-not $code.Success -or -not $name.Success) { return $null }
+    return [pscustomobject]@{ VersionCode = [long]$code.Groups[1].Value; VersionName = $name.Groups[1].Value.Trim() }
+}
+
+function Parse-ProvisioningStatus {
+    param([string]$Text)
+    $match = [regex]::Match($Text, 'data="?deviceId=([A-Z0-9]{6});activeDeviceId=([A-Z0-9*]{1,6});configVersion=(-?\d+);pending=(true|false);lastSuccessMs=(\d+)"?')
+    if (-not $match.Success) { return $null }
+    return [pscustomobject]@{
+        DeviceId = $match.Groups[1].Value
+        ActiveDeviceId = $match.Groups[2].Value
+        ConfigVersion = [int]$match.Groups[3].Value
+        Pending = $match.Groups[4].Value -eq "true"
+        LastSuccessMs = [long]$match.Groups[5].Value
+    }
+}
+
+function Get-RequiredMigrations {
+    param([object[]]$ManifestMigrations, [long]$InstalledVersionCode, [long]$TargetVersionCode, [string]$Profile)
+    $required = @()
+    foreach ($migration in @($ManifestMigrations)) {
+        $properties = @($migration.PSObject.Properties.Name)
+        $migrationFields = @("id", "fromVersionCodeMax", "toVersionCode", "profiles", "rebootRequired", "irreversible")
+        if (@($migrationFields | Where-Object { $_ -notin $properties }).Count -gt 0 -or
+                @($properties | Where-Object { $_ -notin $migrationFields }).Count -gt 0 -or
+                [string]$migration.id -notmatch '^[a-z0-9][a-z0-9.-]{0,63}$' -or
+                @($migration.profiles | Where-Object { $_ -notin @("T56", "T99", "RYKS") }).Count -gt 0) {
+            Throw-UpdateError "MIGRATION_CONTRACT" "A release migration entry does not match the reviewed contract."
+        }
+        # No migrations are approved in this updater revision. Future integrations (including #11)
+        # must add a reviewed handler here and tests before a manifest may name the migration.
+        Throw-UpdateError "MIGRATION_NOT_IMPLEMENTED" "Release requests an updater migration that this reviewed script does not implement."
+    }
+    return @($required)
+}
+
+function New-MigrationResult {
+    param([string]$Id, [ValidateSet("APPLIED", "ALREADY_OK", "SKIPPED", "FAILED")][string]$Outcome)
+    return [pscustomobject]@{ Id = $Id; Outcome = $Outcome }
+}
+
+function Format-SessionSummary {
+    param([object[]]$Results, [string]$TargetVersion)
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add("Minimum update session")
+    $lines.Add("Target version: $TargetVersion")
+    foreach ($result in @($Results)) {
+        $profile = if ($result.Profile) { $result.Profile } else { "UNKNOWN" }
+        $deviceId = if ($result.DeviceId) { $result.DeviceId } else { "------" }
+        $lines.Add(("{0} / {1}  {2}  {3}" -f $profile, $deviceId, $result.Result, $result.Detail))
+    }
+    $pass = @($Results | Where-Object { $_.Result -eq "PASS" }).Count
+    $warn = @($Results | Where-Object { $_.Result -eq "WARN" }).Count
+    $fail = @($Results | Where-Object { $_.Result -eq "FAIL" }).Count
+    $lines.Add("")
+    $lines.Add("Totals: $pass PASS, $warn WARN, $fail FAIL")
+    return $lines -join "`r`n"
+}
+
+function Invoke-AdbRaw {
+    param([string[]]$Arguments)
+    $previous = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = @(& $script:AdbExecutable @Arguments 2>&1)
+        $exitCode = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $previous }
+    $text = (($output | ForEach-Object { if ($_ -is [Management.Automation.ErrorRecord]) { $_.ToString() } else { [string]$_ } }) -join "`n").Trim()
+    return [pscustomobject]@{ ExitCode = $exitCode; Output = $text }
+}
+
+function Get-ListeningAdbPorts {
+    $ports = @()
+    try {
+        $ports = @(Get-NetTCPConnection -State Listen -ErrorAction Stop |
+            Where-Object { $_.LocalPort -in @(5037, 5041) } | Select-Object -ExpandProperty LocalPort -Unique)
+    } catch {
+        foreach ($line in @(& netstat.exe -ano -p TCP 2>$null)) {
+            if ($line -match '^\s*TCP\s+\S+:(5037|5041)\s+\S+\s+LISTENING\s+') { $ports += [int]$Matches[1] }
+        }
+    }
+    return @($ports | Sort-Object -Unique)
+}
+
+function Get-AdbRecords {
+    $result = Invoke-AdbRaw -Arguments ($script:ServerArguments + @("devices", "-l"))
+    if ($result.ExitCode -ne 0) { Throw-UpdateError "ADB_QUERY" "Could not query the selected ADB server." }
+    return @(Convert-AdbDeviceLines -Lines ($result.Output -split "`r?`n"))
+}
+
+function Select-AdbPort {
+    if ($AdbPort -gt 0) { return $AdbPort }
+    $listening = @(Get-ListeningAdbPorts)
+    if ($listening.Count -eq 0) { return 5037 }
+    $active = @()
+    foreach ($port in $listening) {
+        $probe = Invoke-AdbRaw -Arguments @("-P", "$port", "devices")
+        if ($probe.ExitCode -eq 0 -and $probe.Output -match '(?m)^[^\s]+\s+(device|unauthorized|offline|recovery)(?:\s|$)') { $active += $port }
+    }
+    if ($active.Count -eq 1) { return $active[0] }
+    if ($listening.Count -eq 1) { return $listening[0] }
+    Throw-UpdateError "ADB_PORT_AMBIGUOUS" "Both supported ADB servers are active; pass -AdbPort 5037 or -AdbPort 5041."
+}
+
+function Get-TargetArguments {
+    param([Parameter(Mandatory)]$Target)
+    if ($Target.TransportId -gt 0) { return $script:ServerArguments + @("-t", "$($Target.TransportId)") }
+    return $script:ServerArguments + @("-s", $Target.Serial)
+}
+
+function Invoke-TargetAdb {
+    param([string[]]$Arguments, [switch]$AllowFailure)
+    $result = Invoke-AdbRaw -Arguments ((Get-TargetArguments -Target $script:CurrentTarget) + $Arguments)
+    if (-not $AllowFailure -and $result.ExitCode -ne 0) { Throw-UpdateError "ADB_COMMAND" "An ADB command failed for the selected target." }
+    return $result
+}
+
+function Get-TargetProperty {
+    param([string]$Name)
+    return (Invoke-TargetAdb -Arguments @("shell", "getprop", $Name)).Output.Trim()
+}
+
+function Add-HardwareIdentity {
+    param([Parameter(Mandatory)]$Target)
+    $manufacturer = Get-TargetProperty -Name "ro.product.manufacturer"
+    $model = Get-TargetProperty -Name "ro.product.model"
+    $Target | Add-Member Manufacturer $manufacturer -Force
+    $Target | Add-Member Model $model -Force
+    $Target | Add-Member Profile (Get-DeviceProfile -Manufacturer $manufacturer -Model $model) -Force
+    return $Target
+}
+
+function Get-Identity {
+    $result = Invoke-TargetAdb -Arguments @("shell", "am", "broadcast", "-W", "-a", $IdentityReportAction, "-n", $ProvisionReceiver)
+    $match = [regex]::Match($result.Output, 'data="?([A-Z0-9]{6})"?')
+    if (-not $match.Success) { Throw-UpdateError "IDENTITY_UNREADABLE" "Minimum did not return its existing six-character Device ID." }
+    return $match.Groups[1].Value
+}
+
+function Get-ProvisioningStatus {
+    $result = Invoke-TargetAdb -Arguments @("shell", "am", "broadcast", "-W", "-a", $ProvisionStatusAction, "-n", $ProvisionReceiver)
+    return Parse-ProvisioningStatus -Text $result.Output
+}
+
+function Get-InstalledPackageState {
+    $pathResult = Invoke-TargetAdb -Arguments @("shell", "pm", "path", $MinimumPackage) -AllowFailure
+    if ($pathResult.ExitCode -ne 0 -or $pathResult.Output -notmatch '(?m)^package:') {
+        Throw-UpdateError "PACKAGE_NOT_INSTALLED" "Minimum is not installed; use Provision Minimum Device instead."
+    }
+    $dump = Invoke-TargetAdb -Arguments @("shell", "dumpsys", "package", $MinimumPackage)
+    $state = Parse-PackageState -Text $dump.Output
+    if (-not $state) { Throw-UpdateError "PACKAGE_VERSION_UNREADABLE" "The installed Minimum version could not be verified." }
+    $base = @($pathResult.Output -split "`r?`n" | Where-Object { $_ -match '^package:.*/base\.apk$' } | Select-Object -First 1)
+    if ($base.Count -ne 1) { Throw-UpdateError "PACKAGE_PATH_UNREADABLE" "The installed Minimum base APK path could not be verified." }
+    $state | Add-Member BaseApkPath ($base[0].Substring(8)) -Force
+    return $state
+}
+
+function Get-InstalledSignerDigests {
+    param([string]$RemoteApkPath)
+    $temporary = Join-Path ([IO.Path]::GetTempPath()) ("minimum-installed-{0}.apk" -f [guid]::NewGuid().ToString("N"))
+    try {
+        $pull = Invoke-TargetAdb -Arguments @("pull", $RemoteApkPath, $temporary) -AllowFailure
+        if ($pull.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $temporary -PathType Leaf)) {
+            Throw-UpdateError "INSTALLED_SIGNER_UNREADABLE" "The installed APK signer could not be read safely."
+        }
+        return @(Get-ApkV1SignerDigests -ApkPath $temporary)
+    } finally {
+        if (Test-Path -LiteralPath $temporary -PathType Leaf) { Remove-Item -LiteralPath $temporary -Force }
+    }
+}
+
+function Get-BatteryState {
+    $dump = (Invoke-TargetAdb -Arguments @("shell", "dumpsys", "battery")).Output
+    $level = [regex]::Match($dump, '(?m)^\s*level:\s*(\d+)\s*$')
+    $powered = $dump -match '(?m)^\s*(?:AC|USB|Wireless) powered:\s*true\s*$'
+    if (-not $level.Success) { Throw-UpdateError "BATTERY_UNREADABLE" "Battery state could not be verified." }
+    return [pscustomobject]@{ Level = [int]$level.Groups[1].Value; Powered = $powered }
+}
+
+function Get-ReadyState {
+    $remote = "/sdcard/minimum-update-ready-$PID.xml"
+    try {
+        $dump = Invoke-TargetAdb -Arguments @("shell", "uiautomator", "dump", $remote) -AllowFailure
+        if ($dump.ExitCode -ne 0) { return $false }
+        $read = Invoke-TargetAdb -Arguments @("shell", "cat", $remote) -AllowFailure
+        return $read.ExitCode -eq 0 -and $read.Output -match 'content-desc="minimum-state-ready"'
+    } finally {
+        Invoke-TargetAdb -Arguments @("shell", "rm", "-f", $remote) -AllowFailure | Out-Null
+    }
+}
+
+function Wait-MinimumReady {
+    param([string]$ExpectedDeviceId, [int]$TimeoutSeconds)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if (Get-ReadyState) {
+            $status = Get-ProvisioningStatus
+            if ($status -and $status.DeviceId -ceq $ExpectedDeviceId -and
+                    $status.ActiveDeviceId -ceq $ExpectedDeviceId -and -not $status.Pending -and
+                    $status.ConfigVersion -gt 0 -and $status.LastSuccessMs -gt 0) { return $status }
+        }
+        Start-Sleep -Seconds 5
+    }
+    Throw-UpdateError "READY_TIMEOUT" "Minimum did not reach same-ID Ready within the bounded timeout."
+}
+
+function Install-InPlace {
+    param([string]$ApkPath, [switch]$Downgrade)
+    $arguments = @("install", "-r")
+    if ($Downgrade) { $arguments += "-d" }
+    $arguments += $ApkPath
+    $result = Invoke-TargetAdb -Arguments $arguments -AllowFailure
+    if ($result.ExitCode -ne 0 -or $result.Output -notmatch '(?im)^Success\s*$') {
+        if ($result.Output -match 'INSTALL_FAILED_UPDATE_INCOMPATIBLE') {
+            Throw-UpdateError "SIGNER_MISMATCH" "Android rejected the in-place update because the APK signers differ. No uninstall or data clear was attempted."
+        }
+        if ($result.Output -match 'INSTALL_FAILED_INSUFFICIENT_STORAGE') {
+            Throw-UpdateError "INSUFFICIENT_STORAGE" "Android rejected the update because storage is insufficient; no app data was cleared."
+        }
+        Throw-UpdateError "INSTALL_FAILED" "The in-place APK update failed; the existing app data was not cleared."
+    }
+}
+
+function Ensure-RyksInstallPolicy {
+    if ($script:CurrentTarget.Profile -ne "RYKS") { return New-MigrationResult -Id "RYKS_INSTALL_POLICY" -Outcome "SKIPPED" }
+    if ((Get-TargetProperty -Name "ro.build.install") -eq "1") { return New-MigrationResult -Id "RYKS_INSTALL_POLICY" -Outcome "ALREADY_OK" }
+    Invoke-TargetAdb -Arguments @("shell", "setprop", "ro.build.install", "1") | Out-Null
+    if ((Get-TargetProperty -Name "ro.build.install") -ne "1") {
+        Throw-UpdateError "RYKS_INSTALL_POLICY" "RYKS firmware did not enable its model-gated APK install policy for this boot."
+    }
+    return New-MigrationResult -Id "RYKS_INSTALL_POLICY" -Outcome "APPLIED"
+}
+
+function Wait-ReturningTarget {
+    param($OriginalTarget, [int]$TimeoutSeconds)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 2
+        $candidates = @()
+        foreach ($record in @(Get-AdbRecords | Where-Object { $_.State -eq "device" })) {
+            $script:CurrentTarget = $record
+            try { $candidates += Add-HardwareIdentity -Target $record } catch { }
+        }
+        $candidate = Find-ReturningCandidate -Records $candidates -Manufacturer $OriginalTarget.Manufacturer `
+            -Model $OriginalTarget.Model -OriginalSerial $OriginalTarget.Serial
+        if ($candidate) { return $candidate }
+    }
+    Throw-UpdateError "REBOOT_TARGET_AMBIGUOUS" "The same supported profile could not be re-identified uniquely after reboot."
+}
+
+function Wait-BootCompleted {
+    param([int]$TimeoutSeconds)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if ((Get-TargetProperty -Name "sys.boot_completed") -eq "1") { return }
+        Start-Sleep -Seconds 2
+    }
+    Throw-UpdateError "BOOT_TIMEOUT" "Android did not finish booting within the bounded timeout."
+}
+
+function Write-SanitizedReports {
+    param([Parameter(Mandatory)]$Result, [string]$Directory)
+    if (-not $Directory) {
+        $base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [IO.Path]::GetTempPath() }
+        $Directory = Join-Path $base "Minimum\UpdateReports"
+    }
+    New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $baseName = "minimum-update-$($Result.SessionId)-$stamp"
+    $jsonPath = Join-Path $Directory "$baseName.json"
+    $textPath = Join-Path $Directory "$baseName.txt"
+    $Result | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
+    @(
+        "Minimum update report",
+        "Session: $($Result.SessionId)",
+        "Profile: $($Result.Profile)",
+        "Device ID: $($Result.DeviceId)",
+        "Previous version: $($Result.PreviousVersion)",
+        "Target version: $($Result.TargetVersion)",
+        "Artifact verification: $($Result.ArtifactVerification)",
+        "Pre-update Ready: $($Result.PreReady)",
+        "Post-update Ready: $($Result.PostReady)",
+        "Reboot acceptance: $($Result.RebootAcceptance)",
+        "Rollback assessment: $($Result.RollbackAssessment)",
+        "Result: $($Result.Result)",
+        "Error category: $($Result.ErrorCategory)",
+        "Detail: $($Result.Detail)",
+        "",
+        "When requesting help, attach this .txt and matching .json report. They intentionally exclude hardware serials and secrets."
+    ) | Set-Content -LiteralPath $textPath -Encoding UTF8
+    Write-Host "Sanitized report: $textPath"
+}
+
+function Invoke-OneUpdate {
+    param($Bundle, [string]$SessionId, [hashtable]$CompletedDeviceIds = @{})
+    $result = [ordered]@{
+        SessionId = $SessionId; Profile = ""; DeviceId = ""; PreviousVersion = "unknown"
+        TargetVersion = [string]$Bundle.Manifest.versionName; ArtifactVerification = "VERIFIED"
+        Migrations = @(); PreReady = $false; PostReady = $false; RebootAcceptance = "NOT_REQUIRED"
+        RollbackAssessment = "NOT_AUTOMATED; old APK is not included and no data migration is declared"
+        ConfigVersionBefore = -1; ConfigVersionAfter = -1; Result = "FAIL"
+        ErrorCategory = ""; Detail = ""
+    }
+    try {
+        $records = @(Get-AdbRecords)
+        $target = Select-TargetRecord -Records $records -RequestedSerial $Serial -RequestedTransportId $TransportId
+        $script:CurrentTarget = Add-HardwareIdentity -Target $target
+        if (-not $script:CurrentTarget.Profile) {
+            Throw-UpdateError "UNSUPPORTED_HARDWARE" "Unknown hardware was inventory-checked and rejected before mutation."
+        }
+        $result.Profile = $script:CurrentTarget.Profile
+        Write-Host "Target: $($script:CurrentTarget.Manufacturer)/$($script:CurrentTarget.Model) ($($result.Profile))"
+        $battery = Get-BatteryState
+        if ($battery.Level -lt 20 -and -not $battery.Powered) {
+            Throw-UpdateError "POWER_TOO_LOW" "Battery is below 20 percent and external power was not detected."
+        }
+        $installed = Get-InstalledPackageState
+        $result.PreviousVersion = $installed.VersionName
+        $deviceId = Get-Identity
+        $result.DeviceId = $deviceId
+        if ($CompletedDeviceIds.ContainsKey($deviceId)) {
+            if ($NonInteractive) { Throw-UpdateError "SESSION_DUPLICATE" "This Device ID was already completed in the current session." }
+            $answer = (Read-Host "Device ID $deviceId was already completed in this session. Type RECHECK to verify it again").Trim()
+            if ($answer -cne "RECHECK") { Throw-UpdateError "SESSION_DUPLICATE" "Operator declined to recheck an already-completed Device ID." }
+        }
+        $before = Get-ProvisioningStatus
+        if (-not $before -or $before.DeviceId -cne $deviceId -or $before.ActiveDeviceId -cne $deviceId -or
+                $before.Pending -or $before.ConfigVersion -le 0 -or $before.LastSuccessMs -le 0) {
+            Throw-UpdateError "CONFIG_UNVERIFIED" "Existing identity, active configuration or last-known-good state could not be verified."
+        }
+        $result.ConfigVersionBefore = $before.ConfigVersion
+        $result.PreReady = [bool](Get-ReadyState)
+        $installedSigner = @(Get-InstalledSignerDigests -RemoteApkPath $installed.BaseApkPath)
+        Assert-SignerCompatibility -InstalledDigests $installedSigner -TargetDigest ([string]$Bundle.Manifest.signerSha256).ToUpperInvariant()
+        $comparison = Compare-VersionCode -Installed $installed.VersionCode -Target ([long]$Bundle.Manifest.versionCode)
+        if ($comparison -gt 0 -and -not $AllowDowngrade) {
+            Throw-UpdateError "DOWNGRADE_REFUSED" "Installed Minimum is newer than this bundle. Use a newer reviewed bundle; downgrade is refused by default."
+        }
+        $requiredMigrations = @(Get-RequiredMigrations -ManifestMigrations @($Bundle.Manifest.migrations) `
+            -InstalledVersionCode $installed.VersionCode -TargetVersionCode ([long]$Bundle.Manifest.versionCode) `
+            -Profile $script:CurrentTarget.Profile)
+        if (-not $ReportOnly -and -not $WhatIfPreference -and -not $ConfirmNotTransmitting) {
+            if ($NonInteractive) {
+                Throw-UpdateError "TX_CONFIRMATION_REQUIRED" "Non-interactive mutation requires -ConfirmNotTransmitting."
+            }
+            $answer = (Read-Host "Confirm this radio is not transmitting, then type UPDATE").Trim()
+            if ($answer -cne "UPDATE") { Throw-UpdateError "OPERATOR_CANCELLED" "Operator did not confirm the non-transmitting update boundary." }
+        }
+        if ($ReportOnly -or $WhatIfPreference) {
+            $result.Result = "PASS"
+            $result.Detail = "REPORT_ONLY; compatible, no mutation performed"
+            $result.PostReady = $result.PreReady
+            return [pscustomobject]$result
+        }
+        if ($comparison -eq 0) {
+            $result.RollbackAssessment = "NOT_NEEDED"
+            $result.Migrations += New-MigrationResult -Id "APK_VERSION" -Outcome "ALREADY_OK"
+        } else {
+            if ($comparison -gt 0) {
+                Write-Warning "EXPLICIT DOWNGRADE: Android will receive install -r -d. Signer and identity checks remain enforced; rollback is not automated."
+            }
+            $result.Migrations += Ensure-RyksInstallPolicy
+            Write-Host "Installing verified Minimum $($Bundle.Manifest.versionName) in place..."
+            Install-InPlace -ApkPath $Bundle.ApkPath -Downgrade:($comparison -gt 0)
+            $result.Migrations += New-MigrationResult -Id "APK_VERSION" -Outcome "APPLIED"
+        }
+        foreach ($migration in $requiredMigrations) { $result.Migrations += $migration }
+        $postPackage = Get-InstalledPackageState
+        if ($postPackage.VersionCode -ne [long]$Bundle.Manifest.versionCode -or
+                $postPackage.VersionName -cne [string]$Bundle.Manifest.versionName) {
+            Throw-UpdateError "POST_VERSION_MISMATCH" "Installed package identity/version does not match the exact release manifest."
+        }
+        Invoke-TargetAdb -Arguments @("shell", "am", "start", "-n", $MinimumActivity) | Out-Null
+        $after = Wait-MinimumReady -ExpectedDeviceId $deviceId -TimeoutSeconds $ReadyTimeoutSeconds
+        $result.PostReady = $true
+        $result.ConfigVersionAfter = $after.ConfigVersion
+        if ($after.ConfigVersion -lt $before.ConfigVersion -or $after.LastSuccessMs -le 0) {
+            Throw-UpdateError "CONFIG_REGRESSION" "Managed configuration or last-known-good verification regressed after update."
+        }
+        $needsReboot = [bool]$Bundle.Manifest.rebootRequired -or $FullRebootAcceptance
+        if ($needsReboot) {
+            $original = $script:CurrentTarget
+            Invoke-TargetAdb -Arguments @("reboot") | Out-Null
+            $script:CurrentTarget = Wait-ReturningTarget -OriginalTarget $original -TimeoutSeconds $BootTimeoutSeconds
+            Wait-BootCompleted -TimeoutSeconds $BootTimeoutSeconds
+            $afterReboot = Wait-MinimumReady -ExpectedDeviceId $deviceId -TimeoutSeconds $ReadyTimeoutSeconds
+            if ($afterReboot.ConfigVersion -lt $before.ConfigVersion) {
+                Throw-UpdateError "REBOOT_CONFIG_REGRESSION" "Managed configuration regressed after reboot."
+            }
+            $result.RebootAcceptance = "READY_SAME_ID"
+        }
+        $result.Result = "PASS"
+        $result.Detail = if ($comparison -eq 0) { "ALREADY_OK; same-ID Ready verified" } else { "UPDATED; same-ID Ready verified" }
+        return [pscustomobject]$result
+    } catch {
+        $message = ConvertTo-SafeMessage -Text $_.Exception.Message
+        $result.ErrorCategory = Get-ErrorCategory -Message $message
+        $result.Detail = [regex]::Replace($message, '^\[[A-Z0-9_]+\]\s*', '')
+        return [pscustomobject]$result
+    }
+}
+
+if ($LibraryOnly) { return }
+
+$Host.UI.RawUI.WindowTitle = "Minimum One-Shot Updater"
+if (-not $BundleRoot) { $BundleRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path }
+$bundle = Read-ReleaseBundle -Root $BundleRoot
+$apkIdentity = Get-ApkManifestIdentity -ApkPath $bundle.ApkPath
+if ($apkIdentity.ApplicationId -cne [string]$bundle.Manifest.applicationId -or
+        $apkIdentity.VersionCode -ne [long]$bundle.Manifest.versionCode -or
+        $apkIdentity.VersionName -cne [string]$bundle.Manifest.versionName) {
+    Throw-UpdateError "APK_IDENTITY_BINDING" "The APK package/version does not match the exact release manifest."
+}
+$targetSigners = @(Get-ApkV1SignerDigests -ApkPath $bundle.ApkPath)
+if (@($targetSigners | Where-Object { $_ -ceq ([string]$bundle.Manifest.signerSha256).ToUpperInvariant() }).Count -ne 1) {
+    Throw-UpdateError "APK_SIGNER_BINDING" "The APK signer does not match the exact release manifest."
+}
+try { $script:AdbExecutable = (Get-Command adb -ErrorAction Stop).Source } catch {
+    Throw-UpdateError "ADB_MISSING" "ADB was not found. Install Android Platform Tools or add adb.exe to PATH."
+}
+$AdbPort = Select-AdbPort
+$script:ServerArguments = @("-P", "$AdbPort")
+$sessionId = ([guid]::NewGuid().ToString("N").Substring(0, 12)).ToUpperInvariant()
+$results = New-Object System.Collections.Generic.List[object]
+$completedIds = @{}
+do {
+    $one = Invoke-OneUpdate -Bundle $bundle -SessionId $sessionId -CompletedDeviceIds $completedIds
+    if ($one.DeviceId -and $completedIds.ContainsKey($one.DeviceId) -and -not $NonInteractive) {
+        Write-Warning "Device ID $($one.DeviceId) was already processed in this session. This run was retained as a recheck."
+    }
+    if ($one.DeviceId) { $completedIds[$one.DeviceId] = $true }
+    $results.Add($one)
+    Write-SanitizedReports -Result $one -Directory $ReportDirectory
+    Write-Host ("{0}: {1} / {2} - {3}" -f $one.Result, $one.Profile, $one.DeviceId, $one.Detail)
+    if (-not $UpdateSession) { break }
+    if ($NonInteractive) { break }
+    Write-Host "Disconnect the completed radio. The updater will not accept another until no authorized device remains."
+    while (@(Get-AdbRecords | Where-Object { $_.State -eq "device" }).Count -gt 0) { Start-Sleep -Seconds 2 }
+    $choice = (Read-Host "Connect the next radio and press Enter, or type Q to finish").Trim()
+    if ($choice -ieq "Q") { break }
+} while ($true)
+
+$summary = Format-SessionSummary -Results @($results) -TargetVersion ([string]$bundle.Manifest.versionName)
+Write-Host ""
+Write-Host $summary
+if (@($results | Where-Object { $_.Result -eq "FAIL" }).Count -gt 0) { exit 1 }
+if (@($results | Where-Object { $_.Result -eq "WARN" }).Count -gt 0) { exit 2 }
+exit 0

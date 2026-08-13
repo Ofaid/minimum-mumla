@@ -1,7 +1,20 @@
 Minimum device provisioning bundle
 ==================================
 
-This bundle prepares one supported T99, T56 or RYKS radio on Windows.
+This bundle provisions or updates one supported T99, T56 or RYKS radio on Windows.
+
+Choose the correct workflow
+---------------------------
+
+- New, reset or unregistered radio: double-click "Provision Minimum Device.cmd".
+- Already-provisioned radio with an existing Device ID and managed config: double-click
+  "Update Minimum Device.cmd".
+
+The updater is deliberately separate. It does not rerun model provisioning, remove apps, rewrite
+Wi-Fi, reopen Location consent or require Portal registration. It verifies the Release manifest,
+all bundle file hashes, APK checksum/package/version/signer, installed signer compatibility,
+identity/config preservation and Ready. Read "UPDATER-README.md" in this bundle for advanced
+modes and recovery guidance.
 
 Supported hardware identities
 -----------------------------
@@ -68,11 +81,21 @@ Security and safety
 - PASS requires managed config activation and Ready both before and after reboot.
 - Ready messages before reboot are checkpoints only; the sole final PASS is emitted after the
   returning unit is identified and reaches Ready with the same Device ID.
+- Verify the separately published ZIP checksum before extraction. The updater also verifies the
+  exact in-bundle manifest/allowlist/checksums and APK identity/signer. An existing operator
+  workstation is supported; verification does not require wiping or rebuilding it.
+- The updater never uninstalls Minimum, clears app data, transmits PTT, exports app data, or stores
+  Android/USB/subscriber identifiers in its sanitized reports.
 
 An existing debug-signed Minimum APK cannot be upgraded in place by the release-signed APK. The
 installer stops on a signature mismatch rather than clearing app data automatically. Preserve any
 required device identity/config information and perform an explicitly approved uninstall before
 switching a lab device from debug signing to release signing.
+
+For updater testing on an existing debug-signed radio, use two reviewed versions signed by the
+same debug key and update in place without reset. Do not attempt a Release-signed installation on
+that device. This proves only the debug-channel updater path; it does not prove Release-signature
+acceptance.
 
 Checksum verification
 ---------------------
