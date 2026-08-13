@@ -238,6 +238,13 @@ function Set-UpdaterScenarioMocks {
         $global:UpdaterScenario.Transcript.Add("STATUS")
         return $global:UpdaterScenario.Before
     }
+    Set-Item Function:\Get-LegacyExistingIdentityViaRunAs {
+        $global:UpdaterScenario.Transcript.Add("RUN_AS_IDENTITY")
+        if (-not $global:UpdaterScenario.LegacyProbeAvailable) {
+            Throw-UpdateError "LEGACY_NONCREATING_PROBE_UNAVAILABLE" "mocked unavailable probe"
+        }
+        return $global:UpdaterScenario.Before.DeviceId
+    }
     Set-Item Function:\Get-Identity {
         param([switch]$Legacy)
         $global:UpdaterScenario.IdentityCalls++
@@ -283,7 +290,7 @@ function New-UpdaterScenario {
     @{
         Profile=$Profile; Manufacturer=$hardware[0]; Model=$hardware[1]; InstalledCode=3070300
         Before=(New-UpdaterStatus -Level $Level); After=(New-UpdaterStatus -Level "EXTENDED")
-        InstalledSigners=@("A" * 64); Installed=$false; PostVersionMismatch=$false; RebootFailure=$false
+        InstalledSigners=@("A" * 64); Installed=$false; PostVersionMismatch=$false; RebootFailure=$false; LegacyProbeAvailable=$true
         InstallCalls=0; IdentityCalls=0; MigrationCalls=0; RyksCalls=0; StartCalls=0; PackageReads=0
         Transcript=[Collections.Generic.List[string]]::new()
     }
@@ -306,20 +313,20 @@ Test-Case "legacy 3070300 to 3070301 state-machine bootstraps expanded evidence"
     $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "LEGACYOK"
     Assert-Equal "PASS" $result.Result "result ($($result.ErrorCategory): $($result.Detail))"
     Assert-Equal "BOOTSTRAPPED_POST_UPDATE" $result.PreservationEvidence "bootstrap evidence"
-    Assert-Equal @("STATUS", "IDENTITY_LEGACY") @($scenario.Transcript) "status before legacy identity"
+    Assert-Equal @("RUN_AS_IDENTITY", "STATUS", "IDENTITY_LEGACY") @($scenario.Transcript) "noncreating proof before receiver transcript"
     Assert-Equal 1 $scenario.InstallCalls "install count"
     Assert-Equal 2 $scenario.MigrationCalls "apply plus post-reboot verify"
 }
 
 Test-Case "legacy unprovisioned state is rejected without identity or install" {
     $scenario = New-UpdaterScenario -Level "LEGACY"
-    $scenario.Before.ActiveDeviceId = "*"; $scenario.Before.ConfigVersion = 0; $scenario.Before.LastSuccessMs = 0
+    $scenario.LegacyProbeAvailable = $false
     Set-UpdaterScenarioMocks $scenario
     $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "LEGACYNO"
-    Assert-Equal "LEGACY_NOT_PROVISIONED" $result.ErrorCategory "category"
+    Assert-Equal "LEGACY_NONCREATING_PROBE_UNAVAILABLE" $result.ErrorCategory "category"
     Assert-Equal 0 $scenario.IdentityCalls "identity calls"
     Assert-Equal 0 $scenario.InstallCalls "install count"
-    Assert-Equal @("STATUS") @($scenario.Transcript) "status-only transcript"
+    Assert-Equal @("RUN_AS_IDENTITY") @($scenario.Transcript) "no receiver transcript"
 }
 
 Test-Case "legacy signer mismatch is reached preinstall without mutation" {
@@ -328,12 +335,25 @@ Test-Case "legacy signer mismatch is reached preinstall without mutation" {
     Set-UpdaterScenarioMocks $scenario
     $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "SIGNERNO"
     Assert-Equal "SIGNER_MISMATCH" $result.ErrorCategory "category"
-    Assert-Equal 1 $scenario.IdentityCalls "identity after status proof"
+    Assert-Equal 0 $scenario.IdentityCalls "no receiver identity before signer refusal"
+    Assert-Equal 0 $scenario.InstallCalls "install count"
+    Assert-Equal @() @($scenario.Transcript) "no receiver or legacy probe needed after signer refusal"
+}
+
+Test-Case "legacy ReportOnly without run-as proof invokes no receiver" {
+    $scenario = New-UpdaterScenario -Level "LEGACY"; $scenario.LegacyProbeAvailable = $false
+    Set-UpdaterScenarioMocks $scenario
+    $ReportOnly = $true
+    try { $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "LEGACYREPORT" } finally { $ReportOnly = $false }
+    Assert-Equal "LEGACY_NONCREATING_PROBE_UNAVAILABLE" $result.ErrorCategory "category"
+    Assert-Equal @("RUN_AS_IDENTITY") @($scenario.Transcript) "noncreating probe only"
+    Assert-Equal 0 $scenario.IdentityCalls "receiver identity calls"
     Assert-Equal 0 $scenario.InstallCalls "install count"
 }
 
 Test-Case "ReportOnly uses existing identity and never installs" {
     $scenario = New-UpdaterScenario
+    $scenario.InstalledCode = 3070301; $scenario.Installed = $true
     Set-UpdaterScenarioMocks $scenario
     $ReportOnly = $true
     try { $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "REPORT" } finally { $ReportOnly = $false }
@@ -390,6 +410,19 @@ Test-Case "Resolve-ApkSigner tolerates unset Linux-style SDK environment" {
         try { $resolved = Resolve-ApkSigner; Assert-True ([bool]$resolved) "resolved signer" }
         catch { if ($_.Exception.Message -notmatch '^\[APKSIGNER_MISSING\]') { throw } }
     } finally { $env:LOCALAPPDATA = $oldLocal; $env:ANDROID_HOME = $oldHome; $env:ANDROID_SDK_ROOT = $oldRoot }
+}
+
+Test-Case "SDK discovery accepts extensionless Linux apksigner" {
+    $root = Join-Path ([IO.Path]::GetTempPath()) ("minimum-sdk-test-{0}" -f [guid]::NewGuid().ToString("N"))
+    try {
+        $directory = Join-Path $root "build-tools\99.0.0"
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+        $expected = Join-Path $directory "apksigner"
+        Set-Content -LiteralPath $expected -Value "#!/bin/sh" -NoNewline -Encoding ASCII
+        Assert-Equal $expected (Find-ApkSignerInSdkRoots @($root)) "Linux apksigner path"
+    } finally {
+        if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+    }
 }
 
 Write-Host "Updater tests: $script:Passed passed, $script:Failed failed"

@@ -47,10 +47,16 @@ applies the guarded roaming/mobile-data/automatic-LTE policy, then requires a re
 the same policy again. A carrier/APN readiness warning produces overall `WARN`, not a false PASS.
 T99 and RYKS skip this model-gated migration.
 
-The `3070300` receiver exposes only the five-field legacy status. For this single
-`3070300`-or-older to `3070301` bridge, the updater queries status first and rejects an unprovisioned,
-pending, inactive or missing-LKG radio without calling the legacy identity action. Only after that
-proof may it read the legacy identity. Selected channel, LKG digest and safe-settings digest are
+The `3070300` receiver exposes only the five-field legacy status and its legacy actions can create
+identity. For this single `3070300`-or-older to `3070301` bridge, the updater first uses Android's
+read-only `run-as` boundary to extract only the existing six-character public identity from the
+debuggable app's private preferences, without invoking application code or printing the preference
+file. If `run-as` is unavailable or no existing ID is present, `-ReportOnly`, `-WhatIf` and update
+all fail with `LEGACY_NONCREATING_PROBE_UNAVAILABLE` before any receiver action. This currently
+supports the known same-debug-signer E7ROW7 acceptance path; a non-debuggable legacy Release needs
+a separately reviewed non-creating bridge before in-place updating. After the probe, status must
+also prove a non-pending active LKG and both legacy receiver results must match the probed ID.
+Selected channel, LKG digest and safe-settings digest are
 recorded as `UNAVAILABLE_LEGACY`; after installation the new expanded report is mandatory and those
 fields are marked `BOOTSTRAPPED_POST_UPDATE`, not falsely claimed as pre/post preservation proof.
 Subsequent updates use the expanded report and require exact preservation of all reported fields.
@@ -89,7 +95,8 @@ is not automated; the old APK is not included in the bundle.
 - `INSUFFICIENT_STORAGE`: free non-Minimum storage and rerun. Do not clear Minimum data.
 - `IDENTITY_UNREADABLE` or `CONFIG_UNVERIFIED`: do not update. Relaunch the existing app, restore
   connectivity if safe, and use the sanitized report for diagnosis.
-- `LEGACY_NOT_PROVISIONED` or `LEGACY_BRIDGE_UNSUPPORTED`: no identity read or install was allowed;
+- `LEGACY_NONCREATING_PROBE_UNAVAILABLE`, `LEGACY_NOT_PROVISIONED` or `LEGACY_BRIDGE_UNSUPPORTED`:
+  no receiver or install was allowed when the non-creating probe failed;
   provision the radio through the reviewed provisioning path or use the exact approved bridge.
 - `READY_TIMEOUT`, `BOOT_TIMEOUT`, `REBOOT_TARGET_AMBIGUOUS`: keep the intended unit isolated,
   restore USB authorization/connectivity and rerun. A successful install alone is never PASS.

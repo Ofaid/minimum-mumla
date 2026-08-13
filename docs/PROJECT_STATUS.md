@@ -22,9 +22,10 @@ document disagrees with this file, verify the code and update this file first.
 - The existing-device updater now fail-closes on exact bundle/APK identity, requires Android Build
   Tools `apksigner` for full signature verification and exactly one reviewed signer, preserves Device ID, selected channel, active
   Last Known Good config digest and managed safe-settings digest, and identity-correlates a device
-  after reboot. The one-time legacy `3070300` bridge proves provisioned status before its legacy
-  identity read, then records newly available expanded fields as bootstrapped rather than falsely
-  preserved. The versioned `CELLULAR_POLICY_V1_T56` migration applies only from versionCode
+  after reboot. The one-time legacy `3070300` bridge first requires a non-creating `run-as` read of
+  the existing app-private public ID; non-debuggable or unprovisioned legacy builds fail before any
+  receiver action. It then records newly available expanded fields as bootstrapped rather than
+  falsely preserved. The versioned `CELLULAR_POLICY_V1_T56` migration applies only from versionCode
   `3070300` or older to `3070301`, is T56-only/reversible, and requires post-reboot verify-only
   evidence. Cellular WARN remains overall WARN; no modem-mode mutation or cellular-ready PASS is
   claimed from a Settings database readback.

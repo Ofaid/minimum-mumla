@@ -334,15 +334,26 @@ function Resolve-ApkSigner {
     if ($env:LOCALAPPDATA) {
         $sdkRoots += Join-Path $env:LOCALAPPDATA "Android\Sdk"
     }
+    $candidate = Find-ApkSignerInSdkRoots -SdkRoots $sdkRoots
+    if ($candidate) { return $candidate }
+    Throw-UpdateError "APKSIGNER_MISSING" "Android Build Tools apksigner is required to cryptographically verify the APK. Install Android Platform/Build Tools and rerun; no installation was attempted."
+}
+
+function Find-ApkSignerInSdkRoots {
+    param([string[]]$SdkRoots)
     foreach ($sdkRoot in $sdkRoots) {
+        if (-not $sdkRoot) { continue }
         $buildTools = Join-Path $sdkRoot "build-tools"
         if (-not (Test-Path -LiteralPath $buildTools -PathType Container)) { continue }
         $candidate = Get-ChildItem -LiteralPath $buildTools -Directory | Sort-Object Name -Descending |
-            ForEach-Object { Join-Path $_.FullName "apksigner.bat" } |
+            ForEach-Object {
+                Join-Path $_.FullName "apksigner"
+                Join-Path $_.FullName "apksigner.bat"
+            } |
             Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
         if ($candidate) { return $candidate }
     }
-    Throw-UpdateError "APKSIGNER_MISSING" "Android Build Tools apksigner is required to cryptographically verify the APK. Install Android Platform/Build Tools and rerun; no installation was attempted."
+    return $null
 }
 
 function Parse-ApkSignerOutput {
@@ -824,6 +835,22 @@ function Wait-ReturningTarget {
     }
 }
 
+function Get-LegacyExistingIdentityViaRunAs {
+    # PreferenceManager's default file and the public identity key are stable in 3070300. The
+    # remote shell uses only built-ins and emits only the public value, never the surrounding XML.
+    $preferenceFile = "shared_prefs/$($MinimumPackage)_preferences.xml"
+    $probeScript = 'while IFS= read -r line; do case "$line" in *''<string name="radio_device_id">''*) value=${line#*>}; value=${value%%<*}; printf ''%s\n'' "$value"; exit 0;; esac; done < "$1"; exit 3'
+    $probe = Invoke-TargetAdb -Arguments @("shell", "run-as", $MinimumPackage, "sh", "-c", $probeScript, "minimum-probe", $preferenceFile) -AllowFailure
+    if ($probe.ExitCode -ne 0) {
+        Throw-UpdateError "LEGACY_NONCREATING_PROBE_UNAVAILABLE" "Legacy Minimum does not expose a non-creating identity probe on this signing/build channel; no receiver was called and no update was attempted."
+    }
+    $identity = $probe.Output.Trim()
+    if ($identity -notmatch '^(?=.*[A-Z])(?=.*[0-9])[A-Z0-9]{6}$') {
+        Throw-UpdateError "LEGACY_NONCREATING_PROBE_UNAVAILABLE" "No valid existing legacy identity was found by the non-creating app-private probe; no receiver was called and no update was attempted."
+    }
+    return $identity
+}
+
 function Wait-BootCompleted {
     param([int]$TimeoutSeconds)
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -925,9 +952,17 @@ function Invoke-OneUpdate {
         $requiredMigrations = @(Get-RequiredMigrations -ManifestMigrations @($Bundle.Manifest.migrations) `
             -InstalledVersionCode $installed.VersionCode -TargetVersionCode ([long]$Bundle.Manifest.versionCode) `
             -Profile $script:CurrentTarget.Profile)
+        # Signer compatibility and the non-creating legacy probe occur before any receiver action.
+        # This lets unsupported/non-debuggable legacy channels fail with zero app-state mutation.
+        $installedSigner = @(Get-InstalledSignerDigests -RemoteApkPath $installed.BaseApkPath)
+        Assert-SignerCompatibility -InstalledDigests $installedSigner -TargetDigest ([string]$Bundle.Manifest.signerSha256).ToUpperInvariant()
+        $legacyProbedIdentity = ""
+        if ($installed.VersionCode -le 3070300) {
+            $legacyProbedIdentity = Get-LegacyExistingIdentityViaRunAs
+        }
         # Status is deliberately queried before either identity action. A legacy identity action
-        # may call getOrCreate, so it is permitted only after legacy status proves that this is an
-        # already-provisioned radio with an active LKG and stable active Device ID.
+        # may call getOrCreate, so it is permitted only after the app-private run-as probe has
+        # already proved a persisted identity without invoking application code.
         $before = Get-ProvisioningStatus
         if (-not $before) {
             Throw-UpdateError "CONFIG_UNVERIFIED" "Minimum did not return a recognized provisioning status."
@@ -936,8 +971,9 @@ function Invoke-OneUpdate {
             Assert-LegacyBridgeEligible -Status $before -InstalledVersionCode $installed.VersionCode `
                 -TargetVersionCode ([long]$Bundle.Manifest.versionCode)
             $deviceId = Get-Identity -Legacy
-            if ($deviceId -cne $before.ActiveDeviceId -or $before.DeviceId -cne $deviceId) {
-                Throw-UpdateError "LEGACY_IDENTITY_MISMATCH" "Legacy identity did not match the already-active managed configuration."
+            if (-not $legacyProbedIdentity -or $deviceId -cne $legacyProbedIdentity -or
+                    $deviceId -cne $before.ActiveDeviceId -or $before.DeviceId -cne $deviceId) {
+                Throw-UpdateError "LEGACY_IDENTITY_MISMATCH" "Legacy receiver identity/configuration did not match the non-creating app-private identity proof."
             }
             $result.PreservationEvidence = "LEGACY_LIMITED_BASELINE"
         } else {
@@ -957,8 +993,6 @@ function Invoke-OneUpdate {
         }
         $result.ConfigVersionBefore = $before.ConfigVersion
         $result.PreReady = [bool](Get-ReadyState)
-        $installedSigner = @(Get-InstalledSignerDigests -RemoteApkPath $installed.BaseApkPath)
-        Assert-SignerCompatibility -InstalledDigests $installedSigner -TargetDigest ([string]$Bundle.Manifest.signerSha256).ToUpperInvariant()
         if (-not $ReportOnly -and -not $WhatIfPreference -and -not $ConfirmNotTransmitting) {
             if ($NonInteractive) {
                 Throw-UpdateError "TX_CONFIRMATION_REQUIRED" "Non-interactive mutation requires -ConfirmNotTransmitting."
