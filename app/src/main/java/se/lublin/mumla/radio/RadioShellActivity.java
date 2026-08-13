@@ -26,6 +26,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -68,6 +69,7 @@ import se.lublin.mumla.util.MumlaTrustStore;
 
 /** Single-screen radio client driven by the Last Known Good Minimum config. */
 public final class RadioShellActivity extends AppCompatActivity {
+    private static final String TAG = RadioShellActivity.class.getSimpleName();
     public static final String EXTRA_CONNECT_ON_PTT =
             "se.lublin.mumla.extra.CONNECT_ON_PTT";
     public static final String EXTRA_TOGGLE_IDENTITY =
@@ -96,6 +98,7 @@ public final class RadioShellActivity extends AppCompatActivity {
     private boolean retryAfterConfiguredCertificateTrust;
     private boolean configReceiverRegistered;
     private boolean pendingConfigTrial;
+    private int pendingConfigConnectionFailures;
     private boolean pendingConfigIoInFlight;
     private boolean connectionRetrySuspended;
     private boolean joinedConfiguredRoom;
@@ -230,9 +233,22 @@ public final class RadioShellActivity extends AppCompatActivity {
                 statusView.postDelayed(RadioShellActivity.this::maybeConnect, 400);
                 return;
             }
-            if (pendingConfigTrial && shouldRejectPendingTrial(error)) {
-                failPendingConfiguration();
-                return;
+            if (pendingConfigTrial && error != null) {
+                boolean networkConnected = RadioConfigUpdater.isNetworkConnected(
+                        RadioShellActivity.this);
+                if (error.getReason() == HumlaException.HumlaDisconnectReason.CONNECTION_ERROR
+                        && networkConnected) {
+                    pendingConfigConnectionFailures++;
+                    Log.w(TAG, "Pending config trial connection failure "
+                            + pendingConfigConnectionFailures + "/"
+                            + PendingConfigTrialPolicy.MAX_CONNECTED_NETWORK_FAILURES);
+                }
+                if (PendingConfigTrialPolicy.shouldReject(error.getReason(), networkConnected,
+                        pendingConfigConnectionFailures)) {
+                    Log.w(TAG, "Pending config trial rejected after bounded connection checks");
+                    failPendingConfiguration();
+                    return;
+                }
             }
             if (reconnectAfterDisconnect) {
                 reconnectAfterDisconnect = false;
@@ -720,6 +736,7 @@ public final class RadioShellActivity extends AppCompatActivity {
 
     private void beginPendingConfigurationTrial(RadioConnectionConfig candidate) {
         pendingConfigTrial = true;
+        pendingConfigConnectionFailures = 0;
         applyConfigurationToUi(candidate);
         setStatus(COLOR_BUSY, getString(R.string.radio_config_testing));
 
@@ -747,6 +764,7 @@ public final class RadioShellActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     pendingConfigIoInFlight = false;
                     pendingConfigTrial = false;
+                    pendingConfigConnectionFailures = 0;
                     if (service != null) {
                         service.reloadTrackingConfig();
                     }
@@ -789,6 +807,7 @@ public final class RadioShellActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 pendingConfigIoInFlight = false;
                 pendingConfigTrial = false;
+                pendingConfigConnectionFailures = 0;
                 if (destroyed) {
                     return;
                 }
@@ -815,22 +834,6 @@ public final class RadioShellActivity extends AppCompatActivity {
                 maybeConnect();
             });
         }, "minimum-radio-config-rollback").start();
-    }
-
-    private boolean shouldRejectPendingTrial(HumlaException error) {
-        if (error == null) {
-            return false;
-        }
-        switch (error.getReason()) {
-            case REJECT:
-            case OTHER_ERROR:
-                return true;
-            case CONNECTION_ERROR:
-                return RadioConfigUpdater.isNetworkConnected(this);
-            case USER_REMOVE:
-            default:
-                return false;
-        }
     }
 
     private void maybeConnect() {
