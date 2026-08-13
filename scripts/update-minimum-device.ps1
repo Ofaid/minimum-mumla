@@ -1206,7 +1206,9 @@ do {
     if ($choice -ieq "Q") { break }
 } while ($true)
 
-$summary = Format-SessionSummary -Results @($results) -TargetVersion ([string]$bundle.Manifest.versionName)
+# Windows PowerShell 5.1 can throw "Argument types do not match" when array-subexpressing a
+# generic List[object]. ToArray preserves the completed sequential results without binder coercion.
+$summary = Format-SessionSummary -Results $results.ToArray() -TargetVersion ([string]$bundle.Manifest.versionName)
 Write-Host ""
 Write-Host $summary
 Write-SessionSummaryReport -Summary $summary -SessionId $sessionId -Directory $ReportDirectory
