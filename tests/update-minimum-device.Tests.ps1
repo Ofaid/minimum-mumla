@@ -245,6 +245,10 @@ function Set-UpdaterScenarioMocks {
         }
         return $global:UpdaterScenario.Before.DeviceId
     }
+    Set-Item Function:\Get-LegacyReadyUiEvidence {
+        $global:UpdaterScenario.Transcript.Add("READY_UI_PROBE")
+        return Parse-LegacyReadyUiEvidence -WindowDump $global:UpdaterScenario.WindowDump -UiXml $global:UpdaterScenario.UiXml
+    }
     Set-Item Function:\Get-Identity {
         param([switch]$Legacy)
         $global:UpdaterScenario.IdentityCalls++
@@ -291,6 +295,8 @@ function New-UpdaterScenario {
         Profile=$Profile; Manufacturer=$hardware[0]; Model=$hardware[1]; InstalledCode=3070300
         Before=(New-UpdaterStatus -Level $Level); After=(New-UpdaterStatus -Level "EXTENDED")
         InstalledSigners=@("A" * 64); Installed=$false; PostVersionMismatch=$false; RebootFailure=$false; LegacyProbeAvailable=$true
+        WindowDump="mCurrentFocus=Window{42 u0 se.lublin.mumla/.radio.RadioShellActivity}"
+        UiXml='<hierarchy><node package="se.lublin.mumla" content-desc="minimum-state-ready"/><node package="se.lublin.mumla" content-desc="Channel E21AS"/></hierarchy>'
         InstallCalls=0; IdentityCalls=0; MigrationCalls=0; RyksCalls=0; StartCalls=0; PackageReads=0
         Transcript=[Collections.Generic.List[string]]::new()
     }
@@ -313,6 +319,7 @@ Test-Case "legacy 3070300 to 3070301 state-machine bootstraps expanded evidence"
     $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "LEGACYOK"
     Assert-Equal "PASS" $result.Result "result ($($result.ErrorCategory): $($result.Detail))"
     Assert-Equal "BOOTSTRAPPED_POST_UPDATE" $result.PreservationEvidence "bootstrap evidence"
+    Assert-Equal "LEGACY_RUN_AS_ID" $result.LegacyProofMode "proof mode"
     Assert-Equal @("RUN_AS_IDENTITY", "STATUS", "IDENTITY_LEGACY") @($scenario.Transcript) "noncreating proof before receiver transcript"
     Assert-Equal 1 $scenario.InstallCalls "install count"
     Assert-Equal 2 $scenario.MigrationCalls "apply plus post-reboot verify"
@@ -321,12 +328,13 @@ Test-Case "legacy 3070300 to 3070301 state-machine bootstraps expanded evidence"
 Test-Case "legacy unprovisioned state is rejected without identity or install" {
     $scenario = New-UpdaterScenario -Level "LEGACY"
     $scenario.LegacyProbeAvailable = $false
+    $scenario.UiXml = '<hierarchy><node package="se.lublin.mumla" content-desc="minimum-state-offline"/></hierarchy>'
     Set-UpdaterScenarioMocks $scenario
     $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "LEGACYNO"
     Assert-Equal "LEGACY_NONCREATING_PROBE_UNAVAILABLE" $result.ErrorCategory "category"
     Assert-Equal 0 $scenario.IdentityCalls "identity calls"
     Assert-Equal 0 $scenario.InstallCalls "install count"
-    Assert-Equal @("RUN_AS_IDENTITY") @($scenario.Transcript) "no receiver transcript"
+    Assert-Equal @("RUN_AS_IDENTITY", "READY_UI_PROBE") @($scenario.Transcript) "no receiver transcript"
 }
 
 Test-Case "legacy signer mismatch is reached preinstall without mutation" {
@@ -342,13 +350,56 @@ Test-Case "legacy signer mismatch is reached preinstall without mutation" {
 
 Test-Case "legacy ReportOnly without run-as proof invokes no receiver" {
     $scenario = New-UpdaterScenario -Level "LEGACY"; $scenario.LegacyProbeAvailable = $false
+    $scenario.UiXml = '<hierarchy><node package="se.lublin.mumla" content-desc="minimum-state-offline"/></hierarchy>'
     Set-UpdaterScenarioMocks $scenario
     $ReportOnly = $true
     try { $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "LEGACYREPORT" } finally { $ReportOnly = $false }
     Assert-Equal "LEGACY_NONCREATING_PROBE_UNAVAILABLE" $result.ErrorCategory "category"
-    Assert-Equal @("RUN_AS_IDENTITY") @($scenario.Transcript) "noncreating probe only"
+    Assert-Equal @("RUN_AS_IDENTITY", "READY_UI_PROBE") @($scenario.Transcript) "noncreating probes only"
     Assert-Equal 0 $scenario.IdentityCalls "receiver identity calls"
     Assert-Equal 0 $scenario.InstallCalls "install count"
+}
+
+Test-Case "legacy Ready UI fallback permits receiver only after focused package proof" {
+    $scenario = New-UpdaterScenario -Profile "T56" -Level "LEGACY"; $scenario.LegacyProbeAvailable = $false
+    Set-UpdaterScenarioMocks $scenario
+    $ReportOnly = $true
+    try { $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "LEGACYUI" } finally { $ReportOnly = $false }
+    Assert-Equal "WARN" $result.Result "legacy report result"
+    Assert-Equal "LEGACY_READY_UI" $result.LegacyProofMode "proof mode"
+    Assert-Equal "E21AS" $result.LegacySelectedChannelBefore "channel baseline"
+    Assert-Equal @("RUN_AS_IDENTITY", "READY_UI_PROBE", "STATUS", "IDENTITY_LEGACY") @($scenario.Transcript) "proof-before-receiver transcript"
+    Assert-Equal 0 $scenario.InstallCalls "install count"
+}
+
+Test-Case "legacy Ready UI fallback rejects wrong package before receiver" {
+    $scenario = New-UpdaterScenario -Level "LEGACY"; $scenario.LegacyProbeAvailable = $false
+    $scenario.UiXml = '<hierarchy><node package="other.app" content-desc="minimum-state-ready"/><node package="other.app" content-desc="Channel E21AS"/></hierarchy>'
+    Set-UpdaterScenarioMocks $scenario
+    $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "WRONGPKG"
+    Assert-Equal "LEGACY_NONCREATING_PROBE_UNAVAILABLE" $result.ErrorCategory "category"
+    Assert-Equal @("RUN_AS_IDENTITY", "READY_UI_PROBE") @($scenario.Transcript) "no receiver transcript"
+    Assert-Equal 0 $scenario.IdentityCalls "identity receiver calls"
+}
+
+Test-Case "legacy Ready UI fallback rejects not-Ready screen before receiver" {
+    $scenario = New-UpdaterScenario -Level "LEGACY"; $scenario.LegacyProbeAvailable = $false
+    $scenario.UiXml = '<hierarchy><node package="se.lublin.mumla" content-desc="minimum-state-connecting"/></hierarchy>'
+    Set-UpdaterScenarioMocks $scenario
+    $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "NOTREADY"
+    Assert-Equal "LEGACY_NONCREATING_PROBE_UNAVAILABLE" $result.ErrorCategory "category"
+    Assert-Equal @("RUN_AS_IDENTITY", "READY_UI_PROBE") @($scenario.Transcript) "no receiver transcript"
+    Assert-Equal 0 $scenario.IdentityCalls "identity receiver calls"
+}
+
+Test-Case "legacy Ready UI fallback rejects unfocused app before receiver" {
+    $scenario = New-UpdaterScenario -Level "LEGACY"; $scenario.LegacyProbeAvailable = $false
+    $scenario.WindowDump = "mCurrentFocus=Window{42 u0 com.android.settings/.Settings}"
+    Set-UpdaterScenarioMocks $scenario
+    $result = Invoke-OneUpdate -Bundle (New-UpdaterBundle) -SessionId "UNFOCUSED"
+    Assert-Equal "LEGACY_NONCREATING_PROBE_UNAVAILABLE" $result.ErrorCategory "category"
+    Assert-Equal @("RUN_AS_IDENTITY", "READY_UI_PROBE") @($scenario.Transcript) "no receiver transcript"
+    Assert-Equal 0 $scenario.IdentityCalls "identity receiver calls"
 }
 
 Test-Case "ReportOnly uses existing identity and never installs" {

@@ -51,11 +51,15 @@ The `3070300` receiver exposes only the five-field legacy status and its legacy 
 identity. For this single `3070300`-or-older to `3070301` bridge, the updater first uses Android's
 read-only `run-as` boundary to extract only the existing six-character public identity from the
 debuggable app's private preferences, without invoking application code or printing the preference
-file. If `run-as` is unavailable or no existing ID is present, `-ReportOnly`, `-WhatIf` and update
-all fail with `LEGACY_NONCREATING_PROBE_UNAVAILABLE` before any receiver action. This currently
-supports the known same-debug-signer E7ROW7 acceptance path; a non-debuggable legacy Release needs
-a separately reviewed non-creating bridge before in-place updating. After the probe, status must
-also prove a non-pending active LKG and both legacy receiver results must match the probed ID.
+file. If `run-as` is unavailable, it does not start Minimum. Instead, the operator must already have
+woken/unlocked the radio and manually opened the existing RadioShell Ready screen. The updater then
+requires that exact activity to be focused and a fresh UI hierarchy to contain package-bound
+`minimum-state-ready`; it records proof mode `LEGACY_READY_UI` and a safe `Channel <name>` baseline
+when present. The temporary device-side hierarchy is removed immediately and its raw XML is never
+saved in a report. Wrong-package, unfocused, screen-off or non-Ready evidence fails with
+`LEGACY_NONCREATING_PROBE_UNAVAILABLE` before any receiver. After either proof, status must also
+prove a non-pending active LKG and the legacy status/identity results must match each other (and the
+private ID when `run-as` supplied one).
 Selected channel, LKG digest and safe-settings digest are
 recorded as `UNAVAILABLE_LEGACY`; after installation the new expanded report is mandatory and those
 fields are marked `BOOTSTRAPPED_POST_UPDATE`, not falsely claimed as pre/post preservation proof.
@@ -97,7 +101,8 @@ is not automated; the old APK is not included in the bundle.
   connectivity if safe, and use the sanitized report for diagnosis.
 - `LEGACY_NONCREATING_PROBE_UNAVAILABLE`, `LEGACY_NOT_PROVISIONED` or `LEGACY_BRIDGE_UNSUPPORTED`:
   no receiver or install was allowed when the non-creating probe failed;
-  provision the radio through the reviewed provisioning path or use the exact approved bridge.
+  wake/unlock and manually open the existing Ready RadioShell, or provision the radio through the
+  reviewed provisioning path. The updater never starts the app to manufacture this evidence.
 - `READY_TIMEOUT`, `BOOT_TIMEOUT`, `REBOOT_TARGET_AMBIGUOUS`: keep the intended unit isolated,
   restore USB authorization/connectivity and rerun. A successful install alone is never PASS.
 - Interrupted USB: reconnect the same radio and rerun. Verification and migrations are designed to

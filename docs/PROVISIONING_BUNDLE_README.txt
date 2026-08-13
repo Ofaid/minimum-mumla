@@ -17,10 +17,13 @@ identity/config preservation and Ready. Read "UPDATER-README.md" in this bundle 
 modes and recovery guidance.
 
 For the one-time 3070300-to-3070301 compatibility bridge, a non-creating Android run-as probe must
-first read only the existing public Device ID from app-private preferences. This supports the known
-debuggable E7ROW7 acceptance build. If the app is non-debuggable or no identity exists, every mode
-fails before any legacy receiver action. Status and identity are called only after that proof and
-must match it. Fields unavailable in 3070300 are marked BOOTSTRAPPED_POST_UPDATE after the new
+first read only the existing public Device ID from app-private preferences. If run-as is unavailable,
+the operator must wake/unlock and manually open the existing RadioShell Ready screen. The updater
+does not start it: it requires the activity already focused plus package-bound minimum-state-ready
+in a fresh UI hierarchy, records LEGACY_READY_UI and a safe Channel baseline, then deletes the
+temporary UI file without reporting raw XML. Wrong-package, unfocused or non-Ready evidence fails
+before any legacy receiver. Status and identity are called only after either proof and must agree.
+Fields unavailable in 3070300 are marked BOOTSTRAPPED_POST_UPDATE after the new
 expanded report; they are not falsely reported as preserved from the legacy baseline.
 
 The bundle also includes "CELLULAR-README.md" and "scripts\manage-cellular.ps1". On the reviewed

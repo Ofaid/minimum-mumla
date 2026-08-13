@@ -851,6 +851,58 @@ function Get-LegacyExistingIdentityViaRunAs {
     return $identity
 }
 
+function Parse-LegacyReadyUiEvidence {
+    param([string]$WindowDump, [string]$UiXml)
+    $focusedShell = $WindowDump -match '(?m)^\s*mCurrentFocus=.*\bse\.lublin\.mumla/(?:\.radio\.RadioShellActivity|se\.lublin\.mumla\.radio\.RadioShellActivity)\b'
+    if (-not $focusedShell) {
+        Throw-UpdateError "LEGACY_NONCREATING_PROBE_UNAVAILABLE" "Legacy Minimum was not already focused on RadioShell. Wake/unlock the radio and open the existing app manually, then retry; the updater did not start it or call a receiver."
+    }
+    $ready = $false
+    $selectedChannel = ""
+    foreach ($match in [regex]::Matches($UiXml, '(?is)<node\b[^>]*>')) {
+        $node = $match.Value
+        if ($node -notmatch '(?:^|\s)package="se\.lublin\.mumla"(?:\s|/?>)') { continue }
+        if ($node -match '(?:^|\s)content-desc="minimum-state-ready"(?:\s|/?>)') { $ready = $true }
+        $channel = [regex]::Match($node, '(?:^|\s)content-desc="Channel ([A-Za-z0-9._-]{1,64})"(?:\s|/?>)')
+        if ($channel.Success) { $selectedChannel = $channel.Groups[1].Value }
+    }
+    if (-not $ready) {
+        Throw-UpdateError "LEGACY_NONCREATING_PROBE_UNAVAILABLE" "The already-focused legacy app did not expose package-bound Ready evidence. Open the existing Ready screen manually and retry; no receiver was called."
+    }
+    return [pscustomobject]@{ Mode = "LEGACY_READY_UI"; Identity = ""; SelectedChannel = $selectedChannel }
+}
+
+function Get-LegacyReadyUiEvidence {
+    $window = Invoke-TargetAdb -Arguments @("shell", "dumpsys", "window", "windows") -AllowFailure
+    if ($window.ExitCode -ne 0) {
+        Throw-UpdateError "LEGACY_NONCREATING_PROBE_UNAVAILABLE" "The focused legacy app could not be verified. Wake/unlock it and open the existing app manually; no receiver was called."
+    }
+    $remote = "/data/local/tmp/minimum-legacy-ready-$([guid]::NewGuid().ToString('N')).xml"
+    try {
+        $dump = Invoke-TargetAdb -Arguments @("shell", "uiautomator", "dump", $remote) -AllowFailure
+        if ($dump.ExitCode -ne 0) {
+            Throw-UpdateError "LEGACY_NONCREATING_PROBE_UNAVAILABLE" "A fresh legacy Ready UI snapshot could not be obtained; no receiver was called."
+        }
+        $ui = Invoke-TargetAdb -Arguments @("shell", "cat", $remote) -AllowFailure
+        if ($ui.ExitCode -ne 0) {
+            Throw-UpdateError "LEGACY_NONCREATING_PROBE_UNAVAILABLE" "The fresh legacy Ready UI snapshot could not be read; no receiver was called."
+        }
+        return Parse-LegacyReadyUiEvidence -WindowDump $window.Output -UiXml $ui.Output
+    } finally {
+        Invoke-TargetAdb -Arguments @("shell", "rm", "-f", $remote) -AllowFailure | Out-Null
+    }
+}
+
+function Get-LegacyNonCreatingEvidence {
+    try {
+        $identity = Get-LegacyExistingIdentityViaRunAs
+        return [pscustomobject]@{ Mode = "LEGACY_RUN_AS_ID"; Identity = $identity; SelectedChannel = "" }
+    } catch {
+        if ((Get-ErrorCategory -Message $_.Exception.Message) -cne "LEGACY_NONCREATING_PROBE_UNAVAILABLE") { throw }
+    }
+    return Get-LegacyReadyUiEvidence
+}
+
 function Wait-BootCompleted {
     param([int]$TimeoutSeconds)
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -891,6 +943,8 @@ function Write-SanitizedReports {
         "Artifact verification: $($Result.ArtifactVerification)",
         "Migrations: $migrationSummary",
         "Preservation evidence: $($Result.PreservationEvidence)",
+        "Legacy proof mode: $($Result.LegacyProofMode)",
+        "Legacy selected channel baseline: $($Result.LegacySelectedChannelBefore)",
         "Pre-update Ready: $($Result.PreReady)",
         "Post-update Ready: $($Result.PostReady)",
         "Reboot acceptance: $($Result.RebootAcceptance)",
@@ -923,7 +977,8 @@ function Invoke-OneUpdate {
         TargetVersion = [string]$Bundle.Manifest.versionName; ArtifactVerification = "VERIFIED"
         Migrations = @(); PreReady = $false; PostReady = $false; RebootAcceptance = "NOT_REQUIRED"
         RollbackAssessment = "NOT_AUTOMATED; old APK is not included and no data migration is declared"
-        PreservationEvidence = "NOT_CAPTURED"
+        PreservationEvidence = "NOT_CAPTURED"; LegacyProofMode = "NOT_APPLICABLE"
+        LegacySelectedChannelBefore = ""
         ConfigVersionBefore = -1; ConfigVersionAfter = -1; Result = "FAIL"
         ErrorCategory = ""; Detail = ""
     }
@@ -956,9 +1011,11 @@ function Invoke-OneUpdate {
         # This lets unsupported/non-debuggable legacy channels fail with zero app-state mutation.
         $installedSigner = @(Get-InstalledSignerDigests -RemoteApkPath $installed.BaseApkPath)
         Assert-SignerCompatibility -InstalledDigests $installedSigner -TargetDigest ([string]$Bundle.Manifest.signerSha256).ToUpperInvariant()
-        $legacyProbedIdentity = ""
+        $legacyEvidence = $null
         if ($installed.VersionCode -le 3070300) {
-            $legacyProbedIdentity = Get-LegacyExistingIdentityViaRunAs
+            $legacyEvidence = Get-LegacyNonCreatingEvidence
+            $result.LegacyProofMode = $legacyEvidence.Mode
+            $result.LegacySelectedChannelBefore = $legacyEvidence.SelectedChannel
         }
         # Status is deliberately queried before either identity action. A legacy identity action
         # may call getOrCreate, so it is permitted only after the app-private run-as probe has
@@ -971,8 +1028,10 @@ function Invoke-OneUpdate {
             Assert-LegacyBridgeEligible -Status $before -InstalledVersionCode $installed.VersionCode `
                 -TargetVersionCode ([long]$Bundle.Manifest.versionCode)
             $deviceId = Get-Identity -Legacy
-            if (-not $legacyProbedIdentity -or $deviceId -cne $legacyProbedIdentity -or
-                    $deviceId -cne $before.ActiveDeviceId -or $before.DeviceId -cne $deviceId) {
+            $privateIdMismatch = $legacyEvidence.Mode -ceq "LEGACY_RUN_AS_ID" -and
+                $deviceId -cne $legacyEvidence.Identity
+            if (-not $legacyEvidence -or $privateIdMismatch -or $deviceId -cne $before.ActiveDeviceId -or
+                    $before.DeviceId -cne $deviceId) {
                 Throw-UpdateError "LEGACY_IDENTITY_MISMATCH" "Legacy receiver identity/configuration did not match the non-creating app-private identity proof."
             }
             $result.PreservationEvidence = "LEGACY_LIMITED_BASELINE"
@@ -1116,6 +1175,7 @@ try {
         TargetVersion = "unknown"; ArtifactVerification = "FAILED"; Migrations = @()
         PreReady = $false; PostReady = $false; RebootAcceptance = "NOT_RUN"
         RollbackAssessment = "NO_MUTATION"; PreservationEvidence = "NOT_CAPTURED"
+        LegacyProofMode = "NOT_CAPTURED"; LegacySelectedChannelBefore = ""
         ConfigVersionBefore = -1; ConfigVersionAfter = -1
         Result = "FAIL"; ErrorCategory = Get-ErrorCategory -Message $safe
         Detail = [regex]::Replace($safe, '^\[[A-Z0-9_]+\]\s*', '')
