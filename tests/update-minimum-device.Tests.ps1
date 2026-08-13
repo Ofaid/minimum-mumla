@@ -117,6 +117,20 @@ Test-Case "apksigner output parser requires verified signer digest" {
     Assert-ThrowsCode { Parse-ApkSignerOutput "DOES NOT VERIFY" } "APK_SIGNATURE_INVALID" "missing signer digest"
 }
 
+Test-Case "apksigner process rejects command-stream injection characters" {
+    $oldResolver = (Get-Item Function:\Resolve-ApkSigner).ScriptBlock
+    try {
+        Set-Item Function:\Resolve-ApkSigner { "C:\safe\apksigner.bat" }
+        Assert-ThrowsCode { Get-ApkSignerDigests 'C:\release\bad%PATH%.apk' } "APK_SIGNATURE_INVALID" "cmd expansion refused"
+        Set-Item Function:\Resolve-ApkSigner { "C:\bad`"tool\apksigner.bat" }
+        Assert-ThrowsCode { Get-ApkSignerDigests 'C:\release\minimum.apk' } "APK_SIGNATURE_INVALID" "quote refused"
+        Set-Item Function:\Resolve-ApkSigner { "C:\safe\apksigner.bat" }
+        Assert-ThrowsCode { Get-ApkSignerDigests "C:\release\minimum.apk`nextra" } "APK_SIGNATURE_INVALID" "newline refused"
+    } finally {
+        Set-Item Function:\Resolve-ApkSigner $oldResolver
+    }
+}
+
 Test-Case "migration dispatch is exact, versioned, and T56-only" {
     $migration = [pscustomobject]@{ id="CELLULAR_POLICY_V1_T56"; fromVersionCodeMax=3070300; toVersionCode=3070301; profiles=@("T56"); rebootRequired=$true; irreversible=$false }
     Assert-Equal 1 @(Get-RequiredMigrations @($migration) 3070300 3070301 "T56").Count "T56 migration"
@@ -192,9 +206,13 @@ Test-Case "bundle allowlist and checksum reject tampering" {
     }
 }
 
-$realApkPath = Join-Path $PSScriptRoot "..\app\build\outputs\apk\foss\debug\mumla-foss-debug.apk"
+$realApkPath = if ($env:MINIMUM_TEST_SIGNED_APK) {
+    $env:MINIMUM_TEST_SIGNED_APK
+} else {
+    Join-Path $PSScriptRoot "..\app\build\outputs\apk\foss\debug\mumla-foss-debug.apk"
+}
 if (Test-Path -LiteralPath $realApkPath -PathType Leaf) {
-    Test-Case "real built APK identity and signer parsing" {
+    Test-Case "real built APK identity and raw apksigner process parsing" {
         $identity = Get-ApkManifestIdentity -ApkPath $realApkPath
         Assert-Equal "se.lublin.mumla" $identity.ApplicationId "real APK package"
         Assert-Equal ([long]3070301) $identity.VersionCode "real APK version code"

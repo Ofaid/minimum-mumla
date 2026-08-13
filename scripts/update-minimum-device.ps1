@@ -374,13 +374,60 @@ function Parse-ApkSignerOutput {
 function Get-ApkSignerDigests {
     param([Parameter(Mandatory)][string]$ApkPath)
     $apksigner = Resolve-ApkSigner
-    $previous = $ErrorActionPreference
+    # Do not use PowerShell's native-command stream redirection here. On Linux,
+    # pwsh can wrap output from the extensionless apksigner launcher as error
+    # records, losing the certificate lines when those records are stringified.
+    # Process captures the launcher's raw stdout/stderr on every supported host.
+    if ($ApkPath.IndexOfAny(@([char]0, [char]10, [char]13, [char]34)) -ge 0 -or
+            $apksigner.IndexOfAny(@([char]0, [char]10, [char]13, [char]34)) -ge 0) {
+        Throw-UpdateError "APK_SIGNATURE_INVALID" "Unsafe character in the APK or apksigner path."
+    }
+    $start = New-Object System.Diagnostics.ProcessStartInfo
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    if ($apksigner.EndsWith(".bat", [StringComparison]::OrdinalIgnoreCase)) {
+        if (-not $env:ComSpec) {
+            Throw-UpdateError "APKSIGNER_MISSING" "The Windows command processor required for apksigner.bat is unavailable."
+        }
+        # cmd expands percent variables even inside quotes. Refuse percent rather
+        # than allow either path to be rewritten before the reviewed tool runs.
+        if ($ApkPath.Contains('%') -or $apksigner.Contains('%')) {
+            Throw-UpdateError "APK_SIGNATURE_INVALID" "Unsafe character in the Windows APK or apksigner path."
+        }
+        $start.FileName = $env:ComSpec
+        $start.Arguments = "/d /s /v:off /c `"`"$apksigner`" verify --verbose --print-certs `"$ApkPath`"`""
+    } else {
+        $start.FileName = $apksigner
+        $start.Arguments = "verify --verbose --print-certs `"$ApkPath`""
+    }
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $start
     try {
-        $ErrorActionPreference = "Continue"
-        $output = @(& $apksigner verify --verbose --print-certs $ApkPath 2>&1)
-        $exitCode = $LASTEXITCODE
-    } finally { $ErrorActionPreference = $previous }
-    $text = (($output | ForEach-Object { [string]$_ }) -join "`n").Trim()
+        if (-not $process.Start()) {
+            Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner could not be started."
+        }
+        # Drain both pipes concurrently so a noisy rejected file cannot fill one
+        # pipe and deadlock while the other is read. Signature verification is
+        # local and bounded; a hung tool is killed and refused after 30 seconds.
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(30000)) {
+            try { $process.Kill() } catch { }
+            $process.WaitForExit()
+            Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner timed out; no installation was attempted."
+        }
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        $exitCode = $process.ExitCode
+    } catch {
+        if ($_.Exception.Message -match '^\[APK_SIGNATURE_INVALID\]') { throw }
+        Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner could not be executed; no installation was attempted."
+    } finally {
+        $process.Dispose()
+    }
+    $text = (($stdout, $stderr) -join "`n").Trim()
     if ($exitCode -ne 0) {
         Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner rejected the APK signature; no installation was attempted."
     }

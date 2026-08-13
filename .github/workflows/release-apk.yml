@@ -148,6 +148,7 @@ jobs:
             throw "Updater failed PowerShell AST parsing."
           }
           ./tools/verify-cellular-policy.ps1
+          $env:MINIMUM_TEST_SIGNED_APK = (Resolve-Path 'app/build/outputs/apk/foss/release/mumla-foss-release.apk').Path
           ./tests/update-minimum-device.Tests.ps1
       - name: Build temporary Wi-Fi provisioner
         run: |
