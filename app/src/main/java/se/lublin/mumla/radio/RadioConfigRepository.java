@@ -95,6 +95,19 @@ public final class RadioConfigRepository {
         return fallback;
     }
 
+    /** Reads the active Last Known Good cache without fallback, rollback, creation, or mutation. */
+    public JSONObject loadActiveForReport() throws IOException, JSONException {
+        synchronized (CACHE_LOCK) {
+            File active = new File(cacheDirectoryForRead(), ACTIVE_FILE);
+            if (!active.isFile()) {
+                throw new IOException("active radio config is missing");
+            }
+            JSONObject cached = readJson(active);
+            validateCompleteConfig(cached, null);
+            return cached;
+        }
+    }
+
     /**
      * Fetches and merges default, model and optional device configuration. The result is staged as
      * pending and cannot replace the Last Known Good active config until the radio proves it works.
@@ -509,6 +522,14 @@ public final class RadioConfigRepository {
         File directory = new File(context.getFilesDir(), "radio-config");
         if (!directory.isDirectory() && !directory.mkdirs() && !directory.isDirectory()) {
             throw new IllegalStateException("cannot create radio config cache");
+        }
+        return directory;
+    }
+
+    private File cacheDirectoryForRead() throws IOException {
+        File directory = new File(context.getFilesDir(), "radio-config");
+        if (!directory.isDirectory()) {
+            throw new IOException("radio config cache is missing");
         }
         return directory;
     }

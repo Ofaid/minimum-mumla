@@ -16,6 +16,13 @@ all bundle file hashes, APK checksum/package/version/signer, installed signer co
 identity/config preservation and Ready. Read "UPDATER-README.md" in this bundle for advanced
 modes and recovery guidance.
 
+The bundle also includes "CELLULAR-README.md" and "scripts\manage-cellular.ps1". On the reviewed
+3.7.3-minimum.2 / versionCode 3070301 update, T56 devices crossing from versionCode 3070300 or
+older receive the exact CELLULAR_POLICY_V1_T56 migration and post-reboot verification. T99 and
+RYKS do not receive that model-specific setting change. Cellular readiness may remain WARN when
+the OEM blocks APN inspection or the carrier route is unavailable; read the cellular guide before
+accepting that limitation. Data Roaming can incur carrier charges.
+
 Supported hardware identities
 -----------------------------
 
@@ -30,6 +37,8 @@ Requirements
 
 - Windows 10 or Windows 11
 - Android Platform Tools (adb.exe) available in PATH
+- Android Build Tools apksigner available in PATH, ANDROID_HOME/ANDROID_SDK_ROOT, or the standard
+  local Android SDK; the updater refuses installation when full signature verification is absent
 - Internet access to https://minimum.vra.or.th/
 - A Minimum Portal administrator account
 - USB debugging enabled and authorized on the radio

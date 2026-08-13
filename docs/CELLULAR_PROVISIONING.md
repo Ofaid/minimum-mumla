@@ -3,7 +3,7 @@
 The T56 provisioning workflow applies a guarded cellular policy before its final connectivity
 checks and the one-shot provisioner verifies it again after reboot. The policy is deliberately
 limited to the commissioned `UNIPRO/ZX`, Android API 22, build `T56`, L811 modem family. Unknown
-hardware or firmware is rejected before a numeric preferred-network value can be written.
+hardware or firmware is rejected before any cellular setting can be changed.
 
 ## Policy and cost warning
 
@@ -11,25 +11,28 @@ hardware or firmware is rejected before a numeric preferred-network value can be
 - Pass `-DisableDataRoaming` to `prepare-t56.ps1` or `provision-minimum-device.ps1` when the SIM
   agreement prohibits roaming. The opt-out writes and verifies the disabled value.
 - Mobile data is enabled and read back.
-- An existing LTE-capable automatic mode with legacy fallback is preserved. LTE-only and unknown
-  modes are unsafe. On the verified T56 firmware only, an unsafe mode is replaced with symbolic
-  `LTE/TDSCDMA/CDMA/EVDO/GSM/WCDMA automatic` (OEM value 22). Never copy that numeric value to a
-  different Android/OEM build.
+- The commissioned LTE-capable automatic mode with legacy fallback is preserved. LTE-only and
+  unknown modes are unsafe. Android API 22's `Settings.Global` database does not prove that a modem
+  accepted a preferred-mode write, so this workflow does not rewrite the numeric mode or claim it
+  was applied. The accepted T56 reports symbolic
+  `LTE/TDSCDMA/CDMA/EVDO/GSM/WCDMA automatic` (OEM value 22); any other mode is `WARN` and requires a
+  separately verified OEM/telephony control path. Never copy that numeric value to another build.
 - `manage-cellular.ps1 -VerifyOnly` makes no change and is suitable for post-reboot checks.
 
 The report contains model/build, symbolic radio mode, SIM readiness, service state, voice/data RAT,
 roaming state, data state, sanitized signal value/source, and only the status of the selected APN.
 It does not query or print IMEI, IMSI, ICCID, phone number, APN name, APN credentials, or exact cell
-identity. The shell cannot read the selected APN on the commissioned firmware, so this is reported
-as a distinct warning rather than guessed.
+identity. The script requests only the non-secret preferred-APN row identifier. The shell cannot
+read even that projection on the commissioned firmware, so access unavailable is a distinct
+warning rather than reading or guessing APN fields.
 
 ## Outcomes and bounded recovery
 
 `PASS` means the setting readbacks, SIM, registration, safe preferred mode, mobile-data policy, APN
 status, and cellular route were verifiable. `WARN` accepts registered 3G/2G fallback, an inactive
-cellular route while another transport is active, or OEM-restricted APN inspection. `FAIL` covers a
-SIM that is not ready, a setting mismatch, unsafe preferred mode, disabled mobile data, missing
-service, or a verified missing APN.
+cellular route while another transport is active, an unsafe/unverifiable preferred-mode boundary,
+or OEM-restricted APN inspection. `FAIL` covers a SIM that is not ready, a roaming/mobile-data
+readback mismatch, disabled mobile data, or missing cellular service.
 
 If registration is stale, perform at most one controlled airplane-mode re-registration or reboot,
 then run the verifier again. Do not loop, force LTE-only, overwrite carrier APNs, clear Minimum app

@@ -60,19 +60,31 @@ Test-Case "reboot transport change chooses unique same profile" {
         [pscustomobject]@{ Serial="new"; State="device"; TransportId=9; Manufacturer="UNIPRO"; Model="ZX" },
         [pscustomobject]@{ Serial="other"; State="device"; TransportId=10; Manufacturer="Other"; Model="Other" }
     )
-    Assert-Equal "new" (Find-ReturningCandidate $records "UNIPRO" "ZX" "old").Serial "returning"
+    Assert-Equal $null (Find-ReturningCandidate $records "UNIPRO" "ZX" "old") "model-only refused"
+    $records[0] | Add-Member DeviceId "A1B2C3"
+    Assert-Equal "new" (Find-ReturningCandidate $records "UNIPRO" "ZX" "old" "A1B2C3").Serial "identity-correlated returning"
     $ambiguous = @($records[0], [pscustomobject]@{ Serial="new2"; State="device"; TransportId=11; Manufacturer="UNIPRO"; Model="ZX" })
     Assert-Equal $null (Find-ReturningCandidate $ambiguous "UNIPRO" "ZX" "old") "ambiguous return"
 }
 
-Test-Case "package and managed-status transcripts" {
+Test-Case "package and preservation snapshot transcripts" {
     $package = Parse-PackageState "Packages:`n  versionCode=3070300 minSdk=21 targetSdk=36`n  versionName=3.7.3-minimum.1-debug"
     Assert-Equal ([long]3070300) $package.VersionCode "package code"
     Assert-Equal "3.7.3-minimum.1-debug" $package.VersionName "package name"
-    $status = Parse-ProvisioningStatus 'Broadcast completed: result=0, data="deviceId=A1B2C3;activeDeviceId=A1B2C3;configVersion=14;pending=false;lastSuccessMs=123"'
+    $status = Parse-ProvisioningStatus ('Broadcast completed: result=0, data="deviceId=A1B2C3;activeDeviceId=A1B2C3;' +
+        'configVersion=14;pending=false;lastSuccessMs=123;selectedChannel=ops;' +
+        'activeConfigSha256=' + ('A' * 64) + ';safeSettingsSha256=' + ('B' * 64) + '"')
     Assert-Equal "A1B2C3" $status.DeviceId "device id"
     Assert-Equal 14 $status.ConfigVersion "config"
     Assert-True (-not $status.Pending) "pending false"
+    Assert-Equal "ops" $status.SelectedChannel "selected channel"
+    Assert-Equal ("A" * 64) $status.ActiveConfigSha256 "LKG digest"
+    Assert-Equal ("B" * 64) $status.SafeSettingsSha256 "safe settings digest"
+    $same = $status.PSObject.Copy()
+    Assert-PreservedState $status $same "after update"
+    $changed = $status.PSObject.Copy()
+    $changed.SelectedChannel = "other"
+    Assert-ThrowsCode { Assert-PreservedState $status $changed "after update" } "STATE_PRESERVATION_FAILED" "channel mutation"
 }
 
 Test-Case "debug to release signer mismatch is refused before install" {
@@ -86,10 +98,20 @@ Test-Case "matching signer accepted" {
     Assert-SignerCompatibility @($signer) $signer
 }
 
-Test-Case "migration dispatch refuses unknown requested behavior" {
-    $migration = [pscustomobject]@{ id="issue-11-cellular"; fromVersionCodeMax=3070300; toVersionCode=3070400; profiles=@("T56"); rebootRequired=$true; irreversible=$false }
-    Assert-ThrowsCode { Get-RequiredMigrations @($migration) 3070300 3070400 "T56" } "MIGRATION_NOT_IMPLEMENTED" "unapproved migration"
-    Assert-ThrowsCode { Get-RequiredMigrations @($migration) 3070300 3070400 "T99" } "MIGRATION_NOT_IMPLEMENTED" "unknown migration on other model"
+Test-Case "apksigner output parser requires verified signer digest" {
+    $digest = "168F42ED412DA80ADAF27BED0984DBEE191168E9DF04F08AFA240A3F9DE45972"
+    Assert-Equal $digest (Parse-ApkSignerOutput "Signer #1 certificate SHA-256 digest: $digest") "apksigner digest"
+    Assert-ThrowsCode { Parse-ApkSignerOutput "DOES NOT VERIFY" } "APK_SIGNATURE_INVALID" "missing signer digest"
+}
+
+Test-Case "migration dispatch is exact, versioned, and T56-only" {
+    $migration = [pscustomobject]@{ id="CELLULAR_POLICY_V1_T56"; fromVersionCodeMax=3070300; toVersionCode=3070301; profiles=@("T56"); rebootRequired=$true; irreversible=$false }
+    Assert-Equal 1 @(Get-RequiredMigrations @($migration) 3070300 3070301 "T56").Count "T56 migration"
+    Assert-Equal 0 @(Get-RequiredMigrations @($migration) 3070300 3070301 "T99").Count "T99 skip"
+    Assert-Equal 0 @(Get-RequiredMigrations @($migration) 3070301 3070301 "T56").Count "already migrated"
+    $unknown = [pscustomobject]@{ id="UNKNOWN_POLICY"; fromVersionCodeMax=3070300; toVersionCode=3070301; profiles=@("T56"); rebootRequired=$true; irreversible=$false }
+    Assert-ThrowsCode { Get-RequiredMigrations @($unknown) 3070300 3070301 "T56" } "MIGRATION_NOT_IMPLEMENTED" "unapproved migration"
+    Assert-ThrowsCode { Get-RequiredMigrations @($migration) 3070300 3070302 "T56" } "MIGRATION_CONTRACT" "wrong target"
 }
 
 Test-Case "unsafe relative bundle paths are refused" {
@@ -123,14 +145,15 @@ Test-Case "bundle allowlist and checksum reject tampering" {
         New-Item -ItemType Directory -Path (Join-Path $root "assets") | Out-Null
         $approved = @(
             "Provision Minimum Device.cmd", "README.txt", "UPDATER-README.md", "Update Minimum Device.cmd",
-            "VERSION.txt", "assets/t99-wifi-provisioner.apk", "minimum-foss.apk", "minimum-foss.apk.sha256",
+            "VERSION.txt", "CELLULAR-README.md", "assets/t99-wifi-provisioner.apk", "minimum-foss.apk", "minimum-foss.apk.sha256",
+            "scripts/manage-cellular.ps1",
             "scripts/prepare-ryks.ps1", "scripts/prepare-t56.ps1", "scripts/prepare-t99.ps1",
             "scripts/provision-minimum-device.ps1", "scripts/update-minimum-device.ps1"
         )
         foreach ($relative in $approved) {
             Set-Content -LiteralPath (Join-Path $root $relative.Replace('/', '\')) -Value "fixture-$relative" -NoNewline -Encoding ASCII
         }
-        Set-Content -LiteralPath (Join-Path $root "VERSION.txt") -Value "3.7.4" -NoNewline -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $root "VERSION.txt") -Value "3.7.3-minimum.2" -NoNewline -Encoding ASCII
         Set-Content -LiteralPath (Join-Path $root "minimum-foss.apk") -Value "fixture" -NoNewline -Encoding ASCII
         $apkHash = Get-FileSha256 (Join-Path $root "minimum-foss.apk")
         Set-Content -LiteralPath (Join-Path $root "minimum-foss.apk.sha256") -Value "$apkHash  minimum-foss.apk" -NoNewline -Encoding ASCII
@@ -138,13 +161,15 @@ Test-Case "bundle allowlist and checksum reject tampering" {
             [ordered]@{ path=$_; sha256=Get-FileSha256 (Join-Path $root $_) }
         }
         $manifest = [ordered]@{
-            schemaVersion=1; releaseTag="3.7.4"; applicationId="se.lublin.mumla"; versionCode=3070400
-            versionName="3.7.4"; apkFile="minimum-foss.apk"; apkSha256=$apkHash
-            signerSha256=("A" * 64); rebootRequired=$false; migrations=@(); files=$files
+            schemaVersion=1; releaseTag="3.7.3-minimum.2"; applicationId="se.lublin.mumla"; versionCode=3070301
+            versionName="3.7.3-minimum.2"; apkFile="minimum-foss.apk"; apkSha256=$apkHash
+            signerSha256=("A" * 64); rebootRequired=$false
+            migrations=@([ordered]@{ id="CELLULAR_POLICY_V1_T56"; fromVersionCodeMax=3070300; toVersionCode=3070301; profiles=@("T56"); rebootRequired=$true; irreversible=$false })
+            files=$files
         }
         $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $root "RELEASE-MANIFEST.json") -Encoding UTF8
         $bundle = Read-ReleaseBundle $root
-        Assert-Equal "3.7.4" $bundle.Manifest.releaseTag "valid bundle"
+        Assert-Equal "3.7.3-minimum.2" $bundle.Manifest.releaseTag "valid bundle"
         Add-Content -LiteralPath (Join-Path $root "minimum-foss.apk") -Value "tamper"
         Assert-ThrowsCode { Read-ReleaseBundle $root } "BUNDLE_CHECKSUM" "tampered file"
         Set-Content -LiteralPath (Join-Path $root "extra.txt") -Value "extra"
@@ -159,9 +184,9 @@ if (Test-Path -LiteralPath $realApkPath -PathType Leaf) {
     Test-Case "real built APK identity and signer parsing" {
         $identity = Get-ApkManifestIdentity -ApkPath $realApkPath
         Assert-Equal "se.lublin.mumla" $identity.ApplicationId "real APK package"
-        Assert-Equal ([long]3070300) $identity.VersionCode "real APK version code"
+        Assert-Equal ([long]3070301) $identity.VersionCode "real APK version code"
         Assert-True ($identity.VersionName -match '-debug$') "real APK debug version"
-        $signers = @(Get-ApkV1SignerDigests -ApkPath $realApkPath)
+        $signers = @(Get-ApkSignerDigests -ApkPath $realApkPath)
         Assert-True ($signers.Count -ge 1) "real APK signer count"
         Assert-True (@($signers | Where-Object { $_ -notmatch '^[0-9A-F]{64}$' }).Count -eq 0) "real APK signer format"
     }

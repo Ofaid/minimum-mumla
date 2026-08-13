@@ -12,14 +12,19 @@ package se.lublin.mumla.radio;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 
 import androidx.preference.PreferenceManager;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Locale;
 
+import se.lublin.mumla.Settings;
 import se.lublin.mumla.service.MumlaService;
 
 /** Narrow, shell-permission-protected ADB entry point for managed radio provisioning. */
@@ -28,6 +33,8 @@ public final class RadioProvisionReceiver extends BroadcastReceiver {
             "se.lublin.mumla.action.PROVISION_DEVICE_PROFILE";
     public static final String ACTION_REPORT_IDENTITY =
             "se.lublin.mumla.action.PROVISION_REPORT_IDENTITY";
+    public static final String ACTION_REPORT_EXISTING_IDENTITY =
+            "se.lublin.mumla.action.PROVISION_REPORT_EXISTING_IDENTITY";
     public static final String ACTION_REPORT_STATUS =
             "se.lublin.mumla.action.PROVISION_REPORT_STATUS";
     public static final String ACTION_INSTALL_RADIO_CONFIG =
@@ -59,6 +66,11 @@ public final class RadioProvisionReceiver extends BroadcastReceiver {
                     PreferenceManager.getDefaultSharedPreferences(context)).getOrCreateDeviceId();
             setResultCode(-1);
             setResultData(deviceId);
+        } else if (ACTION_REPORT_EXISTING_IDENTITY.equals(intent.getAction())) {
+            String deviceId = new DeviceIdentityManager(
+                    PreferenceManager.getDefaultSharedPreferences(context)).getExistingDeviceId();
+            setResultCode(deviceId == null ? 0 : -1);
+            setResultData(deviceId == null ? "unavailable" : deviceId);
         } else if (ACTION_REPORT_STATUS.equals(intent.getAction())) {
             reportProvisioningStatus(context);
         } else if (ACTION_INSTALL_RADIO_CONFIG.equals(intent.getAction())) {
@@ -73,23 +85,53 @@ public final class RadioProvisionReceiver extends BroadcastReceiver {
         setResultCode(0);
         setResultData("unavailable");
         try {
-            String deviceId = new DeviceIdentityManager(
-                    PreferenceManager.getDefaultSharedPreferences(context)).getOrCreateDeviceId();
+            SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
+            String deviceId = new DeviceIdentityManager(preferences).getExistingDeviceId();
+            if (deviceId == null) {
+                return;
+            }
             RadioConfigRepository repository = new RadioConfigRepository(context);
-            org.json.JSONObject active = repository.loadActiveOrDefault();
+            org.json.JSONObject active = repository.loadActiveForReport();
             String activeDeviceId = active.optString("deviceId", "");
             int configVersion = active.optInt("configVersion", -1);
+            String selectedChannel = preferences.getString("radio_selected_channel_id", "");
+            String activeConfigDigest = sha256(active.toString());
+            String safeSettingsDigest = sha256(String.format(Locale.US,
+                    "%s|%s|%s|%s|%s|%s|%s|%s",
+                    preferences.getString(Settings.PREF_INPUT_METHOD, ""),
+                    preferences.getBoolean(Settings.PREF_PTT_TOGGLE, false),
+                    preferences.getBoolean(Settings.PREF_AUTO_RECONNECT, false),
+                    preferences.getBoolean(Settings.PREF_PREPROCESSOR_ENABLED, false),
+                    preferences.getBoolean(Settings.PREF_HALF_DUPLEX, false),
+                    preferences.getBoolean(Settings.PREF_USE_TTS, false),
+                    preferences.getBoolean(Settings.PREF_PTT_SOUND, false),
+                    preferences.getInt(Settings.PREF_PUSH_KEY, -1)));
             setResultCode(-1);
             setResultData(String.format(Locale.US,
-                    "deviceId=%s;activeDeviceId=%s;configVersion=%d;pending=%s;lastSuccessMs=%d",
+                    "deviceId=%s;activeDeviceId=%s;configVersion=%d;pending=%s;lastSuccessMs=%d;"
+                            + "selectedChannel=%s;activeConfigSha256=%s;safeSettingsSha256=%s",
                     deviceId,
                     activeDeviceId,
                     configVersion,
                     repository.hasPending() ? "true" : "false",
-                    RadioConfigUpdater.getLastSuccess(context)));
-        } catch (IOException | RuntimeException | org.json.JSONException ignored) {
+                    RadioConfigUpdater.getLastSuccess(context),
+                    selectedChannel,
+                    activeConfigDigest,
+                    safeSettingsDigest));
+        } catch (IOException | RuntimeException | org.json.JSONException
+                 | NoSuchAlgorithmException ignored) {
             // Status intentionally contains no config fields, endpoints or room data.
         }
+    }
+
+    static String sha256(String value) throws NoSuchAlgorithmException {
+        byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(StandardCharsets.UTF_8));
+        StringBuilder output = new StringBuilder(64);
+        for (byte item : digest) {
+            output.append(String.format(Locale.US, "%02X", item & 0xff));
+        }
+        return output.toString();
     }
 
     private void updateAprsObjectName(Context context, String objectName) {

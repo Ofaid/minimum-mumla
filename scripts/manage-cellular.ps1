@@ -16,9 +16,7 @@ param(
     [int]$AdbPort = 5037,
     [switch]$DisableDataRoaming,
     [switch]$VerifyOnly,
-    [ValidateRange(5, 180)][int]$TimeoutSeconds = 45,
-    [string]$ExpectedManufacturer = "UNIPRO",
-    [string]$ExpectedModel = "ZX"
+    [ValidateRange(5, 180)][int]$TimeoutSeconds = 45
 )
 
 $ErrorActionPreference = "Stop"
@@ -128,8 +126,8 @@ $model = Get-Property "ro.product.model"
 $api = Get-Property "ro.build.version.sdk"
 $build = Get-Property "ro.build.display.id"
 $baseband = Get-Property "gsm.version.baseband"
-if ($manufacturer -ine $ExpectedManufacturer -or $model -ine $ExpectedModel) {
-    throw "Unsupported hardware '$manufacturer/$model'; cellular mutation is gated to $ExpectedManufacturer/$ExpectedModel."
+if ($manufacturer -ine "UNIPRO" -or $model -ine "ZX") {
+    throw "Unsupported hardware '$manufacturer/$model'; cellular mutation is hard-gated to UNIPRO/ZX."
 }
 if ($api -ne "22" -or $build -ne "T56" -or $baseband -notlike "LANSUS1-L811*") {
     throw "Unverified T56 firmware (API=$api build=$build baseband=$baseband); refusing numeric network-mode mutation."
@@ -137,28 +135,31 @@ if ($api -ne "22" -or $build -ne "T56" -or $baseband -notlike "LANSUS1-L811*") {
 
 $originalRoaming = Get-GlobalSetting "data_roaming"
 $originalMode = Convert-PreferredNetworkMode (Get-GlobalSetting "preferred_network_mode")
+$originalMobileData = Get-GlobalSetting "mobile_data"
 $desiredRoaming = if ($DisableDataRoaming) { "0" } else { "1" }
+$settingsChanged = $false
 
 Write-Host "CELLULAR COST WARNING: Data Roaming can incur carrier charges. Use -DisableDataRoaming to opt out."
 Write-Host "Cellular target verified: UNIPRO/ZX, Android API 22, known T56 modem firmware (subscriber identifiers suppressed)."
-Write-Host "Original policy: roaming=$originalRoaming; preferred=$($originalMode.Name)."
+Write-Host "Original policy: roaming=$originalRoaming; preferred=$($originalMode.Name); mobileData=$originalMobileData."
 
 if (-not $VerifyOnly -and $PSCmdlet.ShouldProcess("pinned UNIPRO/ZX T56", "apply managed cellular policy")) {
     if (-not $WhatIfPreference) {
         if ((Get-GlobalSetting "data_roaming") -ne $desiredRoaming) {
             Set-GlobalSetting "data_roaming" $desiredRoaming
+            $settingsChanged = $true
         }
         # Do not bounce an already-enabled data service: repeated provisioning must be inert.
         if ((Get-GlobalSetting "mobile_data") -ne "1") {
             Invoke-TargetAdb @("shell", "svc", "data", "enable") | Out-Null
+            $settingsChanged = $true
         }
         if ((Get-GlobalSetting "mobile_data") -ne "1") {
             throw "Mobile data could not be verified enabled."
         }
-        if (-not ($originalMode.Lte -and $originalMode.Fallback)) {
-            # 22 is verified only by the exact model/firmware gate above. It is automatic, never LTE-only.
-            Set-GlobalSetting "preferred_network_mode" "22"
-        }
+        # API-22 Settings.Global writes do not prove the modem accepted a preferred mode. Preserve
+        # the commissioned safe automatic mode; an unsafe/unknown mode is reported below instead
+        # of claiming a database write changed the modem.
     }
 }
 
@@ -182,7 +183,8 @@ $dataReason = Get-RegistryField $registry "mDataConnectionReason"
 $signal = Convert-SignalStrength (Get-RegistryField $registry "mSignalStrength")
 $connectivity = (Invoke-TargetAdb @("shell", "dumpsys", "connectivity")) -join "`n"
 $cellularRoute = $connectivity -match '(?is)type:\s*MOBILE.*?state:\s*CONNECTED/CONNECTED'
-$apnOutput = (Invoke-TargetAdb @("shell", "content", "query", "--uri", "content://telephony/carriers/preferapn") -AllowFailure) -join "`n"
+$apnOutput = (Invoke-TargetAdb @("shell", "content", "query", "--uri",
+    "content://telephony/carriers/preferapn", "--projection", "_id") -AllowFailure) -join "`n"
 $apnStatus = if ($apnOutput -match '(?i)permission denial|securityexception') {
     "unverifiable (OEM provider denies shell access)"
 } elseif ($apnOutput -match '(?m)^Row:') {
@@ -193,11 +195,14 @@ $failures = @()
 $warnings = @()
 if ($simState -ne "READY") { $failures += "SIM is $simState" }
 if ($effectiveRoaming -ne $desiredRoaming) { $failures += "Data Roaming readback mismatch" }
-if (-not ($effectiveMode.Lte -and $effectiveMode.Fallback)) { $failures += "preferred mode is not safe LTE automatic/fallback" }
+if (-not ($effectiveMode.Lte -and $effectiveMode.Fallback)) { $warnings += "preferred mode is not safe LTE automatic/fallback" }
 if ($mobileData -ne "1") { $failures += "mobile data is disabled" }
 if (-not $service.InService) { $failures += "cellular service did not register" }
-if ($apnStatus -like 'not selected*') { $failures += "no selected APN was detected" }
+if ($apnStatus -like 'not selected*') { $warnings += "selected APN unavailable; no APN fields were read" }
 if ($apnStatus -like 'unverifiable*') { $warnings += $apnStatus }
+if (-not ($originalMode.Lte -and $originalMode.Fallback)) {
+    $warnings += "preferred mode is unsafe/unknown; API-22 modem mutation is not safely verifiable and was not attempted"
+}
 if (-not $cellularRoute) { $warnings += "no active cellular route (dataState=$dataState reason=$dataReason possible=$dataPossible)" }
 if ($service.DataRat -notmatch 'LTE') { $warnings += "registered data RAT is $($service.DataRat), documented fallback accepted" }
 if ($signal -eq "unavailable") { $warnings += "signal unavailable/invalid; no weak-value claim made" }
@@ -206,6 +211,7 @@ $outcome = if ($failures.Count) { "FAIL" } elseif ($warnings.Count) { "WARN" } e
 Write-Host "Effective policy: roaming=$effectiveRoaming; preferred=$($effectiveMode.Name); mobileData=$mobileData."
 Write-Host "Cellular state: SIM=$simState; service=$(if($service.InService){'in-service'}else{'out-of-service'}); voice=$($service.VoiceRat); data=$($service.DataRat); roaming=$($service.Roaming); route=$cellularRoute."
 Write-Host "APN: $apnStatus. Signal: $signal."
+Write-Host "MIGRATION_OUTCOME: $(if ($settingsChanged) { 'APPLIED' } else { 'ALREADY_OK' })"
 if ($warnings.Count) { Write-Warning ($warnings -join "; ") }
 if ($failures.Count) { Write-Error ($failures -join "; ") -ErrorAction Continue }
 Write-Host "$outcome`: managed cellular readiness."

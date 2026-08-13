@@ -46,7 +46,7 @@ foreach ($required in @(
         'CELLULAR COST WARNING',
         '[switch]$DisableDataRoaming',
         'if ((Get-GlobalSetting "data_roaming") -ne $desiredRoaming)',
-        'Set-GlobalSetting "preferred_network_mode" "22"',
+        'API-22 Settings.Global writes do not prove the modem accepted a preferred mode',
         'if ((Get-GlobalSetting "mobile_data") -ne "1")',
         '$originalMode.Lte -and $originalMode.Fallback',
         'subscriber identifiers suppressed')) {
@@ -54,6 +54,15 @@ foreach ($required in @(
 }
 if ($source -match '(?i)(imsi|iccid|imei|line1number|subscriberid)') {
     throw "Cellular script must not query or print subscriber/device identifiers."
+}
+if ($source -match 'content://telephony/carriers/preferapn"\)') {
+    throw "Cellular script must never request a full preferred-APN row."
+}
+if ($source -notmatch '"--projection", "_id"') {
+    throw "Cellular script must restrict APN inspection to the non-secret row identifier."
+}
+if ($source -match 'ExpectedManufacturer|ExpectedModel') {
+    throw "Cellular mutation identity must not be caller-overridable."
 }
 
 Write-Host "All managed-cellular parser and policy checks passed."

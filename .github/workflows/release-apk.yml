@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag pointing at the commit to build (for example 3.7.3-minimum.1)
+        description: Existing release tag pointing at the commit to build (for example 3.7.3-minimum.2)
         required: true
         type: string
       prerelease:
@@ -146,6 +146,7 @@ jobs:
             $errors | Format-List *
             throw "Updater failed PowerShell AST parsing."
           }
+          ./tools/verify-cellular-policy.ps1
           ./tests/update-minimum-device.Tests.ps1
       - name: Build temporary Wi-Fi provisioner
         run: |
@@ -171,6 +172,7 @@ jobs:
           sed -i "s#minimum-${RELEASE_TAG}-foss.apk#minimum-foss.apk#" "$BUNDLE_DIR/minimum-foss.apk.sha256"
           cp scripts/provision-minimum-device.ps1 "$BUNDLE_DIR/scripts/"
           cp scripts/update-minimum-device.ps1 "$BUNDLE_DIR/scripts/"
+          cp scripts/manage-cellular.ps1 "$BUNDLE_DIR/scripts/"
           cp scripts/prepare-t99.ps1 "$BUNDLE_DIR/scripts/"
           cp scripts/prepare-t56.ps1 "$BUNDLE_DIR/scripts/"
           cp scripts/prepare-ryks.ps1 "$BUNDLE_DIR/scripts/"
@@ -178,6 +180,7 @@ jobs:
             "$BUNDLE_DIR/assets/t99-wifi-provisioner.apk"
           cp docs/PROVISIONING_BUNDLE_README.txt "$BUNDLE_DIR/README.txt"
           cp docs/UPDATER_RUNBOOK.md "$BUNDLE_DIR/UPDATER-README.md"
+          cp docs/CELLULAR_PROVISIONING.md "$BUNDLE_DIR/CELLULAR-README.md"
           printf '%s\n' "$RELEASE_TAG" > "$BUNDLE_DIR/VERSION.txt"
           apk_sha=$(sha256sum "$BUNDLE_DIR/minimum-foss.apk" | cut -d' ' -f1)
           file_entries="$RUNNER_TEMP/release-manifest-files.json"
@@ -191,7 +194,7 @@ jobs:
             --arg apkSha256 "${apk_sha^^}" \
             --arg signerSha256 "$MINIMUM_APK_SIGNER_SHA256" \
             --slurpfile files "$file_entries" \
-            '{schemaVersion:1,releaseTag:$releaseTag,applicationId:"se.lublin.mumla",versionCode:$versionCode,versionName:$releaseTag,apkFile:"minimum-foss.apk",apkSha256:$apkSha256,signerSha256:$signerSha256,rebootRequired:false,migrations:[],files:$files[0]}' \
+            '{schemaVersion:1,releaseTag:$releaseTag,applicationId:"se.lublin.mumla",versionCode:$versionCode,versionName:$releaseTag,apkFile:"minimum-foss.apk",apkSha256:$apkSha256,signerSha256:$signerSha256,rebootRequired:false,migrations:[{id:"CELLULAR_POLICY_V1_T56",fromVersionCodeMax:3070300,toVersionCode:3070301,profiles:["T56"],rebootRequired:true,irreversible:false}],files:$files[0]}' \
             > "$BUNDLE_DIR/RELEASE-MANIFEST.json"
           expected_files="$RUNNER_TEMP/provisioning-bundle-expected-files.txt"
           expected_dirs="$RUNNER_TEMP/provisioning-bundle-expected-dirs.txt"
@@ -199,12 +202,14 @@ jobs:
             "$BUNDLE_NAME/Provision Minimum Device.cmd" \
             "$BUNDLE_NAME/Update Minimum Device.cmd" \
             "$BUNDLE_NAME/README.txt" \
+            "$BUNDLE_NAME/CELLULAR-README.md" \
             "$BUNDLE_NAME/RELEASE-MANIFEST.json" \
             "$BUNDLE_NAME/UPDATER-README.md" \
             "$BUNDLE_NAME/VERSION.txt" \
             "$BUNDLE_NAME/minimum-foss.apk" \
             "$BUNDLE_NAME/minimum-foss.apk.sha256" \
             "$BUNDLE_NAME/scripts/prepare-ryks.ps1" \
+            "$BUNDLE_NAME/scripts/manage-cellular.ps1" \
             "$BUNDLE_NAME/scripts/prepare-t56.ps1" \
             "$BUNDLE_NAME/scripts/prepare-t99.ps1" \
             "$BUNDLE_NAME/scripts/provision-minimum-device.ps1" \
@@ -290,7 +295,7 @@ jobs:
             fi
           done < <(find "$extracted_root" -type f \( -name '*.cmd' -o -name '*.ps1' -o -name '*.txt' -o -name '*.md' -o -name '*.json' \) -print)
           pwsh -NoLogo -NoProfile -Command \
-            ". '$extracted_root/scripts/update-minimum-device.ps1' -LibraryOnly; Read-ReleaseBundle -Root '$extracted_root' | Out-Null; \$identity = Get-ApkManifestIdentity -ApkPath '$extracted_root/minimum-foss.apk'; if (\$identity.ApplicationId -cne 'se.lublin.mumla' -or \$identity.VersionName -cne '$RELEASE_TAG') { throw 'Extracted updater APK identity verification failed.' }; \$signers = @(Get-ApkV1SignerDigests -ApkPath '$extracted_root/minimum-foss.apk'); if ('$MINIMUM_APK_SIGNER_SHA256' -notin \$signers) { throw 'Extracted updater APK signer verification failed.' }"
+            ". '$extracted_root/scripts/update-minimum-device.ps1' -LibraryOnly; Read-ReleaseBundle -Root '$extracted_root' | Out-Null; \$identity = Get-ApkManifestIdentity -ApkPath '$extracted_root/minimum-foss.apk'; if (\$identity.ApplicationId -cne 'se.lublin.mumla' -or \$identity.VersionName -cne '$RELEASE_TAG') { throw 'Extracted updater APK identity verification failed.' }; \$signers = @(Get-ApkSignerDigests -ApkPath '$extracted_root/minimum-foss.apk'); if ('$MINIMUM_APK_SIGNER_SHA256' -notin \$signers) { throw 'Extracted updater APK signer verification failed.' }"
           echo "Provisioning bundle verification passed: exact allowlist, regular files, no symlinks, safe paths, staged and extracted content checks."
           sha256sum "$OUTPUT_ZIP" > "$OUTPUT_ZIP.sha256"
       - name: Prepare reviewed release notes

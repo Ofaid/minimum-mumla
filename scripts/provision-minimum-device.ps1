@@ -68,6 +68,7 @@ $serverArgs = @()
 $script:targetArgs = @()
 $script:targetLabel = ""
 $script:targetRecord = $null
+$script:CellularReadinessWarning = $false
 
 if ($DeviceProfile -and (($DeviceProfile -cnotmatch '^[A-Z0-9]{6}$') -or
         ($DeviceProfile -notmatch '[A-Z]') -or ($DeviceProfile -notmatch '\d'))) {
@@ -521,7 +522,10 @@ function Invoke-ModelPreparation {
 
     Write-Host "Running guarded $Profile preparation..."
     & powershell.exe @arguments
-    if ($LASTEXITCODE -ne 0) {
+    if ($LASTEXITCODE -eq 2 -and $Profile -eq "T56") {
+        $script:CellularReadinessWarning = $true
+        Write-Warning "T56 preparation completed with a documented cellular-readiness warning."
+    } elseif ($LASTEXITCODE -ne 0) {
         throw "$Profile preparation failed with exit code $LASTEXITCODE."
     }
 }
@@ -747,11 +751,13 @@ if ($target.Profile -eq "T56") {
         $cellularArguments += @("-Serial", $returningTarget.Serial)
     }
     if ($DisableDataRoaming) { $cellularArguments += "-DisableDataRoaming" }
-    Write-Host "Reapplying idempotent T56 cellular policy and checking readbacks after reboot..."
+    $cellularArguments += "-VerifyOnly"
+    Write-Host "Verifying T56 cellular-policy persistence after reboot without rewriting settings..."
     & powershell.exe @cellularArguments
     $cellularExit = $LASTEXITCODE
     if ($cellularExit -eq 2) {
-        Write-Warning "Post-reboot cellular settings persisted; readiness remains WARN."
+        $script:CellularReadinessWarning = $true
+        Write-Warning "Post-reboot cellular verification remains WARN; no persistence PASS is claimed."
     } elseif ($cellularExit -ne 0) {
         throw "Post-reboot T56 cellular verification failed with exit code $cellularExit."
     }
@@ -759,4 +765,8 @@ if ($target.Profile -eq "T56") {
 Wait-MinimumReady -Phase "after reboot" -ExpectedDeviceId $deviceId `
     -TimeoutSeconds $ReadyTimeoutSeconds
 
+if ($script:CellularReadinessWarning) {
+    Write-Warning "WARN: $($target.Profile) Device ID $deviceId is provisioned and Ready, but cellular readiness is not fully accepted."
+    exit 2
+}
 Write-Host "PASS: $($target.Profile) Device ID $deviceId is provisioned and Ready."

@@ -7,7 +7,9 @@ removes OEM apps, reopens Location consent or reapplies unrelated device setting
 
 ## Requirements and trust boundary
 
-- Windows 10 or 11 and Android Platform Tools (`adb.exe`) in `PATH`.
+- Windows 10 or 11, Android Platform Tools (`adb.exe`), and Android Build Tools `apksigner`.
+  The updater finds `apksigner` in `PATH`, `ANDROID_HOME`/`ANDROID_SDK_ROOT`, or the standard local
+  Android SDK. This fail-closed dependency is required for full APK signature verification.
 - One complete, extracted `minimum-provisioning-<tag>.zip` from a reviewed GitHub Release.
 - The separately published ZIP `.sha256` must match before extraction. The updater then verifies
   the exact file allowlist and hashes in `RELEASE-MANIFEST.json`, the APK checksum file, binary APK
@@ -38,6 +40,12 @@ managed configuration, last-known-good evidence and Ready state were verified. I
 requires reboot, or `-FullRebootAcceptance` is requested, PASS also requires the same supported
 profile and Device ID to return to Ready after reboot. `ALREADY_OK` is a successful idempotent
 recheck of an already-installed exact version.
+
+For `3.7.3-minimum.2` / versionCode `3070301`, an upgrade from versionCode `3070300` or older on
+T56 also runs the exact reversible `CELLULAR_POLICY_V1_T56` migration before APK replacement. It
+applies the guarded roaming/mobile-data/automatic-LTE policy, then requires a reboot and verifies
+the same policy again. A carrier/APN readiness warning produces overall `WARN`, not a false PASS.
+T99 and RYKS skip this model-gated migration.
 
 ## Safe advanced modes
 
@@ -84,9 +92,11 @@ bugreport, app-data backup, raw `dumpsys`, or unsanitized ADB log.
 ## Migration and physical-acceptance policy
 
 Migration entries are keyed by installed/target version and supported model. An unknown manifest
-migration is refused; it is not silently skipped. The current extension point intentionally has no
-cellular migration. Issue #11 behavior may be added only after its policy and device acceptance are
-reviewed, with an idempotent model-gated handler and tests.
+migration is refused; it is not silently skipped. The reviewed `CELLULAR_POLICY_V1_T56` mapping is
+accepted only with `fromVersionCodeMax=3070300`, `toVersionCode=3070301`, profile `T56`,
+`rebootRequired=true` and `irreversible=false`. Its helper is idempotent and firmware-gated to the
+accepted UNIPRO/ZX API-22 T56/L811 combination. See `CELLULAR-README.md` for its cost warning,
+sanitized evidence, documented readiness limitation and rollback boundary.
 
 The known E7ROW7 T56 has a debug-signed build. Do not try to install a Release-signed APK on it.
 Physical updater acceptance without reset must instead use two reviewed APK versions signed by the

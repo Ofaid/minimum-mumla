@@ -43,6 +43,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$script:CellularReadinessWarning = $false
 $PackageName = "com.loudtalks"
 $MinimumPackage = "se.lublin.mumla"
 $MinimumActivity = "se.lublin.mumla/.radio.RadioShellActivity"
@@ -661,6 +662,7 @@ if ($TargetName -eq "T56") {
     & powershell.exe @cellularArgs
     $cellularExit = $LASTEXITCODE
     if ($cellularExit -eq 2) {
+        $script:CellularReadinessWarning = $true
         Write-Warning "T56 cellular policy verified with a readiness warning; provisioning continues with documented fallback."
     } elseif ($cellularExit -ne 0) {
         throw "T56 cellular readiness failed with exit code $cellularExit."
@@ -939,3 +941,4 @@ if (-not $ReportOnly -and -not $SkipMinimumHome -and -not $WhatIfPreference) {
 }
 
 Write-Host "Preparation report complete. USB/ADB serial remains '$adbSerial'; Minimum identity is the per-device ID."
+if ($script:CellularReadinessWarning) { exit 2 }

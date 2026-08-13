@@ -31,7 +31,7 @@ $ErrorActionPreference = "Stop"
 $MinimumPackage = "se.lublin.mumla"
 $MinimumActivity = "se.lublin.mumla/.radio.RadioShellActivity"
 $ProvisionReceiver = "se.lublin.mumla/.radio.RadioProvisionReceiver"
-$IdentityReportAction = "se.lublin.mumla.action.PROVISION_REPORT_IDENTITY"
+$IdentityReportAction = "se.lublin.mumla.action.PROVISION_REPORT_EXISTING_IDENTITY"
 $ProvisionStatusAction = "se.lublin.mumla.action.PROVISION_REPORT_STATUS"
 $script:AdbExecutable = ""
 $script:ServerArguments = @()
@@ -276,6 +276,8 @@ function Read-ReleaseBundle {
         "assets/t99-wifi-provisioner.apk",
         "minimum-foss.apk",
         "minimum-foss.apk.sha256",
+        "CELLULAR-README.md",
+        "scripts/manage-cellular.ps1",
         "scripts/prepare-ryks.ps1",
         "scripts/prepare-t56.ps1",
         "scripts/prepare-t99.ps1",
@@ -324,45 +326,47 @@ function Read-ReleaseBundle {
     return [pscustomobject]@{ Root = $resolvedRoot; Manifest = $manifest; ApkPath = $apkPath }
 }
 
-function Get-ApkV1SignerDigests {
-    param([Parameter(Mandatory)][string]$ApkPath)
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    Add-Type -AssemblyName System.Security
-    $archive = [IO.Compression.ZipFile]::OpenRead($ApkPath)
-    try {
-        $signatureEntries = @($archive.Entries | Where-Object {
-            $_.FullName -match '^META-INF/[^/]+\.(RSA|DSA|EC)$'
-        })
-        if ($signatureEntries.Count -eq 0) {
-            Throw-UpdateError "APK_V1_SIGNATURE_REQUIRED" "The APK has no JAR signing block; this standalone updater cannot verify its signer."
-        }
-        $digests = New-Object System.Collections.Generic.List[string]
-        foreach ($entry in $signatureEntries) {
-            $stream = $entry.Open()
-            $memory = New-Object IO.MemoryStream
-            try {
-                $stream.CopyTo($memory)
-                $cms = New-Object System.Security.Cryptography.Pkcs.SignedCms
-                $cms.Decode($memory.ToArray())
-                foreach ($certificate in $cms.Certificates) {
-                    $sha = [Security.Cryptography.SHA256]::Create()
-                    try {
-                        $digest = ([BitConverter]::ToString($sha.ComputeHash($certificate.RawData))).Replace('-', '')
-                        if (-not $digests.Contains($digest)) { $digests.Add($digest) }
-                    } finally { $sha.Dispose() }
-                }
-            } finally {
-                $stream.Dispose()
-                $memory.Dispose()
-            }
-        }
-        return @($digests)
-    } catch {
-        if ($_.Exception.Message -match '^\[[A-Z0-9_]+\]') { throw }
-        Throw-UpdateError "APK_SIGNATURE_INVALID" "The APK signing certificate could not be verified."
-    } finally {
-        $archive.Dispose()
+function Resolve-ApkSigner {
+    $command = Get-Command apksigner, apksigner.bat -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($command) { return $command.Source }
+    $sdkRoots = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT,
+        (Join-Path $env:LOCALAPPDATA "Android\Sdk")) | Where-Object { $_ }
+    foreach ($sdkRoot in $sdkRoots) {
+        $buildTools = Join-Path $sdkRoot "build-tools"
+        if (-not (Test-Path -LiteralPath $buildTools -PathType Container)) { continue }
+        $candidate = Get-ChildItem -LiteralPath $buildTools -Directory | Sort-Object Name -Descending |
+            ForEach-Object { Join-Path $_.FullName "apksigner.bat" } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+        if ($candidate) { return $candidate }
     }
+    Throw-UpdateError "APKSIGNER_MISSING" "Android Build Tools apksigner is required to cryptographically verify the APK. Install Android Platform/Build Tools and rerun; no installation was attempted."
+}
+
+function Parse-ApkSignerOutput {
+    param([string]$Text)
+    $digests = @([regex]::Matches($Text,
+        '(?im)^Signer #\d+ certificate SHA-256 digest:\s*([0-9a-f]{64})\s*$') |
+        ForEach-Object { $_.Groups[1].Value.ToUpperInvariant() } | Sort-Object -Unique)
+    if ($digests.Count -eq 0) {
+        Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner did not report a verified signing certificate."
+    }
+    return $digests
+}
+
+function Get-ApkSignerDigests {
+    param([Parameter(Mandatory)][string]$ApkPath)
+    $apksigner = Resolve-ApkSigner
+    $previous = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = @(& $apksigner verify --verbose --print-certs $ApkPath 2>&1)
+        $exitCode = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $previous }
+    $text = (($output | ForEach-Object { [string]$_ }) -join "`n").Trim()
+    if ($exitCode -ne 0) {
+        Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner rejected the APK signature; no installation was attempted."
+    }
+    return @(Parse-ApkSignerOutput -Text $text)
 }
 
 function Assert-SignerCompatibility {
@@ -416,7 +420,8 @@ function Select-TargetRecord {
 }
 
 function Find-ReturningCandidate {
-    param([object[]]$Records, [string]$Manufacturer, [string]$Model, [string]$OriginalSerial)
+    param([object[]]$Records, [string]$Manufacturer, [string]$Model, [string]$OriginalSerial,
+        [string]$ExpectedDeviceId = "")
     $sameSerial = @($Records | Where-Object {
         $_.State -eq "device" -and $_.Serial -ceq $OriginalSerial -and
         $_.Manufacturer -ieq $Manufacturer -and $_.Model -ieq $Model
@@ -425,7 +430,12 @@ function Find-ReturningCandidate {
     $sameModel = @($Records | Where-Object {
         $_.State -eq "device" -and $_.Manufacturer -ieq $Manufacturer -and $_.Model -ieq $Model
     })
-    if ($sameModel.Count -eq 1) { return $sameModel[0] }
+    if ($ExpectedDeviceId) {
+        $identityMatches = @($sameModel | Where-Object {
+            $_.PSObject.Properties.Name -contains "DeviceId" -and $_.DeviceId -ceq $ExpectedDeviceId
+        })
+        if ($identityMatches.Count -eq 1) { return $identityMatches[0] }
+    }
     return $null
 }
 
@@ -439,7 +449,7 @@ function Parse-PackageState {
 
 function Parse-ProvisioningStatus {
     param([string]$Text)
-    $match = [regex]::Match($Text, 'data="?deviceId=([A-Z0-9]{6});activeDeviceId=([A-Z0-9*]{1,6});configVersion=(-?\d+);pending=(true|false);lastSuccessMs=(\d+)"?')
+    $match = [regex]::Match($Text, 'data="?deviceId=([A-Z0-9]{6});activeDeviceId=([A-Z0-9*]{1,6});configVersion=(-?\d+);pending=(true|false);lastSuccessMs=(\d+);selectedChannel=([a-zA-Z0-9._-]{0,64});activeConfigSha256=([0-9A-F]{64});safeSettingsSha256=([0-9A-F]{64})"?')
     if (-not $match.Success) { return $null }
     return [pscustomobject]@{
         DeviceId = $match.Groups[1].Value
@@ -447,6 +457,22 @@ function Parse-ProvisioningStatus {
         ConfigVersion = [int]$match.Groups[3].Value
         Pending = $match.Groups[4].Value -eq "true"
         LastSuccessMs = [long]$match.Groups[5].Value
+        SelectedChannel = $match.Groups[6].Value
+        ActiveConfigSha256 = $match.Groups[7].Value
+        SafeSettingsSha256 = $match.Groups[8].Value
+    }
+}
+
+function Assert-PreservedState {
+    param([Parameter(Mandatory)]$Before, [Parameter(Mandatory)]$After, [string]$Phase)
+    if ($After.DeviceId -cne $Before.DeviceId -or
+            $After.ActiveDeviceId -cne $Before.ActiveDeviceId -or
+            $After.Pending -or $After.ConfigVersion -lt $Before.ConfigVersion -or
+            $After.LastSuccessMs -le 0 -or
+            $After.SelectedChannel -cne $Before.SelectedChannel -or
+            $After.ActiveConfigSha256 -cne $Before.ActiveConfigSha256 -or
+            $After.SafeSettingsSha256 -cne $Before.SafeSettingsSha256) {
+        Throw-UpdateError "STATE_PRESERVATION_FAILED" "Identity, selected channel, safe device settings or Last Known Good configuration changed $Phase."
     }
 }
 
@@ -458,20 +484,78 @@ function Get-RequiredMigrations {
         $migrationFields = @("id", "fromVersionCodeMax", "toVersionCode", "profiles", "rebootRequired", "irreversible")
         if (@($migrationFields | Where-Object { $_ -notin $properties }).Count -gt 0 -or
                 @($properties | Where-Object { $_ -notin $migrationFields }).Count -gt 0 -or
-                [string]$migration.id -notmatch '^[a-z0-9][a-z0-9.-]{0,63}$' -or
+                [string]$migration.id -notmatch '^[A-Z0-9][A-Z0-9_]{0,63}$' -or
                 @($migration.profiles | Where-Object { $_ -notin @("T56", "T99", "RYKS") }).Count -gt 0) {
             Throw-UpdateError "MIGRATION_CONTRACT" "A release migration entry does not match the reviewed contract."
         }
-        # No migrations are approved in this updater revision. Future integrations (including #11)
-        # must add a reviewed handler here and tests before a manifest may name the migration.
-        Throw-UpdateError "MIGRATION_NOT_IMPLEMENTED" "Release requests an updater migration that this reviewed script does not implement."
+        if ([string]$migration.id -cne "CELLULAR_POLICY_V1_T56" -or
+                [long]$migration.fromVersionCodeMax -ne 3070300 -or
+                [long]$migration.toVersionCode -ne 3070301 -or
+                @($migration.profiles).Count -ne 1 -or
+                [string]$migration.profiles[0] -cne "T56" -or
+                $migration.rebootRequired -isnot [bool] -or -not [bool]$migration.rebootRequired -or
+                $migration.irreversible -isnot [bool] -or [bool]$migration.irreversible) {
+            Throw-UpdateError "MIGRATION_NOT_IMPLEMENTED" "Release requests a migration that this reviewed updater does not implement exactly."
+        }
+        if ($TargetVersionCode -ne [long]$migration.toVersionCode) {
+            Throw-UpdateError "MIGRATION_CONTRACT" "The cellular migration is not bound to the exact target versionCode."
+        }
+        if ($Profile -in @($migration.profiles) -and
+                $InstalledVersionCode -le [long]$migration.fromVersionCodeMax) {
+            $required += $migration
+        }
     }
     return @($required)
 }
 
 function New-MigrationResult {
-    param([string]$Id, [ValidateSet("APPLIED", "ALREADY_OK", "SKIPPED", "FAILED")][string]$Outcome)
-    return [pscustomobject]@{ Id = $Id; Outcome = $Outcome }
+    param(
+        [string]$Id,
+        [ValidateSet("APPLIED", "ALREADY_OK", "SKIPPED", "FAILED")][string]$Outcome,
+        [string]$Detail = ""
+    )
+    return [pscustomobject]@{ Id = $Id; Outcome = $Outcome; Detail = $Detail }
+}
+
+function Invoke-CellularPolicyMigration {
+    param([switch]$VerifyOnly)
+    if ($script:CurrentTarget.Profile -ne "T56") {
+        Throw-UpdateError "MIGRATION_PROFILE" "The T56 cellular policy was routed to a different hardware profile."
+    }
+    $cellularScript = Join-Path $PSScriptRoot "manage-cellular.ps1"
+    if (-not (Test-Path -LiteralPath $cellularScript -PathType Leaf)) {
+        Throw-UpdateError "MIGRATION_SCRIPT_MISSING" "The reviewed T56 cellular migration script is missing from the bundle."
+    }
+    $arguments = @("-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $cellularScript,
+        "-AdbPort", "$AdbPort")
+    if ($script:CurrentTarget.TransportId -gt 0) {
+        $arguments += @("-TransportId", "$($script:CurrentTarget.TransportId)")
+    } else {
+        $arguments += @("-Serial", $script:CurrentTarget.Serial)
+    }
+    if ($VerifyOnly) { $arguments += "-VerifyOnly" }
+    $output = @(& powershell.exe @arguments 2>&1)
+    $exitCode = $LASTEXITCODE
+    $safeLines = @($output | ForEach-Object { ConvertTo-SafeMessage -Text ([string]$_) })
+    $text = ($safeLines -join "`n").Trim()
+    if ($text) { Write-Host $text }
+    if ($exitCode -notin @(0, 2)) {
+        Throw-UpdateError "CELLULAR_POLICY_V1_T56" "The guarded T56 cellular migration failed verification."
+    }
+    $marker = [regex]::Match($text, '(?m)^MIGRATION_OUTCOME:\s*(APPLIED|ALREADY_OK)\s*$')
+    if (-not $marker.Success) {
+        Throw-UpdateError "MIGRATION_RESULT_INVALID" "The T56 cellular migration did not return its reviewed outcome marker."
+    }
+    $detail = if ($exitCode -eq 2) { "READINESS_WARN" } elseif ($VerifyOnly) { "POST_REBOOT_VERIFIED" } else { "VERIFIED" }
+    return New-MigrationResult -Id "CELLULAR_POLICY_V1_T56" -Outcome $marker.Groups[1].Value -Detail $detail
+}
+
+function Invoke-RequiredMigration {
+    param([Parameter(Mandatory)]$Migration, [switch]$VerifyOnly)
+    switch -CaseSensitive ([string]$Migration.id) {
+        "CELLULAR_POLICY_V1_T56" { return Invoke-CellularPolicyMigration -VerifyOnly:$VerifyOnly }
+        default { Throw-UpdateError "MIGRATION_NOT_IMPLEMENTED" "The migration has no reviewed execution handler." }
+    }
 }
 
 function Format-SessionSummary {
@@ -479,10 +563,13 @@ function Format-SessionSummary {
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("Minimum update session")
     $lines.Add("Target version: $TargetVersion")
-    foreach ($result in @($Results)) {
-        $profile = if ($result.Profile) { $result.Profile } else { "UNKNOWN" }
-        $deviceId = if ($result.DeviceId) { $result.DeviceId } else { "------" }
-        $lines.Add(("{0} / {1}  {2}  {3}" -f $profile, $deviceId, $result.Result, $result.Detail))
+    foreach ($group in @($Results | Group-Object { if ($_.Profile) { $_.Profile } else { "UNKNOWN" } } | Sort-Object Name)) {
+        $lines.Add("")
+        $lines.Add("[$($group.Name)]")
+        foreach ($result in @($group.Group)) {
+            $deviceId = if ($result.DeviceId) { $result.DeviceId } else { "------" }
+            $lines.Add(("{0}  {1}  {2}" -f $deviceId, $result.Result, $result.Detail))
+        }
     }
     $pass = @($Results | Where-Object { $_.Result -eq "PASS" }).Count
     $warn = @($Results | Where-Object { $_.Result -eq "WARN" }).Count
@@ -599,7 +686,7 @@ function Get-InstalledSignerDigests {
         if ($pull.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $temporary -PathType Leaf)) {
             Throw-UpdateError "INSTALLED_SIGNER_UNREADABLE" "The installed APK signer could not be read safely."
         }
-        return @(Get-ApkV1SignerDigests -ApkPath $temporary)
+        return @(Get-ApkSignerDigests -ApkPath $temporary)
     } finally {
         if (Test-Path -LiteralPath $temporary -PathType Leaf) { Remove-Item -LiteralPath $temporary -Force }
     }
@@ -668,7 +755,7 @@ function Ensure-RyksInstallPolicy {
 }
 
 function Wait-ReturningTarget {
-    param($OriginalTarget, [int]$TimeoutSeconds)
+    param($OriginalTarget, [string]$ExpectedDeviceId, [int]$TimeoutSeconds)
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 2
@@ -679,6 +766,17 @@ function Wait-ReturningTarget {
         }
         $candidate = Find-ReturningCandidate -Records $candidates -Manufacturer $OriginalTarget.Manufacturer `
             -Model $OriginalTarget.Model -OriginalSerial $OriginalTarget.Serial
+        if ($candidate) { return $candidate }
+        # A changed/ambiguous serial is never accepted from model identity alone. Query the narrow
+        # non-secret app identity on each same-model candidate and require exactly one Device-ID match.
+        foreach ($record in @($candidates | Where-Object {
+            $_.Manufacturer -ieq $OriginalTarget.Manufacturer -and $_.Model -ieq $OriginalTarget.Model
+        })) {
+            $script:CurrentTarget = $record
+            try { $record | Add-Member DeviceId (Get-Identity) -Force } catch { }
+        }
+        $candidate = Find-ReturningCandidate -Records $candidates -Manufacturer $OriginalTarget.Manufacturer `
+            -Model $OriginalTarget.Model -OriginalSerial "" -ExpectedDeviceId $ExpectedDeviceId
         if ($candidate) { return $candidate }
     }
     Throw-UpdateError "REBOOT_TARGET_AMBIGUOUS" "The same supported profile could not be re-identified uniquely after reboot."
@@ -706,6 +804,14 @@ function Write-SanitizedReports {
     $jsonPath = Join-Path $Directory "$baseName.json"
     $textPath = Join-Path $Directory "$baseName.txt"
     $Result | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
+    $migrationSummary = if (@($Result.Migrations).Count -eq 0) {
+        "none"
+    } else {
+        (@($Result.Migrations) | ForEach-Object {
+            $suffix = if ($_.Detail) { "/$($_.Detail)" } else { "" }
+            "$($_.Id)=$($_.Outcome)$suffix"
+        }) -join "; "
+    }
     @(
         "Minimum update report",
         "Session: $($Result.SessionId)",
@@ -714,6 +820,7 @@ function Write-SanitizedReports {
         "Previous version: $($Result.PreviousVersion)",
         "Target version: $($Result.TargetVersion)",
         "Artifact verification: $($Result.ArtifactVerification)",
+        "Migrations: $migrationSummary",
         "Pre-update Ready: $($Result.PreReady)",
         "Post-update Ready: $($Result.PostReady)",
         "Reboot acceptance: $($Result.RebootAcceptance)",
@@ -727,6 +834,18 @@ function Write-SanitizedReports {
     Write-Host "Sanitized report: $textPath"
 }
 
+function Write-SessionSummaryReport {
+    param([string]$Summary, [string]$SessionId, [string]$Directory)
+    if (-not $Directory) {
+        $base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [IO.Path]::GetTempPath() }
+        $Directory = Join-Path $base "Minimum\UpdateReports"
+    }
+    New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+    $path = Join-Path $Directory ("minimum-update-session-{0}.txt" -f $SessionId)
+    $Summary | Set-Content -LiteralPath $path -Encoding UTF8
+    Write-Host "Sanitized session summary: $path"
+}
+
 function Invoke-OneUpdate {
     param($Bundle, [string]$SessionId, [hashtable]$CompletedDeviceIds = @{})
     $result = [ordered]@{
@@ -737,6 +856,9 @@ function Invoke-OneUpdate {
         ConfigVersionBefore = -1; ConfigVersionAfter = -1; Result = "FAIL"
         ErrorCategory = ""; Detail = ""
     }
+    $mutationStarted = $false
+    $before = $null
+    $deviceId = ""
     try {
         $records = @(Get-AdbRecords)
         $target = Select-TargetRecord -Records $records -RequestedSerial $Serial -RequestedTransportId $TransportId
@@ -788,6 +910,10 @@ function Invoke-OneUpdate {
             $result.PostReady = $result.PreReady
             return [pscustomobject]$result
         }
+        foreach ($migration in $requiredMigrations) {
+            $mutationStarted = $true
+            $result.Migrations += Invoke-RequiredMigration -Migration $migration
+        }
         if ($comparison -eq 0) {
             $result.RollbackAssessment = "NOT_NEEDED"
             $result.Migrations += New-MigrationResult -Id "APK_VERSION" -Outcome "ALREADY_OK"
@@ -797,10 +923,10 @@ function Invoke-OneUpdate {
             }
             $result.Migrations += Ensure-RyksInstallPolicy
             Write-Host "Installing verified Minimum $($Bundle.Manifest.versionName) in place..."
+            $mutationStarted = $true
             Install-InPlace -ApkPath $Bundle.ApkPath -Downgrade:($comparison -gt 0)
             $result.Migrations += New-MigrationResult -Id "APK_VERSION" -Outcome "APPLIED"
         }
-        foreach ($migration in $requiredMigrations) { $result.Migrations += $migration }
         $postPackage = Get-InstalledPackageState
         if ($postPackage.VersionCode -ne [long]$Bundle.Manifest.versionCode -or
                 $postPackage.VersionName -cne [string]$Bundle.Manifest.versionName) {
@@ -810,28 +936,49 @@ function Invoke-OneUpdate {
         $after = Wait-MinimumReady -ExpectedDeviceId $deviceId -TimeoutSeconds $ReadyTimeoutSeconds
         $result.PostReady = $true
         $result.ConfigVersionAfter = $after.ConfigVersion
-        if ($after.ConfigVersion -lt $before.ConfigVersion -or $after.LastSuccessMs -le 0) {
-            Throw-UpdateError "CONFIG_REGRESSION" "Managed configuration or last-known-good verification regressed after update."
-        }
-        $needsReboot = [bool]$Bundle.Manifest.rebootRequired -or $FullRebootAcceptance
+        Assert-PreservedState -Before $before -After $after -Phase "after the in-place update"
+        $needsReboot = [bool]$Bundle.Manifest.rebootRequired -or $FullRebootAcceptance -or
+            @($requiredMigrations | Where-Object { [bool]$_.rebootRequired }).Count -gt 0
         if ($needsReboot) {
             $original = $script:CurrentTarget
             Invoke-TargetAdb -Arguments @("reboot") | Out-Null
-            $script:CurrentTarget = Wait-ReturningTarget -OriginalTarget $original -TimeoutSeconds $BootTimeoutSeconds
+            $script:CurrentTarget = Wait-ReturningTarget -OriginalTarget $original -ExpectedDeviceId $deviceId -TimeoutSeconds $BootTimeoutSeconds
             Wait-BootCompleted -TimeoutSeconds $BootTimeoutSeconds
             $afterReboot = Wait-MinimumReady -ExpectedDeviceId $deviceId -TimeoutSeconds $ReadyTimeoutSeconds
-            if ($afterReboot.ConfigVersion -lt $before.ConfigVersion) {
-                Throw-UpdateError "REBOOT_CONFIG_REGRESSION" "Managed configuration regressed after reboot."
+            Assert-PreservedState -Before $before -After $afterReboot -Phase "after reboot"
+            foreach ($migration in @($requiredMigrations | Where-Object { [bool]$_.rebootRequired })) {
+                $result.Migrations += Invoke-RequiredMigration -Migration $migration -VerifyOnly
             }
             $result.RebootAcceptance = "READY_SAME_ID"
         }
-        $result.Result = "PASS"
-        $result.Detail = if ($comparison -eq 0) { "ALREADY_OK; same-ID Ready verified" } else { "UPDATED; same-ID Ready verified" }
+        $hasMigrationWarning = @($result.Migrations | Where-Object { $_.Detail -ceq "READINESS_WARN" }).Count -gt 0
+        $result.Result = if ($hasMigrationWarning) { "WARN" } else { "PASS" }
+        $result.Detail = if ($comparison -eq 0) {
+            "ALREADY_OK; same-ID Ready verified"
+        } elseif ($hasMigrationWarning) {
+            "UPDATED; same-ID Ready verified; cellular policy persisted with documented readiness warning"
+        } else {
+            "UPDATED; same-ID Ready verified"
+        }
         return [pscustomobject]$result
     } catch {
         $message = ConvertTo-SafeMessage -Text $_.Exception.Message
         $result.ErrorCategory = Get-ErrorCategory -Message $message
         $result.Detail = [regex]::Replace($message, '^\[[A-Z0-9_]+\]\s*', '')
+        if ($mutationStarted -and $deviceId -and $before) {
+            try {
+                $recoveryPackage = Get-InstalledPackageState
+                Invoke-TargetAdb -Arguments @("shell", "am", "start", "-n", $MinimumActivity) | Out-Null
+                $recovered = Wait-MinimumReady -ExpectedDeviceId $deviceId -TimeoutSeconds ([Math]::Min($ReadyTimeoutSeconds, 90))
+                Assert-PreservedState -Before $before -After $recovered -Phase "during failure recovery"
+                $result.PostReady = $true
+                $result.ConfigVersionAfter = $recovered.ConfigVersion
+                $result.Detail += "; RECOVERY_VERIFIED: installed $($recoveryPackage.VersionName) returned to same-ID Ready with preserved state"
+            } catch {
+                $recoveryMessage = ConvertTo-SafeMessage -Text $_.Exception.Message
+                $result.Detail += "; RECOVERY_UNVERIFIED: $([regex]::Replace($recoveryMessage, '^\[[A-Z0-9_]+\]\s*', ''))"
+            }
+        }
         return [pscustomobject]$result
     }
 }
@@ -839,24 +986,39 @@ function Invoke-OneUpdate {
 if ($LibraryOnly) { return }
 
 $Host.UI.RawUI.WindowTitle = "Minimum One-Shot Updater"
-if (-not $BundleRoot) { $BundleRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path }
-$bundle = Read-ReleaseBundle -Root $BundleRoot
-$apkIdentity = Get-ApkManifestIdentity -ApkPath $bundle.ApkPath
-if ($apkIdentity.ApplicationId -cne [string]$bundle.Manifest.applicationId -or
-        $apkIdentity.VersionCode -ne [long]$bundle.Manifest.versionCode -or
-        $apkIdentity.VersionName -cne [string]$bundle.Manifest.versionName) {
-    Throw-UpdateError "APK_IDENTITY_BINDING" "The APK package/version does not match the exact release manifest."
-}
-$targetSigners = @(Get-ApkV1SignerDigests -ApkPath $bundle.ApkPath)
-if (@($targetSigners | Where-Object { $_ -ceq ([string]$bundle.Manifest.signerSha256).ToUpperInvariant() }).Count -ne 1) {
-    Throw-UpdateError "APK_SIGNER_BINDING" "The APK signer does not match the exact release manifest."
-}
-try { $script:AdbExecutable = (Get-Command adb -ErrorAction Stop).Source } catch {
-    Throw-UpdateError "ADB_MISSING" "ADB was not found. Install Android Platform Tools or add adb.exe to PATH."
-}
-$AdbPort = Select-AdbPort
-$script:ServerArguments = @("-P", "$AdbPort")
 $sessionId = ([guid]::NewGuid().ToString("N").Substring(0, 12)).ToUpperInvariant()
+try {
+    if (-not $BundleRoot) { $BundleRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path }
+    $bundle = Read-ReleaseBundle -Root $BundleRoot
+    $apkIdentity = Get-ApkManifestIdentity -ApkPath $bundle.ApkPath
+    if ($apkIdentity.ApplicationId -cne [string]$bundle.Manifest.applicationId -or
+            $apkIdentity.VersionCode -ne [long]$bundle.Manifest.versionCode -or
+            $apkIdentity.VersionName -cne [string]$bundle.Manifest.versionName) {
+        Throw-UpdateError "APK_IDENTITY_BINDING" "The APK package/version does not match the exact release manifest."
+    }
+    $targetSigners = @(Get-ApkSignerDigests -ApkPath $bundle.ApkPath)
+    if (@($targetSigners | Where-Object { $_ -ceq ([string]$bundle.Manifest.signerSha256).ToUpperInvariant() }).Count -ne 1) {
+        Throw-UpdateError "APK_SIGNER_BINDING" "The APK signer does not match the exact release manifest."
+    }
+    try { $script:AdbExecutable = (Get-Command adb -ErrorAction Stop).Source } catch {
+        Throw-UpdateError "ADB_MISSING" "ADB was not found. Install Android Platform Tools or add adb.exe to PATH."
+    }
+    $AdbPort = Select-AdbPort
+    $script:ServerArguments = @("-P", "$AdbPort")
+} catch {
+    $safe = ConvertTo-SafeMessage -Text $_.Exception.Message
+    $preflight = [pscustomobject][ordered]@{
+        SessionId = $sessionId; Profile = ""; DeviceId = ""; PreviousVersion = "unknown"
+        TargetVersion = "unknown"; ArtifactVerification = "FAILED"; Migrations = @()
+        PreReady = $false; PostReady = $false; RebootAcceptance = "NOT_RUN"
+        RollbackAssessment = "NO_MUTATION"; ConfigVersionBefore = -1; ConfigVersionAfter = -1
+        Result = "FAIL"; ErrorCategory = Get-ErrorCategory -Message $safe
+        Detail = [regex]::Replace($safe, '^\[[A-Z0-9_]+\]\s*', '')
+    }
+    Write-SanitizedReports -Result $preflight -Directory $ReportDirectory
+    Write-Error "FAIL: $($preflight.ErrorCategory) - $($preflight.Detail)" -ErrorAction Continue
+    exit 1
+}
 $results = New-Object System.Collections.Generic.List[object]
 $completedIds = @{}
 do {
@@ -879,6 +1041,7 @@ do {
 $summary = Format-SessionSummary -Results @($results) -TargetVersion ([string]$bundle.Manifest.versionName)
 Write-Host ""
 Write-Host $summary
+Write-SessionSummaryReport -Summary $summary -SessionId $sessionId -Directory $ReportDirectory
 if (@($results | Where-Object { $_.Result -eq "FAIL" }).Count -gt 0) { exit 1 }
 if (@($results | Where-Object { $_.Result -eq "WARN" }).Count -gt 0) { exit 2 }
 exit 0

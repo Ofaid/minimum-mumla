@@ -1,6 +1,6 @@
 # Minimum project status (source of truth)
 
-Last reviewed: 2026-08-12
+Last reviewed: 2026-08-13
 
 This is the canonical hand-off document for the `awatchar/minimum` public PoC. If another
 document disagrees with this file, verify the code and update this file first.
@@ -16,6 +16,16 @@ document disagrees with this file, verify the code and update this file first.
 - Working branch: `agent/minimum-foundation`
 - Draft PR: https://github.com/awatchar/minimum/pull/1
 - Android application ID: `se.lublin.mumla`
+- The integrated Issue #11/#12 release candidate uses versionCode `3070301`; the compatible next
+  Git-derived release tag/versionName is `3.7.3-minimum.2`. This is a preliminary integration
+  candidate only: it has not been tagged, published or accepted on hardware.
+- The existing-device updater now fail-closes on exact bundle/APK identity, requires Android Build
+  Tools `apksigner` for full signature verification, preserves Device ID, selected channel, active
+  Last Known Good config digest and managed safe-settings digest, and identity-correlates a device
+  after reboot. The versioned `CELLULAR_POLICY_V1_T56` migration applies only from versionCode
+  `3070300` or older to `3070301`, is T56-only/reversible, and requires post-reboot verify-only
+  evidence. Cellular WARN remains overall WARN; no modem-mode mutation or cellular-ready PASS is
+  claimed from a Settings database readback.
 - Current supported build target: FOSS debug APK
 - Local FOSS release assembly and release Lint now pass, but the output is not an approved public
   release until the application ID/signing identity, protected GitHub environment, tagged workflow
