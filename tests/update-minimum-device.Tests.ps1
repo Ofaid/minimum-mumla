@@ -225,6 +225,9 @@ function Set-UpdaterScenarioMocks {
     Set-Item Function:\Get-AdbRecords { @([pscustomobject]@{ Serial="usb"; State="device"; TransportId=7 }) }
     Set-Item Function:\Add-HardwareIdentity {
         param($Target)
+        if (-not $script:CurrentTarget -or $script:CurrentTarget.TransportId -ne $Target.TransportId) {
+            throw "target transport was not pinned before hardware inventory"
+        }
         [pscustomobject]@{ Serial=$Target.Serial; State="device"; TransportId=7; Manufacturer=$global:UpdaterScenario.Manufacturer; Model=$global:UpdaterScenario.Model; Profile=$global:UpdaterScenario.Profile }
     }
     Set-Item Function:\Get-BatteryState { [pscustomobject]@{ Level=90; Powered=$true } }

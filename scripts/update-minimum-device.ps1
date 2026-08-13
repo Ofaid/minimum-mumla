@@ -988,6 +988,9 @@ function Invoke-OneUpdate {
     try {
         $records = @(Get-AdbRecords)
         $target = Select-TargetRecord -Records $records -RequestedSerial $Serial -RequestedTransportId $TransportId
+        # Hardware inventory uses target-scoped ADB commands, so pin the selected transport before
+        # reading manufacturer/model. This must happen before Add-HardwareIdentity calls getprop.
+        $script:CurrentTarget = $target
         $script:CurrentTarget = Add-HardwareIdentity -Target $target
         if (-not $script:CurrentTarget.Profile) {
             Throw-UpdateError "UNSUPPORTED_HARDWARE" "Unknown hardware was inventory-checked and rejected before mutation."
