@@ -55,7 +55,11 @@ $DeviceProfileProvisionAction = "se.lublin.mumla.action.PROVISION_DEVICE_PROFILE
 $IdentityReportAction = "se.lublin.mumla.action.PROVISION_REPORT_IDENTITY"
 $RadioConfigProvisionAction = "se.lublin.mumla.action.PROVISION_RADIO_CONFIG"
 $WifiHelperPackage = "dev.minimum.wifiprovisioner"
-$WifiHelperActivity = "dev.minimum.wifiprovisioner/.WifiProvisionActivity"
+$WifiHelperReceiver = "dev.minimum.wifiprovisioner/.WifiProvisionReceiver"
+$WifiHelperImportAction = "dev.minimum.wifiprovisioner.action.IMPORT_REQUEST"
+$WifiHelperStatusAction = "dev.minimum.wifiprovisioner.action.STATUS"
+$WifiHelperRequestPathExtra = "requestPath"
+$WifiHelperOperationIdExtra = "operationId"
 if (-not $LabWifiCredentialPath) {
     $LabWifiCredentialPath = Join-Path $PSScriptRoot (".secrets\{0}-lab-wifi.credential.xml" -f $TargetName.ToLowerInvariant())
 }
@@ -322,6 +326,113 @@ function Get-LabWifiCredential {
     throw "Lab Wi-Fi is not connected and no credential was supplied. Pass -LabWifiCredential or create the ignored DPAPI credential at $LabWifiCredentialPath."
 }
 
+function Convert-WifiHelperStatusMarker {
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$Output,
+        [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{32}$')][string]$ExpectedOperationId
+    )
+
+    $escapedOperationId = [regex]::Escape($ExpectedOperationId)
+    $markerPattern = '(?<state>IMPORTED|SUCCESS):' + $escapedOperationId +
+            '|ERROR:' + $escapedOperationId + ':(?<error>[a-z0-9-]{1,64})'
+    foreach ($line in $Output) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        $text = ([string]$line).Trim()
+        $match = [regex]::Match(
+                $text,
+                '^Broadcast completed:\s+result=-1,\s+data="?(?<marker>(?:' +
+                    $markerPattern + '))"?$')
+        if (-not $match.Success) {
+            continue
+        }
+        $marker = $match.Groups['marker'].Value
+        if ($marker.StartsWith('ERROR:', [System.StringComparison]::Ordinal)) {
+            return [pscustomobject]@{ State = 'ERROR'; Error = $match.Groups['error'].Value }
+        }
+        $state = $marker.Substring(0, $marker.IndexOf(':'))
+        return [pscustomobject]@{ State = $state; Error = $null }
+    }
+    return $null
+}
+
+function Convert-WifiHelperBroadcastOutput {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][object[]]$Output)
+
+    return @($Output | ForEach-Object {
+        if ($_ -is [System.Management.Automation.ErrorRecord]) {
+            $_.ToString()
+        } else {
+            [string]$_
+        }
+    })
+}
+
+function Invoke-WifiHelperBroadcast {
+    param([Parameter(Mandatory)][string[]]$Arguments)
+
+    $savedErrorActionPreference = $ErrorActionPreference
+    try {
+        # Native adb diagnostics must be captured alongside stdout so a valid ordered result can
+        # still be found without allowing a permission/native error to masquerade as one.
+        $ErrorActionPreference = "Continue"
+        $combinedOutput = @(& $adbPath @Arguments 2>&1)
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
+    [pscustomobject]@{
+        ExitCode = $exitCode
+        Output = @(Convert-WifiHelperBroadcastOutput -Output $combinedOutput)
+    }
+}
+
+function Assert-WifiRemoteRequestAbsent {
+    param([Parameter(Mandatory)][string]$RemotePath)
+
+    # The path is generated locally from a random operation ID and is never credential data.
+    # Keep the device-side probe output to one of two exact, non-secret words.
+    $probeCommand = "if [ -e '$RemotePath' ]; then echo PRESENT; else echo ABSENT; fi"
+    $probeOutput = @(& $adbPath @($targetArgs + @(
+        "shell", $probeCommand
+    )) 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        throw "remote request existence probe failed"
+    }
+    $probeText = (($probeOutput | ForEach-Object { [string]$_ }) -join "`n").Trim()
+    if ($probeText -ceq "ABSENT") {
+        return
+    }
+    if ($probeText -ceq "PRESENT") {
+        throw "remote request remains present"
+    }
+    throw "remote request existence probe returned unexpected output"
+}
+
+function Assert-WifiHelperUninstalled {
+    $uninstallOutput = @(& $adbPath @($targetArgs + @(
+        "uninstall", $WifiHelperPackage
+    )) 2>$null)
+    if ($LASTEXITCODE -ne 0 -or
+            ($uninstallOutput -join "`n") -notmatch '(?im)^\s*Success\s*$') {
+        throw "helper uninstall was not acknowledged"
+    }
+
+    # pm list packages is expected to exit successfully even when no package matches. Only the
+    # exact package line is meaningful; diagnostics are discarded and never echoed.
+    $packageListOutput = @(& $adbPath @($targetArgs + @(
+        "shell", "pm", "list", "packages", $WifiHelperPackage
+    )) 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        throw "helper package query failed"
+    }
+    $packageLines = @($packageListOutput | ForEach-Object { ([string]$_).Trim() })
+    if ($packageLines -contains "package:$WifiHelperPackage") {
+        throw "helper package remains installed"
+    }
+}
+
 function Invoke-LabWifiProvisioning {
     param(
         [Parameter(Mandatory)][string]$Ssid,
@@ -349,8 +460,11 @@ function Invoke-LabWifiProvisioning {
     $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) (
             "minimum-wifi-" + [guid]::NewGuid().ToString("N"))
     $requestPath = Join-Path $temporaryDirectory "request.json"
-    $remoteRequest = "/data/local/tmp/minimum-wifi-$PID.json"
+    $operationId = [guid]::NewGuid().ToString("N")
+    $remoteRequest = "/data/local/tmp/minimum-wifi-$operationId.json"
     $helperInstalled = $false
+    $primaryError = $null
+    $cleanupError = $null
     New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
     try {
         $plainPassword = $Credential.GetNetworkCredential().Password
@@ -366,48 +480,138 @@ function Invoke-LabWifiProvisioning {
         Invoke-TargetAdb -Arguments @("install", "-r", $helperApk) | Out-Null
         $helperInstalled = $true
         Invoke-TargetAdb -Arguments @("push", $requestPath, $remoteRequest) | Out-Null
-        Invoke-TargetAdb -Arguments @(
-            "shell", "run-as", $WifiHelperPackage, "mkdir", "-p", "files"
-        ) | Out-Null
-        Invoke-TargetAdb -Arguments @(
-            "shell", "run-as", $WifiHelperPackage, "cp", $remoteRequest, "files/request.json"
-        ) | Out-Null
-        Invoke-TargetAdb -Arguments @(
-            "shell", "run-as", $WifiHelperPackage, "chmod", "600", "files/request.json"
-        ) | Out-Null
-        Invoke-TargetAdb -Arguments @("shell", "rm", "-f", $remoteRequest) | Out-Null
-        Invoke-TargetAdb -Arguments @("shell", "am", "start", "-n", $WifiHelperActivity) |
-            Out-Null
-
-        $resultText = ""
-        $deadline = (Get-Date).AddSeconds(25)
-        while ((Get-Date) -lt $deadline) {
-            Start-Sleep -Milliseconds 500
-            $resultArgs = $targetArgs + @(
-                "shell", "run-as", $WifiHelperPackage, "cat", "files/result.json"
+        $importArgs = $targetArgs + @(
+            "shell", "am", "broadcast", "-n", $WifiHelperReceiver,
+            "-a", $WifiHelperImportAction,
+            "--es", $WifiHelperRequestPathExtra, $remoteRequest,
+            "--es", $WifiHelperOperationIdExtra, $operationId
+        )
+        $importCall = Invoke-WifiHelperBroadcast -Arguments $importArgs
+        if ($importCall.ExitCode -ne 0) {
+            throw "Temporary Wi-Fi provisioner could not accept the request."
+        }
+        # Android 5.1 does not reliably preserve ordered-broadcast result data. Import output is
+        # therefore discarded. A nonce-bound STATUS marker from receiver-private, fsynced state
+        # is the only proof that the request was validated and copied.
+        $importCall = $null
+        $importProof = $null
+        $importDeadline = (Get-Date).AddSeconds(5)
+        while ((Get-Date) -lt $importDeadline -and $null -eq $importProof) {
+            $statusArgs = $targetArgs + @(
+                "shell", "am", "broadcast", "-n", $WifiHelperReceiver,
+                "-a", $WifiHelperStatusAction,
+                "--es", $WifiHelperOperationIdExtra, $operationId
             )
-            $resultOutput = & $adbPath @resultArgs 2>$null
-            if ($LASTEXITCODE -eq 0 -and $resultOutput) {
-                $resultText = ($resultOutput -join "")
-                break
+            $statusCall = Invoke-WifiHelperBroadcast -Arguments $statusArgs
+            if ($statusCall.ExitCode -eq 0) {
+                $importProof = Convert-WifiHelperStatusMarker `
+                        -Output $statusCall.Output -ExpectedOperationId $operationId
+                if ($null -ne $importProof -and $importProof.State -eq 'ERROR') {
+                    throw "Lab Wi-Fi provisioning failed: $($importProof.Error)"
+                }
+            }
+            if ($null -eq $importProof) {
+                Start-Sleep -Milliseconds 100
             }
         }
-        if (-not $resultText) {
+        if ($null -eq $importProof) {
+            throw "Temporary Wi-Fi provisioner did not prove a private request import."
+        }
+
+        # Only the shell UID can remove its /data/local/tmp entry. Removal occurs after the
+        # receiver-private import proof and is immediately verified without exposing content.
+        & $adbPath @($targetArgs + @("shell", "rm", "-f", $remoteRequest)) 1>$null 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "remote request deletion failed"
+        }
+        Assert-WifiRemoteRequestAbsent -RemotePath $remoteRequest
+
+        $result = if ($importProof.State -eq 'SUCCESS') { $importProof } else { $null }
+        $deadline = (Get-Date).AddSeconds(25)
+        while ((Get-Date) -lt $deadline -and $null -eq $result) {
+            Start-Sleep -Milliseconds 500
+            $statusArgs = $targetArgs + @(
+                "shell", "am", "broadcast", "-n", $WifiHelperReceiver,
+                "-a", $WifiHelperStatusAction,
+                "--es", $WifiHelperOperationIdExtra, $operationId
+            )
+            $statusCall = Invoke-WifiHelperBroadcast -Arguments $statusArgs
+            if ($statusCall.ExitCode -eq 0) {
+                $status = Convert-WifiHelperStatusMarker `
+                        -Output $statusCall.Output -ExpectedOperationId $operationId
+                if ($null -ne $status -and $status.State -eq 'ERROR') {
+                    throw "Lab Wi-Fi provisioning failed: $($status.Error)"
+                }
+                if ($null -ne $status -and $status.State -eq 'SUCCESS') {
+                    $result = $status
+                }
+            }
+        }
+        if ($null -eq $result) {
             throw "Temporary Wi-Fi provisioner did not return a result."
         }
-        $result = $resultText | ConvertFrom-Json
-        if (-not $result.ok) {
-            throw "Lab Wi-Fi provisioning failed: $($result.error)"
-        }
         Write-Host "Lab Wi-Fi profile saved for SSID '$Ssid'; credential value was not displayed."
+    } catch {
+        $primaryError = $_
     } finally {
-        & $adbPath @($targetArgs + @("shell", "rm", "-f", $remoteRequest)) 1>$null 2>$null
+        $remoteCleanupError = $null
+        try {
+            & $adbPath @($targetArgs + @("shell", "rm", "-f", $remoteRequest)) 1>$null 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                throw "remote request deletion failed"
+            }
+        } catch {
+            $remoteCleanupError = "remote request deletion failed"
+        }
+        try {
+            Assert-WifiRemoteRequestAbsent -RemotePath $remoteRequest
+        } catch {
+            if ($remoteCleanupError) {
+                $remoteCleanupError = "$remoteCleanupError; remote request absence probe failed"
+            } else {
+                $remoteCleanupError = "remote request absence probe failed"
+            }
+        }
+        if ($remoteCleanupError) {
+            $cleanupError = $remoteCleanupError
+        }
+
         if ($helperInstalled) {
-            & $adbPath @($targetArgs + @("uninstall", $WifiHelperPackage)) 1>$null 2>$null
+            try {
+                Assert-WifiHelperUninstalled
+            } catch {
+                if ($cleanupError) {
+                    $cleanupError = "$cleanupError; helper uninstall verification failed"
+                } else {
+                    $cleanupError = "helper uninstall verification failed"
+                }
+            }
         }
-        if (Test-Path -LiteralPath $temporaryDirectory) {
-            Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force
+
+        try {
+            if (Test-Path -LiteralPath $temporaryDirectory) {
+                Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force
+            }
+            if (Test-Path -LiteralPath $temporaryDirectory) {
+                throw "local request cleanup failed"
+            }
+        } catch {
+            if ($cleanupError) {
+                $cleanupError = "$cleanupError; local request cleanup failed"
+            } else {
+                $cleanupError = "local request cleanup failed"
+            }
         }
+    }
+
+    if ($primaryError) {
+        if ($cleanupError) {
+            throw "$($primaryError.Exception.Message) Cleanup also failed: $cleanupError."
+        }
+        throw $primaryError.Exception.Message
+    }
+    if ($cleanupError) {
+        throw "Temporary Wi-Fi provisioner cleanup failed: $cleanupError."
     }
 
     $deadline = (Get-Date).AddSeconds(30)
