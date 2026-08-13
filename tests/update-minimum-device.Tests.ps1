@@ -258,7 +258,9 @@ if (Test-Path -LiteralPath $realApkPath -PathType Leaf) {
             $probeText = (($probe.Stdout, $probe.Stderr) -join "`n")
             $digestLabels = @([regex]::Matches($probeText, '(?i)Signer #\d+ certificate SHA-256 digest:') | ForEach-Object Value)
             $signerCounts = @([regex]::Matches($probeText, '(?i)Number of signers:') | ForEach-Object Value)
-            throw "$($_.Exception.Message) [probe exit=$($probe.ExitCode) stdoutChars=$($probe.Stdout.Length) stderrChars=$($probe.Stderr.Length) digestLabels=$($digestLabels.Count) signerCountLabels=$($signerCounts.Count)]"
+            $safeLabels = @($probeText -split '\r?\n' | Where-Object { $_ -match '^(Signer #\d+ certificate|Number of signers:)' } |
+                ForEach-Object { if ($_ -match '^([^:]+):') { $Matches[1] } } | Select-Object -Unique)
+            throw "$($_.Exception.Message) [probe exit=$($probe.ExitCode) stdoutChars=$($probe.Stdout.Length) stderrChars=$($probe.Stderr.Length) digestLabels=$($digestLabels.Count) signerCountLabels=$($signerCounts.Count) labels=$($safeLabels -join '|')]"
         }
         Assert-True ($signers.Count -ge 1) "real APK signer count"
         Assert-True (@($signers | Where-Object { $_ -notmatch '^[0-9A-F]{64}$' }).Count -eq 0) "real APK signer format"
