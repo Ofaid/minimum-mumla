@@ -249,7 +249,17 @@ if (Test-Path -LiteralPath $realApkPath -PathType Leaf) {
             Assert-Equal ([long]3070301) $identity.VersionCode "real APK version code"
             Assert-True ($identity.VersionName -match '-debug$') "real APK debug version"
         }
-        $signers = @(Get-ApkSignerDigests -ApkPath $realApkPath)
+        try {
+            $signers = @(Get-ApkSignerDigests -ApkPath $realApkPath)
+        } catch {
+            # CI diagnostics deliberately expose only stream sizes and structural
+            # labels, never a certificate digest or certificate identity.
+            $probe = Invoke-ApkSignerProcess -ApkSigner (Resolve-ApkSigner) -ApkPath $realApkPath
+            $probeText = (($probe.Stdout, $probe.Stderr) -join "`n")
+            $digestLabels = @([regex]::Matches($probeText, '(?i)Signer #\d+ certificate SHA-256 digest:') | ForEach-Object Value)
+            $signerCounts = @([regex]::Matches($probeText, '(?i)Number of signers:') | ForEach-Object Value)
+            throw "$($_.Exception.Message) [probe exit=$($probe.ExitCode) stdoutChars=$($probe.Stdout.Length) stderrChars=$($probe.Stderr.Length) digestLabels=$($digestLabels.Count) signerCountLabels=$($signerCounts.Count)]"
+        }
         Assert-True ($signers.Count -ge 1) "real APK signer count"
         Assert-True (@($signers | Where-Object { $_ -notmatch '^[0-9A-F]{64}$' }).Count -eq 0) "real APK signer format"
     }
