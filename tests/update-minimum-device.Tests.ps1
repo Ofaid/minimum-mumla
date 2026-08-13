@@ -131,6 +131,29 @@ Test-Case "apksigner process rejects command-stream injection characters" {
     }
 }
 
+Test-Case "apksigner timeout has bounded cleanup" {
+    $root = Join-Path ([IO.Path]::GetTempPath()) ("minimum-apksigner-timeout-" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $root | Out-Null
+    try {
+        $fakeApk = Join-Path $root "fixture.apk"
+        Set-Content -LiteralPath $fakeApk -Value "fixture" -NoNewline
+        if ($env:ComSpec) {
+            $fakeSigner = Join-Path $root "apksigner.bat"
+            Set-Content -LiteralPath $fakeSigner -Value "@ping -n 6 127.0.0.1 >nul" -Encoding ASCII
+        } else {
+            $fakeSigner = Join-Path $root "apksigner"
+            Set-Content -LiteralPath $fakeSigner -Value "#!/bin/sh`nsleep 5" -Encoding ASCII
+            & chmod +x $fakeSigner
+        }
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        Assert-ThrowsCode { Invoke-ApkSignerProcess $fakeSigner $fakeApk 100 100 } "APK_SIGNATURE_INVALID" "timeout refused"
+        $timer.Stop()
+        Assert-True ($timer.ElapsedMilliseconds -lt 3000) "timeout cleanup remained bounded"
+    } finally {
+        if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+    }
+}
+
 Test-Case "migration dispatch is exact, versioned, and T56-only" {
     $migration = [pscustomobject]@{ id="CELLULAR_POLICY_V1_T56"; fromVersionCodeMax=3070300; toVersionCode=3070301; profiles=@("T56"); rebootRequired=$true; irreversible=$false }
     Assert-Equal 1 @(Get-RequiredMigrations @($migration) 3070300 3070301 "T56").Count "T56 migration"
@@ -214,9 +237,18 @@ $realApkPath = if ($env:MINIMUM_TEST_SIGNED_APK) {
 if (Test-Path -LiteralPath $realApkPath -PathType Leaf) {
     Test-Case "real built APK identity and raw apksigner process parsing" {
         $identity = Get-ApkManifestIdentity -ApkPath $realApkPath
-        Assert-Equal "se.lublin.mumla" $identity.ApplicationId "real APK package"
-        Assert-Equal ([long]3070301) $identity.VersionCode "real APK version code"
-        Assert-True ($identity.VersionName -match '-debug$') "real APK debug version"
+        if ($env:MINIMUM_TEST_SIGNED_APK) {
+            Assert-True (-not [string]::IsNullOrWhiteSpace($env:MINIMUM_TEST_EXPECTED_APPLICATION_ID)) "release expected package supplied"
+            Assert-True (-not [string]::IsNullOrWhiteSpace($env:MINIMUM_TEST_EXPECTED_VERSION_CODE)) "release expected version code supplied"
+            Assert-True (-not [string]::IsNullOrWhiteSpace($env:MINIMUM_TEST_EXPECTED_VERSION_NAME)) "release expected version name supplied"
+            Assert-Equal $env:MINIMUM_TEST_EXPECTED_APPLICATION_ID $identity.ApplicationId "release APK package"
+            Assert-Equal ([long]$env:MINIMUM_TEST_EXPECTED_VERSION_CODE) $identity.VersionCode "release APK version code"
+            Assert-Equal $env:MINIMUM_TEST_EXPECTED_VERSION_NAME $identity.VersionName "release APK version name"
+        } else {
+            Assert-Equal "se.lublin.mumla" $identity.ApplicationId "real APK package"
+            Assert-Equal ([long]3070301) $identity.VersionCode "real APK version code"
+            Assert-True ($identity.VersionName -match '-debug$') "real APK debug version"
+        }
         $signers = @(Get-ApkSignerDigests -ApkPath $realApkPath)
         Assert-True ($signers.Count -ge 1) "real APK signer count"
         Assert-True (@($signers | Where-Object { $_ -notmatch '^[0-9A-F]{64}$' }).Count -eq 0) "real APK signer format"

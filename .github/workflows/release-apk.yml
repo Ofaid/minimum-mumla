@@ -149,6 +149,9 @@ jobs:
           }
           ./tools/verify-cellular-policy.ps1
           $env:MINIMUM_TEST_SIGNED_APK = (Resolve-Path 'app/build/outputs/apk/foss/release/mumla-foss-release.apk').Path
+          $env:MINIMUM_TEST_EXPECTED_APPLICATION_ID = '${{ vars.MINIMUM_RELEASE_APPLICATION_ID }}'
+          $env:MINIMUM_TEST_EXPECTED_VERSION_CODE = '${{ inputs.expected_version_code }}'
+          $env:MINIMUM_TEST_EXPECTED_VERSION_NAME = '${{ inputs.tag }}'
           ./tests/update-minimum-device.Tests.ps1
       - name: Build temporary Wi-Fi provisioner
         run: |
