@@ -42,6 +42,19 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew :app:testFossDebugUnitTest :app:assembleFossDebug :app:assembleFossRelease --no-daemon --stacktrace
+      - name: Test updater with real Linux apksigner and debug APK
+        shell: pwsh
+        run: |
+          $apk = (Resolve-Path 'app/build/outputs/apk/foss/debug/mumla-foss-debug.apk').Path
+          $badging = & "$env:ANDROID_HOME/build-tools/36.0.0/aapt" dump badging $apk
+          $package = [regex]::Match(($badging -join "`n"), "package: name='([^']+)' versionCode='([0-9]+)' versionName='([^']+)'" )
+          if (-not $package.Success) { throw 'Could not parse debug APK identity.' }
+          $env:MINIMUM_TEST_SIGNED_APK = $apk
+          $env:MINIMUM_TEST_EXPECTED_APPLICATION_ID = $package.Groups[1].Value
+          $env:MINIMUM_TEST_EXPECTED_VERSION_CODE = $package.Groups[2].Value
+          $env:MINIMUM_TEST_EXPECTED_VERSION_NAME = $package.Groups[3].Value
+          ./tools/verify-cellular-policy.ps1
+          ./tests/update-minimum-device.Tests.ps1
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:

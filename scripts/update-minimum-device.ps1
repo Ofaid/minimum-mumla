@@ -415,19 +415,30 @@ function Invoke-ApkSignerProcess {
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     if ($ApkSigner.EndsWith(".bat", [StringComparison]::OrdinalIgnoreCase)) {
-        if (-not $env:ComSpec) {
-            Throw-UpdateError "APKSIGNER_MISSING" "The Windows command processor required for apksigner.bat is unavailable."
-        }
         # cmd expands percent variables even inside quotes. Refuse percent rather
         # than allow either path to be rewritten before the reviewed tool runs.
         if ($ApkPath.Contains('%') -or $ApkSigner.Contains('%')) {
             Throw-UpdateError "APK_SIGNATURE_INVALID" "Unsafe character in the Windows APK or apksigner path."
         }
+        if (-not $env:ComSpec) {
+            Throw-UpdateError "APKSIGNER_MISSING" "The Windows command processor required for apksigner.bat is unavailable."
+        }
         $start.FileName = $env:ComSpec
         $start.Arguments = "/d /s /v:off /c `"`"$ApkSigner`" verify --verbose --print-certs `"$ApkPath`"`""
     } else {
         $start.FileName = $ApkSigner
-        $start.Arguments = "verify --verbose --print-certs `"$ApkPath`""
+        if ($start.PSObject.Properties["ArgumentList"]) {
+            # .NET Core exposes a true argv collection. Use it for the Unix
+            # extensionless launcher so paths are never reparsed as one string.
+            $start.ArgumentList.Add("verify")
+            $start.ArgumentList.Add("--verbose")
+            $start.ArgumentList.Add("--print-certs")
+            $start.ArgumentList.Add($ApkPath)
+        } else {
+            # Windows PowerShell 5.1 has no ArgumentList; extensionless launchers
+            # are unusual there, but retain safe quote-delimited compatibility.
+            $start.Arguments = "verify --verbose --print-certs `"$ApkPath`""
+        }
     }
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $start
