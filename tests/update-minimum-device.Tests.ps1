@@ -110,10 +110,7 @@ Test-Case "returning target switches to its correlated ADB port" {
 
 Test-Case "apksigner output parser requires verified signer digest" {
     $digest = "168F42ED412DA80ADAF27BED0984DBEE191168E9DF04F08AFA240A3F9DE45972"
-    Assert-Equal $digest (Parse-ApkSignerOutput "Signer #1 certificate SHA-256 digest: $digest") "apksigner digest"
-    $escape = [char]27
-    $linuxWrapped = "NativeCommandError: ${escape}[36mSigner #1 certificate SHA-256 digest: $($digest.ToLowerInvariant())${escape}[0m"
-    Assert-Equal $digest (Parse-ApkSignerOutput $linuxWrapped) "PowerShell Linux wrapped digest"
+    Assert-ThrowsCode { Parse-ApkSignerOutput "Number of signers: 1`nSigner #1 certificate SHA-256 digest: $digest" } "APK_SIGNATURE_INVALID" "text digest without certificate refused"
     Assert-ThrowsCode { Parse-ApkSignerOutput "DOES NOT VERIFY" } "APK_SIGNATURE_INVALID" "missing signer digest"
 }
 
@@ -249,9 +246,23 @@ if (Test-Path -LiteralPath $realApkPath -PathType Leaf) {
             Assert-Equal ([long]3070301) $identity.VersionCode "real APK version code"
             Assert-True ($identity.VersionName -match '-debug$') "real APK debug version"
         }
-        $signers = @(Get-ApkSignerDigests -ApkPath $realApkPath)
+        $probe = Invoke-ApkSignerProcess -ApkSigner (Resolve-ApkSigner) -ApkPath $realApkPath
+        Assert-Equal 0 $probe.ExitCode "real apksigner exit"
+        $probeText = (($probe.Stdout, $probe.Stderr) -join "`n")
+        $signers = @(Parse-ApkSignerOutput $probeText)
         Assert-True ($signers.Count -ge 1) "real APK signer count"
         Assert-True (@($signers | Where-Object { $_ -notmatch '^[0-9A-F]{64}$' }).Count -eq 0) "real APK signer format"
+        $pem = [regex]::Match($probeText, '(?s)-----BEGIN CERTIFICATE-----\s*.*?\s*-----END CERTIFICATE-----')
+        Assert-True $pem.Success "real signer PEM present"
+        Assert-ThrowsCode { Parse-ApkSignerOutput ($probeText + "`n" + $pem.Value) } "APK_SIGNATURE_INVALID" "duplicate PEM refused"
+        $invalidPemText = $probeText.Remove($pem.Index, $pem.Length).Insert($pem.Index,
+            "-----BEGIN CERTIFICATE-----`nNOT-BASE64`n-----END CERTIFICATE-----")
+        Assert-ThrowsCode { Parse-ApkSignerOutput $invalidPemText } "APK_SIGNATURE_INVALID" "invalid PEM refused"
+        $wrongCount = [regex]::Replace($probeText, '(?im)^Number of signers:\s*[0-9]+\s*$', 'Number of signers: 99', 1)
+        Assert-ThrowsCode { Parse-ApkSignerOutput $wrongCount } "APK_SIGNATURE_INVALID" "signer count mismatch refused"
+        Assert-ThrowsCode { Parse-ApkSignerOutput ($probeText + "`nNumber of signers: $($signers.Count)") } "APK_SIGNATURE_INVALID" "duplicate signer count refused"
+        $fakeDigest = if ($signers[0] -ceq ('A' * 64)) { 'B' * 64 } else { 'A' * 64 }
+        Assert-ThrowsCode { Parse-ApkSignerOutput ($probeText + "`nSigner #99 certificate SHA-256 digest: $fakeDigest") } "APK_SIGNATURE_INVALID" "fake textual digest refused"
     }
 }
 

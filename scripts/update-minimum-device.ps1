@@ -358,17 +358,41 @@ function Find-ApkSignerInSdkRoots {
 
 function Parse-ApkSignerOutput {
     param([string]$Text)
-    # PowerShell 7 wraps some extensionless native-command output as ErrorRecord text on Linux,
-    # which can prefix the original line. Strip terminal control sequences and locate the exact
-    # apksigner label without requiring it to begin the rendered PowerShell line.
+    # Process capture returns raw streams; accept only anchored apksigner structural
+    # lines after removing terminal controls. PEM certificates are authoritative.
     $normalized = [regex]::Replace($Text, '\x1B\[[0-?]*[ -/]*[@-~]', '')
-    $digests = @([regex]::Matches($normalized,
-        '(?i)Signer #\d+ certificate SHA-256 digest:\s*([0-9a-f]{64})(?![0-9a-f])') |
+    $textDigests = @([regex]::Matches($normalized,
+        '(?im)^Signer #\d+ certificate SHA-256 digest:\s*([0-9a-f]{64})\s*$') |
         ForEach-Object { $_.Groups[1].Value.ToUpperInvariant() })
-    if ($digests.Count -eq 0) {
-        Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner did not report a verified signing certificate."
+    $pemBlocks = @([regex]::Matches($normalized,
+        '(?s)-----BEGIN CERTIFICATE-----\s*(.*?)\s*-----END CERTIFICATE-----'))
+    $pemDigests = @($pemBlocks | ForEach-Object {
+        try {
+            $der = [Convert]::FromBase64String(([regex]::Replace($_.Groups[1].Value, '\s', '')))
+            $certificate = New-Object Security.Cryptography.X509Certificates.X509Certificate2 -ArgumentList @(,$der)
+            $sha256 = [Security.Cryptography.SHA256]::Create()
+            try { ([BitConverter]::ToString($sha256.ComputeHash($certificate.RawData))).Replace('-', '') }
+            finally { $sha256.Dispose(); $certificate.Dispose() }
+        } catch {
+            Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner returned an invalid signer certificate."
+        }
+    })
+    $countLines = @([regex]::Matches($normalized, '(?im)^Number of signers:\s*([0-9]+)\s*$'))
+    if ($countLines.Count -ne 1 -or $pemDigests.Count -eq 0 -or
+            [int]$countLines[0].Groups[1].Value -ne $pemDigests.Count -or
+            @($pemDigests | Select-Object -Unique).Count -ne $pemDigests.Count) {
+        Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner did not report an exact verified signer certificate set."
     }
-    return $digests
+    if ($textDigests.Count -gt 0) {
+        $textSet = @($textDigests | Sort-Object)
+        $pemSet = @($pemDigests | Sort-Object)
+        if ($textDigests.Count -ne $pemDigests.Count -or
+                @($textDigests | Select-Object -Unique).Count -ne $textDigests.Count -or
+                (Compare-Object $textSet $pemSet)) {
+            Throw-UpdateError "APK_SIGNATURE_INVALID" "apksigner textual and certificate signer sets disagree."
+        }
+    }
+    return $pemDigests
 }
 
 function Stop-ApkSignerProcess {
@@ -415,19 +439,31 @@ function Invoke-ApkSignerProcess {
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     if ($ApkSigner.EndsWith(".bat", [StringComparison]::OrdinalIgnoreCase)) {
-        if (-not $env:ComSpec) {
-            Throw-UpdateError "APKSIGNER_MISSING" "The Windows command processor required for apksigner.bat is unavailable."
-        }
         # cmd expands percent variables even inside quotes. Refuse percent rather
         # than allow either path to be rewritten before the reviewed tool runs.
         if ($ApkPath.Contains('%') -or $ApkSigner.Contains('%')) {
             Throw-UpdateError "APK_SIGNATURE_INVALID" "Unsafe character in the Windows APK or apksigner path."
         }
+        if (-not $env:ComSpec) {
+            Throw-UpdateError "APKSIGNER_MISSING" "The Windows command processor required for apksigner.bat is unavailable."
+        }
         $start.FileName = $env:ComSpec
-        $start.Arguments = "/d /s /v:off /c `"`"$ApkSigner`" verify --verbose --print-certs `"$ApkPath`"`""
+        $start.Arguments = "/d /s /v:off /c `"`"$ApkSigner`" verify --verbose --print-certs --print-certs-pem `"$ApkPath`"`""
     } else {
         $start.FileName = $ApkSigner
-        $start.Arguments = "verify --verbose --print-certs `"$ApkPath`""
+        if ($start.PSObject.Properties["ArgumentList"]) {
+            # .NET Core exposes a true argv collection. Use it for the Unix
+            # extensionless launcher so paths are never reparsed as one string.
+            $start.ArgumentList.Add("verify")
+            $start.ArgumentList.Add("--verbose")
+            $start.ArgumentList.Add("--print-certs")
+            $start.ArgumentList.Add("--print-certs-pem")
+            $start.ArgumentList.Add($ApkPath)
+        } else {
+            # Windows PowerShell 5.1 has no ArgumentList; extensionless launchers
+            # are unusual there, but retain safe quote-delimited compatibility.
+            $start.Arguments = "verify --verbose --print-certs --print-certs-pem `"$ApkPath`""
+        }
     }
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $start
