@@ -1,7 +1,37 @@
 Minimum device provisioning bundle
 ==================================
 
-This bundle prepares one supported T99, T56 or RYKS radio on Windows.
+This bundle provisions or updates one supported T99, T56 or RYKS radio on Windows.
+
+Choose the correct workflow
+---------------------------
+
+- New, reset or unregistered radio: double-click "Provision Minimum Device.cmd".
+- Already-provisioned radio with an existing Device ID and managed config: double-click
+  "Update Minimum Device.cmd".
+
+The updater is deliberately separate. It does not rerun model provisioning, remove apps, rewrite
+Wi-Fi, reopen Location consent or require Portal registration. It verifies the Release manifest,
+all bundle file hashes, APK checksum/package/version/exactly-one-reviewed-signer, installed signer compatibility,
+identity/config preservation and Ready. Read "UPDATER-README.md" in this bundle for advanced
+modes and recovery guidance.
+
+For the one-time 3070300-to-3070301 compatibility bridge, a non-creating Android run-as probe must
+first read only the existing public Device ID from app-private preferences. If run-as is unavailable,
+the operator must wake/unlock and manually open the existing RadioShell Ready screen. The updater
+does not start it: it requires the activity already focused plus package-bound minimum-state-ready
+in a fresh UI hierarchy, records LEGACY_READY_UI and a safe Channel baseline, then deletes the
+temporary UI file without reporting raw XML. Wrong-package, unfocused or non-Ready evidence fails
+before any legacy receiver. Status and identity are called only after either proof and must agree.
+Fields unavailable in 3070300 are marked BOOTSTRAPPED_POST_UPDATE after the new
+expanded report; they are not falsely reported as preserved from the legacy baseline.
+
+The bundle also includes "CELLULAR-README.md" and "scripts\manage-cellular.ps1". On the reviewed
+3.7.3-minimum.2 / versionCode 3070301 update, T56 devices crossing from versionCode 3070300 or
+older receive the exact CELLULAR_POLICY_V1_T56 migration and post-reboot verification. T99 and
+RYKS do not receive that model-specific setting change. Cellular readiness may remain WARN when
+the OEM blocks APN inspection or the carrier route is unavailable; read the cellular guide before
+accepting that limitation. Data Roaming can incur carrier charges.
 
 Supported hardware identities
 -----------------------------
@@ -17,6 +47,8 @@ Requirements
 
 - Windows 10 or Windows 11
 - Android Platform Tools (adb.exe) available in PATH
+- Android Build Tools apksigner available in PATH, ANDROID_HOME/ANDROID_SDK_ROOT, or the standard
+  local Android SDK; the updater refuses installation when full signature verification is absent
 - Internet access to https://minimum.vra.or.th/
 - A Minimum Portal administrator account
 - USB debugging enabled and authorized on the radio
@@ -68,11 +100,21 @@ Security and safety
 - PASS requires managed config activation and Ready both before and after reboot.
 - Ready messages before reboot are checkpoints only; the sole final PASS is emitted after the
   returning unit is identified and reaches Ready with the same Device ID.
+- Verify the separately published ZIP checksum before extraction. The updater also verifies the
+  exact in-bundle manifest/allowlist/checksums and APK identity/signer. An existing operator
+  workstation is supported; verification does not require wiping or rebuilding it.
+- The updater never uninstalls Minimum, clears app data, transmits PTT, exports app data, or stores
+  Android/USB/subscriber identifiers in its sanitized reports.
 
 An existing debug-signed Minimum APK cannot be upgraded in place by the release-signed APK. The
 installer stops on a signature mismatch rather than clearing app data automatically. Preserve any
 required device identity/config information and perform an explicitly approved uninstall before
 switching a lab device from debug signing to release signing.
+
+For updater testing on an existing debug-signed radio, use two reviewed versions signed by the
+same debug key and update in place without reset. Do not attempt a Release-signed installation on
+that device. This proves only the debug-channel updater path; it does not prove Release-signature
+acceptance.
 
 Checksum verification
 ---------------------

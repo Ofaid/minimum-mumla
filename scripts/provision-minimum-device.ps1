@@ -33,6 +33,7 @@ param(
     [switch]$SkipMinimumHome,
     [switch]$SkipLabWifi,
     [switch]$SkipLocation,
+    [switch]$DisableDataRoaming,
     [switch]$RequestNetworkLocationConsent,
     [switch]$RefreshLabWifi,
     [string]$LabWifiSsid = "..@EmergencyTU",
@@ -67,6 +68,7 @@ $serverArgs = @()
 $script:targetArgs = @()
 $script:targetLabel = ""
 $script:targetRecord = $null
+$script:CellularReadinessWarning = $false
 
 if ($DeviceProfile -and (($DeviceProfile -cnotmatch '^[A-Z0-9]{6}$') -or
         ($DeviceProfile -notmatch '[A-Z]') -or ($DeviceProfile -notmatch '\d'))) {
@@ -511,6 +513,7 @@ function Invoke-ModelPreparation {
     if ($SkipMinimumHome) { $arguments += "-SkipMinimumHome" }
     if ($SkipLabWifi) { $arguments += "-SkipLabWifi" }
     if ($SkipLocation) { $arguments += "-SkipLocation" }
+    if ($DisableDataRoaming) { $arguments += "-DisableDataRoaming" }
     if ($RequestNetworkLocationConsent) { $arguments += "-RequestNetworkLocationConsent" }
     if ($RefreshLabWifi) { $arguments += "-RefreshLabWifi" }
     if ($LabWifiCredentialPath) {
@@ -519,7 +522,10 @@ function Invoke-ModelPreparation {
 
     Write-Host "Running guarded $Profile preparation..."
     & powershell.exe @arguments
-    if ($LASTEXITCODE -ne 0) {
+    if ($LASTEXITCODE -eq 2 -and $Profile -eq "T56") {
+        $script:CellularReadinessWarning = $true
+        Write-Warning "T56 preparation completed with a documented cellular-readiness warning."
+    } elseif ($LASTEXITCODE -ne 0) {
         throw "$Profile preparation failed with exit code $LASTEXITCODE."
     }
 }
@@ -735,7 +741,32 @@ $returningTarget = Wait-ForReturningTarget -Manufacturer $manufacturer -Model $m
     -OriginalSerial $originalSerial -TimeoutSeconds $BootTimeoutSeconds
 Set-Target -Record $returningTarget
 Wait-AndroidBootCompleted -TimeoutSeconds $BootTimeoutSeconds
+if ($target.Profile -eq "T56") {
+    $cellularScript = Join-Path $PSScriptRoot "manage-cellular.ps1"
+    $cellularArguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+        $cellularScript, "-AdbPort", "$AdbPort")
+    if ($returningTarget.TransportId -gt 0) {
+        $cellularArguments += @("-TransportId", "$($returningTarget.TransportId)")
+    } else {
+        $cellularArguments += @("-Serial", $returningTarget.Serial)
+    }
+    if ($DisableDataRoaming) { $cellularArguments += "-DisableDataRoaming" }
+    $cellularArguments += "-VerifyOnly"
+    Write-Host "Verifying T56 cellular-policy persistence after reboot without rewriting settings..."
+    & powershell.exe @cellularArguments
+    $cellularExit = $LASTEXITCODE
+    if ($cellularExit -eq 2) {
+        $script:CellularReadinessWarning = $true
+        Write-Warning "Post-reboot cellular verification remains WARN; no persistence PASS is claimed."
+    } elseif ($cellularExit -ne 0) {
+        throw "Post-reboot T56 cellular verification failed with exit code $cellularExit."
+    }
+}
 Wait-MinimumReady -Phase "after reboot" -ExpectedDeviceId $deviceId `
     -TimeoutSeconds $ReadyTimeoutSeconds
 
+if ($script:CellularReadinessWarning) {
+    Write-Warning "WARN: $($target.Profile) Device ID $deviceId is provisioned and Ready, but cellular readiness is not fully accepted."
+    exit 2
+}
 Write-Host "PASS: $($target.Profile) Device ID $deviceId is provisioned and Ready."

@@ -398,6 +398,13 @@ This short log records meaningful project milestones. Detailed code truth remain
 
 ## Prior milestones
 
+- Integrated the guarded T56 cellular policy and secure existing-device updater on versionCode
+  `3070301` (`3.7.3-minimum.2` tag contract). Review hardening added verify-only reboot persistence,
+  truthful cellular WARN propagation, non-secret APN projection, no unverified modem-mode writes,
+  immutable T56 hardware gates, full `apksigner` verification, read-only preservation snapshots,
+  identity-correlated reboot recovery, sanitized failure recovery and an exact release-bundle
+  allowlist. Physical updater acceptance and publication remain deliberately open.
+
 - T99 hardware/ADB/input investigation and sanitized profile documentation.
 - MediaSession PTT bridge and 120-second fail-safe watchdog.
 - Automatic certificate generation on first run.

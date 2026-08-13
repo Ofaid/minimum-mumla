@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag pointing at the commit to build (for example 3.7.3-minimum.1)
+        description: Existing release tag pointing at the commit to build (for example 3.7.3-minimum.2)
         required: true
         type: string
       prerelease:
@@ -118,14 +118,37 @@ jobs:
           EXPECTED_VERSION_CODE: ${{ inputs.expected_version_code }}
           EXPECTED_APPLICATION_ID: ${{ vars.MINIMUM_RELEASE_APPLICATION_ID }}
         run: |
+          set -o pipefail
           APK=app/build/outputs/apk/foss/release/mumla-foss-release.apk
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/apk-signature.txt"
+          mapfile -t signer_shas < <(sed -n 's/^Signer #[0-9][0-9]* certificate SHA-256 digest: //p' "$RUNNER_TEMP/apk-signature.txt")
+          if [[ ${#signer_shas[@]} -ne 1 || ! "${signer_shas[0]}" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "Release APK must have exactly one reviewed signing certificate; missing or extra signers are refused." >&2
+            exit 1
+          fi
+          signer_sha=${signer_shas[0]}
+          echo "MINIMUM_APK_SIGNER_SHA256=${signer_sha^^}" >> "$GITHUB_ENV"
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee "$RUNNER_TEMP/apk-badging.txt"
           grep -F "package: name='$EXPECTED_APPLICATION_ID'" "$RUNNER_TEMP/apk-badging.txt"
           grep -F "versionCode='$EXPECTED_VERSION_CODE'" "$RUNNER_TEMP/apk-badging.txt"
           grep -F "versionName='$RELEASE_TAG'" "$RUNNER_TEMP/apk-badging.txt"
           cp "$APK" "minimum-${RELEASE_TAG}-foss.apk"
           sha256sum "minimum-${RELEASE_TAG}-foss.apk" > "minimum-${RELEASE_TAG}-foss.apk.sha256"
+      - name: Test Windows updater logic
+        shell: pwsh
+        run: |
+          $errors = $null
+          $tokens = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/update-minimum-device.ps1'),
+            [ref]$tokens,
+            [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | Format-List *
+            throw "Updater failed PowerShell AST parsing."
+          }
+          ./tools/verify-cellular-policy.ps1
+          ./tests/update-minimum-device.Tests.ps1
       - name: Build temporary Wi-Fi provisioner
         run: |
           ./gradlew -p tools/t99-wifi-provisioner :app:assembleDebug --no-daemon --stacktrace
@@ -144,26 +167,54 @@ jobs:
           rm -f -- "$OUTPUT_ZIP" "$OUTPUT_ZIP.sha256"
           mkdir -p "$BUNDLE_DIR/scripts" "$BUNDLE_DIR/assets"
           cp "Provision Minimum Device.cmd" "$BUNDLE_DIR/"
+          cp "Update Minimum Device.cmd" "$BUNDLE_DIR/"
           cp "minimum-${RELEASE_TAG}-foss.apk" "$BUNDLE_DIR/minimum-foss.apk"
+          cp "minimum-${RELEASE_TAG}-foss.apk.sha256" "$BUNDLE_DIR/minimum-foss.apk.sha256"
+          sed -i "s#minimum-${RELEASE_TAG}-foss.apk#minimum-foss.apk#" "$BUNDLE_DIR/minimum-foss.apk.sha256"
           cp scripts/provision-minimum-device.ps1 "$BUNDLE_DIR/scripts/"
+          cp scripts/update-minimum-device.ps1 "$BUNDLE_DIR/scripts/"
+          cp scripts/manage-cellular.ps1 "$BUNDLE_DIR/scripts/"
           cp scripts/prepare-t99.ps1 "$BUNDLE_DIR/scripts/"
           cp scripts/prepare-t56.ps1 "$BUNDLE_DIR/scripts/"
           cp scripts/prepare-ryks.ps1 "$BUNDLE_DIR/scripts/"
           cp tools/t99-wifi-provisioner/app/build/outputs/apk/debug/app-debug.apk \
             "$BUNDLE_DIR/assets/t99-wifi-provisioner.apk"
           cp docs/PROVISIONING_BUNDLE_README.txt "$BUNDLE_DIR/README.txt"
+          cp docs/UPDATER_RUNBOOK.md "$BUNDLE_DIR/UPDATER-README.md"
+          cp docs/CELLULAR_PROVISIONING.md "$BUNDLE_DIR/CELLULAR-README.md"
           printf '%s\n' "$RELEASE_TAG" > "$BUNDLE_DIR/VERSION.txt"
+          apk_sha=$(sha256sum "$BUNDLE_DIR/minimum-foss.apk" | cut -d' ' -f1)
+          file_entries="$RUNNER_TEMP/release-manifest-files.json"
+          find "$BUNDLE_DIR" -type f -printf '%P\n' | LC_ALL=C sort | while IFS= read -r relative; do
+            jq -cn --arg path "$relative" --arg sha256 "$(sha256sum "$BUNDLE_DIR/$relative" | cut -d' ' -f1 | tr '[:lower:]' '[:upper:]')" \
+              '{path:$path,sha256:$sha256}'
+          done | jq -s . > "$file_entries"
+          jq -n \
+            --arg releaseTag "$RELEASE_TAG" \
+            --argjson versionCode '${{ inputs.expected_version_code }}' \
+            --arg apkSha256 "${apk_sha^^}" \
+            --arg signerSha256 "$MINIMUM_APK_SIGNER_SHA256" \
+            --slurpfile files "$file_entries" \
+            '{schemaVersion:1,releaseTag:$releaseTag,applicationId:"se.lublin.mumla",versionCode:$versionCode,versionName:$releaseTag,apkFile:"minimum-foss.apk",apkSha256:$apkSha256,signerSha256:$signerSha256,rebootRequired:false,migrations:[{id:"CELLULAR_POLICY_V1_T56",fromVersionCodeMax:3070300,toVersionCode:3070301,profiles:["T56"],rebootRequired:true,irreversible:false}],files:$files[0]}' \
+            > "$BUNDLE_DIR/RELEASE-MANIFEST.json"
           expected_files="$RUNNER_TEMP/provisioning-bundle-expected-files.txt"
           expected_dirs="$RUNNER_TEMP/provisioning-bundle-expected-dirs.txt"
           printf '%s\n' \
             "$BUNDLE_NAME/Provision Minimum Device.cmd" \
+            "$BUNDLE_NAME/Update Minimum Device.cmd" \
             "$BUNDLE_NAME/README.txt" \
+            "$BUNDLE_NAME/CELLULAR-README.md" \
+            "$BUNDLE_NAME/RELEASE-MANIFEST.json" \
+            "$BUNDLE_NAME/UPDATER-README.md" \
             "$BUNDLE_NAME/VERSION.txt" \
             "$BUNDLE_NAME/minimum-foss.apk" \
+            "$BUNDLE_NAME/minimum-foss.apk.sha256" \
             "$BUNDLE_NAME/scripts/prepare-ryks.ps1" \
+            "$BUNDLE_NAME/scripts/manage-cellular.ps1" \
             "$BUNDLE_NAME/scripts/prepare-t56.ps1" \
             "$BUNDLE_NAME/scripts/prepare-t99.ps1" \
             "$BUNDLE_NAME/scripts/provision-minimum-device.ps1" \
+            "$BUNDLE_NAME/scripts/update-minimum-device.ps1" \
             "$BUNDLE_NAME/assets/t99-wifi-provisioner.apk" > "$expected_files"
           sort -o "$expected_files" "$expected_files"
           printf '%s\n' \
@@ -194,7 +245,7 @@ jobs:
                 echo "Credential-like content pattern found in staged text file (filename only): ${text_file#$BUNDLE_DIR/}"
                 exit 1
               fi
-            done < <(find "$text_root" -type f \( -name '*.cmd' -o -name '*.ps1' -o -name '*.txt' \) -print)
+            done < <(find "$text_root" -type f \( -name '*.cmd' -o -name '*.ps1' -o -name '*.txt' -o -name '*.md' -o -name '*.json' \) -print)
           done
           (
             cd "$RUNNER_TEMP"
@@ -243,7 +294,9 @@ jobs:
               echo "Credential-like content pattern found in extracted text file (filename only): ${text_file#$extracted_root/}"
               exit 1
             fi
-          done < <(find "$extracted_root" -type f \( -name '*.cmd' -o -name '*.ps1' -o -name '*.txt' \) -print)
+          done < <(find "$extracted_root" -type f \( -name '*.cmd' -o -name '*.ps1' -o -name '*.txt' -o -name '*.md' -o -name '*.json' \) -print)
+          pwsh -NoLogo -NoProfile -Command \
+            ". '$extracted_root/scripts/update-minimum-device.ps1' -LibraryOnly; Read-ReleaseBundle -Root '$extracted_root' | Out-Null; \$identity = Get-ApkManifestIdentity -ApkPath '$extracted_root/minimum-foss.apk'; if (\$identity.ApplicationId -cne 'se.lublin.mumla' -or \$identity.VersionName -cne '$RELEASE_TAG') { throw 'Extracted updater APK identity verification failed.' }; \$signers = @(Get-ApkSignerDigests -ApkPath '$extracted_root/minimum-foss.apk'); if (\$signers.Count -ne 1 -or \$signers[0] -cne '$MINIMUM_APK_SIGNER_SHA256') { throw 'Extracted updater APK signer-set verification failed.' }"
           echo "Provisioning bundle verification passed: exact allowlist, regular files, no symlinks, safe paths, staged and extracted content checks."
           sha256sum "$OUTPUT_ZIP" > "$OUTPUT_ZIP.sha256"
       - name: Prepare reviewed release notes
@@ -289,6 +342,8 @@ jobs:
             echo "## Physical-test status and known limitations"
             echo "- Physical acceptance is operator-gated; this workflow does not claim PTT, audio, room-switching or Location success without reviewed device evidence."
             echo "- Provisioning PASS requires same-ID Ready after reboot; \`-SkipReboot\` is explicitly INCOMPLETE."
+            echo "- The existing-device updater verifies the exact bundle/APK/signer, preserves app data, and refuses unknown migrations or debug-to-release signer changes."
+            echo "- Updater acceptance must be recorded separately for every model/signing channel claimed; no release workflow run itself proves physical acceptance."
             echo "- T56 network Location requires on-device consent within 120 seconds and remains subject to the documented manual safety boundary."
             echo
             echo "## Generated changes"

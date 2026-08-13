@@ -26,6 +26,7 @@ param(
     [switch]$SkipMinimumHome,
     [switch]$SkipLabWifi,
     [switch]$SkipLocation,
+    [switch]$DisableDataRoaming,
     [switch]$RequestNetworkLocationConsent,
     [switch]$RefreshLabWifi,
     [switch]$ReportOnly,
@@ -42,6 +43,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$script:CellularReadinessWarning = $false
 $PackageName = "com.loudtalks"
 $MinimumPackage = "se.lublin.mumla"
 $MinimumActivity = "se.lublin.mumla/.radio.RadioShellActivity"
@@ -641,6 +643,31 @@ if ($SkipLocation -and $RequestNetworkLocationConsent) {
 if ($RequestNetworkLocationConsent -and $TargetName -ne "T56") {
     throw "-RequestNetworkLocationConsent is supported only by the T56 provisioning flow."
 }
+if ($DisableDataRoaming -and $TargetName -ne "T56") {
+    throw "-DisableDataRoaming is supported only by the T56 managed-cellular flow."
+}
+
+if ($TargetName -eq "T56") {
+    $cellularScript = Join-Path $PSScriptRoot "manage-cellular.ps1"
+    $cellularArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $cellularScript,
+        "-AdbPort", "$AdbPort")
+    if ($TransportId -gt 0) {
+        $cellularArgs += @("-TransportId", "$TransportId")
+    } else {
+        $cellularArgs += @("-Serial", $Serial)
+    }
+    if ($DisableDataRoaming) { $cellularArgs += "-DisableDataRoaming" }
+    if ($ReportOnly -or $WhatIfPreference) { $cellularArgs += "-VerifyOnly" }
+    Write-Host "Applying the guarded T56 cellular-readiness policy before final connectivity checks..."
+    & powershell.exe @cellularArgs
+    $cellularExit = $LASTEXITCODE
+    if ($cellularExit -eq 2) {
+        $script:CellularReadinessWarning = $true
+        Write-Warning "T56 cellular policy verified with a readiness warning; provisioning continues with documented fallback."
+    } elseif ($cellularExit -ne 0) {
+        throw "T56 cellular readiness failed with exit code $cellularExit."
+    }
+}
 $adbSerial = (& $adbPath @targetArgs get-serialno) -join ""
 $systemSerial = Get-TargetProperty -Name ro.serialno
 $bootSerial = Get-TargetProperty -Name ro.boot.serialno
@@ -914,3 +941,4 @@ if (-not $ReportOnly -and -not $SkipMinimumHome -and -not $WhatIfPreference) {
 }
 
 Write-Host "Preparation report complete. USB/ADB serial remains '$adbSerial'; Minimum identity is the per-device ID."
+if ($script:CellularReadinessWarning) { exit 2 }

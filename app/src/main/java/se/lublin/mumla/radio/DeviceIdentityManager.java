@@ -57,6 +57,12 @@ public final class DeviceIdentityManager {
         return generated;
     }
 
+    /** Returns the existing identity without creating or modifying app state. */
+    public String getExistingDeviceId() {
+        String existing = preferences.getString(DEVICE_ID_PREFERENCE, null);
+        return isValidDeviceId(existing) ? existing : null;
+    }
+
     /**
      * Generates a new identity for an explicitly authorized administrative action.
      * Callers must protect the UI/action that invokes this method.

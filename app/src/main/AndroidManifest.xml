@@ -163,6 +163,7 @@
                 <action android:name="se.lublin.mumla.action.PROVISION_LAUNCHER_SHORTCUT" />
                 <action android:name="se.lublin.mumla.action.PROVISION_DEVICE_PROFILE" />
                 <action android:name="se.lublin.mumla.action.PROVISION_REPORT_IDENTITY" />
+                <action android:name="se.lublin.mumla.action.PROVISION_REPORT_EXISTING_IDENTITY" />
                 <action android:name="se.lublin.mumla.action.PROVISION_REPORT_STATUS" />
                 <action android:name="se.lublin.mumla.action.PROVISION_RADIO_CONFIG" />
                 <action android:name="se.lublin.mumla.action.PROVISION_DEVICE_CONFIG_CREDENTIAL" />
