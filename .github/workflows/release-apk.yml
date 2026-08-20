@@ -302,7 +302,21 @@ jobs:
           pwsh -NoLogo -NoProfile -Command \
             ". '$extracted_root/scripts/update-minimum-device.ps1' -LibraryOnly; Read-ReleaseBundle -Root '$extracted_root' | Out-Null; \$identity = Get-ApkManifestIdentity -ApkPath '$extracted_root/minimum-foss.apk'; if (\$identity.ApplicationId -cne 'se.lublin.mumla' -or \$identity.VersionName -cne '$RELEASE_TAG') { throw 'Extracted updater APK identity verification failed.' }; \$signers = @(Get-ApkSignerDigests -ApkPath '$extracted_root/minimum-foss.apk'); if (\$signers.Count -ne 1 -or \$signers[0] -cne '$MINIMUM_APK_SIGNER_SHA256') { throw 'Extracted updater APK signer-set verification failed.' }"
           echo "Provisioning bundle verification passed: exact allowlist, regular files, no symlinks, safe paths, staged and extracted content checks."
-          sha256sum "$OUTPUT_ZIP" > "$OUTPUT_ZIP.sha256"
+          # Keep the published checksum portable: the checksum entry must bind
+          # only the released asset name, never the runner's absolute path.
+          output_dir="$(dirname "$OUTPUT_ZIP")"
+          output_name="$(basename "$OUTPUT_ZIP")"
+          (
+            cd "$output_dir"
+            output_sha256="$(sha256sum "$output_name" | cut -d' ' -f1)"
+            printf '%s  %s\n' "$output_sha256" "$output_name" > "$output_name.sha256"
+            expected_checksum_line="$output_sha256  $output_name"
+            if [[ "$(cat "$output_name.sha256")" != "$expected_checksum_line" ]]; then
+              echo "Provisioning ZIP checksum does not bind the exact portable asset filename." >&2
+              exit 1
+            fi
+            sha256sum --check "$output_name.sha256"
+          )
       - name: Prepare reviewed release notes
         env:
           RELEASE_TAG: ${{ inputs.tag }}

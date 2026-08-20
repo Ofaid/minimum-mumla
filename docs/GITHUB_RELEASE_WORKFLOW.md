@@ -112,7 +112,8 @@ release also contains `minimum-provisioning-<tag>.zip`, a standalone Windows bun
 APK, provisioning/updater launchers, guarded T99/T56 scripts including the cellular migration,
 prebuilt temporary Wi-Fi helper, updater README and cellular-policy README. The manifest and
 workflow share an exact reviewed file allowlist. The bundle uses the included APK/helper and does
-not require a source checkout or Gradle on the field workstation. Its
+not require a source checkout or Gradle on the field workstation. Published checksum entries bind
+only their exact asset basenames, so standard checksum tools do not depend on a CI runner path. Its
 protected `release` environment must provide:
 
 - `MINIMUM_RELEASE_KEYSTORE_BASE64`
