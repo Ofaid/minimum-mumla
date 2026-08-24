@@ -14,7 +14,7 @@ document disagrees with this file, verify the code and update this file first.
 - Humla upstream history is retained in the submodule; Minimum's required Humla commit is published
   as branch `humla-minimum` in the same GitHub repository and `.gitmodules` points there.
 - Integration base: `main`
-- Active correctness/security batch: `fix/lab-correctness-batch` (PR pending)
+- Active correctness/security batch: `fix/lab-correctness-batch` ([PR #26](https://github.com/awatchar/minimum/pull/26))
 - Android application ID: `se.lublin.mumla`
 - The integrated Issue #11/#12 release candidate uses versionCode `3070301`; the compatible next
   Git-derived release tag/versionName is `3.7.3-minimum.2`. This is a preliminary integration
