@@ -1,8 +1,8 @@
 # Minimum project status (source of truth)
 
-Last reviewed: 2026-08-13
+Last reviewed: 2026-08-24
 
-This is the canonical hand-off document for the `awatchar/minimum` public PoC. If another
+This is the canonical hand-off document for the `awatchar/minimum` private-lab deployment. If another
 document disagrees with this file, verify the code and update this file first.
 
 ## Repository and build identity
@@ -13,8 +13,8 @@ document disagrees with this file, verify the code and update this file first.
 - GitLab upstream remote: `https://gitlab.com/quite/mumla.git`
 - Humla upstream history is retained in the submodule; Minimum's required Humla commit is published
   as branch `humla-minimum` in the same GitHub repository and `.gitmodules` points there.
-- Working branch: `agent/minimum-foundation`
-- Draft PR: https://github.com/awatchar/minimum/pull/1
+- Integration base: `main`
+- Active correctness/security batch: `fix/lab-correctness-batch` (PR pending)
 - Android application ID: `se.lublin.mumla`
 - The integrated Issue #11/#12 release candidate uses versionCode `3070301`; the compatible next
   Git-derived release tag/versionName is `3.7.3-minimum.2`. This is a preliminary integration
@@ -49,6 +49,12 @@ document disagrees with this file, verify the code and update this file first.
   `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_KV_NAMESPACE_ID`,
   `SESSION_SECRET` is a deployment secret; the KV base URL is configurable for compatible test
   services.
+- Distributed login admission is implemented for a separate Cloudflare D1 database and atomic
+  fixed-window upserts; production activation is pending Vercel secret provisioning, deployment and
+  smoke acceptance. The client gate precedes the KV lookup and account gate; nonmatching usernames
+  share a bounded decoy account bucket, and expired rows are pruned by schema triggers. Identities
+  are stored only as HMAC bucket digests. Production fails closed when D1 or its server-only
+  configuration is unavailable; local development/tests retain a deterministic in-memory adapter.
 - The portal provides a first-run administrator handoff, scrypt password hashing, an eight-hour
   HttpOnly admin session, pending-device registration, device CRUD, a structured Schema-3 editor,
   canonical model templates and automatic config-version advancement. The everyday editor has
@@ -91,8 +97,18 @@ document disagrees with this file, verify the code and update this file first.
   same. The triggering press is never queued for later TX, so the operator must press again after
   Ready. A service-backed release-required lock is armed before the Activity transition and cleared
   only after key-up, preventing the original press from becoming a new RadioShell DOWN event.
-- Added a 120-second PTT watchdog, release-on-disconnect/service-destroy behavior and lockout until
-  the physical key is released after a timeout.
+- The service-owned PTT watchdog now uses validated `ptt.maximumTxSeconds` (1..120) for both
+  hold-to-talk and toggle transitions, captures the active limit per transmission, and safely
+  releases TX if policy changes mid-transmission. The accepted exported TALK control is routed
+  through the same readiness/release gates and watchdog; repeated ON cannot extend an active
+  deadline. Disconnect/service destroy and timeout still disarm callbacks and require a release
+  edge before another TX.
+- APRS transport results are generation-gated across stop and configuration changes. Stale
+  success/failure callbacks cannot persist a receipt, mutate coordinator state or schedule retry;
+  rejected/throwing transport paths release the in-flight logical attempt.
+- Mumla/Humla teardown is best-effort and idempotent across connection, audio input/output/encoder,
+  SCO, notifications and wake locks. Destroy state blocks deferred reconnects and late callbacks;
+  each cleanup action still runs when an earlier resource reports a runtime failure.
 - Added a service-owned managed-radio TX gate: synchronization, PTT mode and verified entry into the
   configured room must all be true before Activity or MediaSession input can start transmission.
 - Made first-run client certificate creation automatic with retry on failure.
@@ -141,7 +157,8 @@ document disagrees with this file, verify the code and update this file first.
 - RX state now retains the complete ordered set of simultaneous remote talkers. T99-class compact
   displays reserve two lines, larger displays reserve four, and overflow uses the final visible
   line for `+N` while accessibility retains the full list.
-- RadioShell now renders an optional per-channel `alias` in a prominent amber `CHANNEL` badge,
+- RadioShell now renders an optional per-channel `alias` in a prominent amber badge without a
+  redundant literal `CHANNEL` prefix,
   separate from the talker area. Room resolution still uses the full configured Mumble `path`;
   legacy configs fall back to `label`, and join/service refresh callbacks no longer expose the path.
 - Managed radios retain server chat logging and TTS but suppress Mumla's priority-high/vibrating
@@ -377,6 +394,7 @@ The detailed Technical Brief comparison and implementation order are maintained 
 - Keep RYKS scans 216 and 249 as PTT while the OEM broadcast has no scan-code extra; assigning scan
   249 to another action could cause an unintended transmission.
 - Keep the normal Mumla build working while the radio interface is developed.
-- Do not merge PR #1 without explicit user approval.
+- Merge changes only after their required automated gates pass and any production dependencies are
+  provisioned; hardware-only acceptance may remain explicitly deferred when no device is attached.
 - Do not publish an APK as a GitHub Release until the signing identity, CI artifact provenance,
   checksums, release notes and explicitly accepted hardware limitations satisfy the release gate.

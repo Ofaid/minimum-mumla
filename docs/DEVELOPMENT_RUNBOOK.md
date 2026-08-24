@@ -59,6 +59,22 @@ mutations; do not disable it as a deployment workaround. Next.js 15.3+ initializ
 `/api/devices/*`), not Next.js `:deviceId` syntax; otherwise the client omits the verification
 header and the server correctly rejects the mutation.
 
+Production login rate limiting additionally requires a Cloudflare D1 database. Apply
+`web/cloudflare/d1/0001_login_rate_limit.sql`, then configure `CLOUDFLARE_D1_DATABASE_ID`, a
+least-privilege `CLOUDFLARE_D1_API_TOKEN` with D1 query access, and a stable
+`LOGIN_RATE_LIMIT_KEY_SECRET` of at least 32 UTF-8 bytes. Keep these values server-side. Login
+admission performs an atomic fixed-window D1 upsert per bucket: client first, then configured account
+or a bounded decoy account only after the client passes. This ordering prevents an already-blocked
+client from advancing the administrator lockout counter or consuming a KV administrator read. D1
+timeout, configuration, network or response errors return a generic `503` and do not fall back to a
+per-process counter. A blocked request returns `429` with `Retry-After`; successful logins consume
+quota as attempts. Migration triggers prune rows expired for more than 24 hours.
+
+The Vercel adapter uses Cloudflare's D1 REST control-plane API. This is acceptable for this
+BotID-protected, low-volume private lab portal, but its latency and account-level API quota must be
+monitored. Move admission behind a narrowly authenticated Cloudflare Worker with a D1 binding before
+turning the portal into a public or high-volume service.
+
 First-run production handoff:
 
 1. Open `https://minimum.vra.or.th/` and create the administrator account when the `FIRST-RUN

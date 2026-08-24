@@ -3,6 +3,27 @@
 This short log records meaningful project milestones. Detailed code truth remains in
 `PROJECT_STATUS.md` and the source files.
 
+## 2026-08-24 - Correctness, teardown, provisioning and portal admission hardening
+
+- Wired validated `ptt.maximumTxSeconds` into the service-owned watchdog for hold and toggle PTT,
+  with per-transmission policy capture and fail-safe release on live policy changes. The accepted
+  exported TALK interface now enters through the same readiness/release gates and cannot bypass or
+  extend that watchdog.
+- Added generation-gated APRS callbacks so stop/reconfiguration invalidates stale transport results,
+  plus best-effort Mumla/Humla audio, SCO, connection and wake-lock teardown that cannot be aborted by
+  one resource failure.
+- Resolved the requested Android correctness-lint categories and documented the dedicated-device
+  exported service/receiver design without changing that deployment behavior. Unrelated legacy Lint
+  findings remain visible rather than being hidden behind a baseline.
+- Made fresh Release provisioning verify the manifest-bound APK identity and signer before ADB and
+  repeat the complete binding immediately before installation, so post-preflight replacement fails
+  closed. The signed-release workflow now authorizes only a tag whose commit exactly equals current
+  reviewed `origin/main`, before tag code or signing secrets are used. Added CI/release coverage for
+  both gates and documented the separately published ZIP checksum as the pre-extraction trust anchor.
+- Implemented staged distributed login admission with Cloudflare D1 atomic buckets, HMAC-only keys,
+  bounded configured/decoy account state, expiry triggers and fail-closed Vercel behavior. Production
+  activation remains pending server-side secret provisioning and deployment smoke acceptance.
+
 ## 2026-08-12 - T56 update provisioning and RYKS location recheck
 
 - Rebuilt the FOSS debug APK from current `main`, then updated the connected T56 with

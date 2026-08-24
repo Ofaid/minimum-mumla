@@ -9,6 +9,7 @@
 
 package se.lublin.mumla.radio.tracking;
 
+import android.annotation.SuppressLint;
 import android.Manifest;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
@@ -114,6 +115,9 @@ public final class AprsTrackingManager {
 
     private volatile AprsTrackingConfig config = AprsTrackingConfig.disabled();
     private volatile boolean stopped;
+    private final TrackingAttemptGate attemptGate = new TrackingAttemptGate();
+    /** Accessed only on the location handler thread. */
+    private long inFlightLogicalId = TrackingAttemptGate.NO_ATTEMPT;
     private volatile int mobileRssiDbm = AprsHealthSnapshot.UNKNOWN;
     private volatile long mobileRssiElapsedRealtime;
     private TelephonyManager telephonyManager;
@@ -153,21 +157,31 @@ public final class AprsTrackingManager {
             return;
         }
         final AprsTrackingConfig loaded = parseConfigOrDisabled(root, hardwareProfile, true);
-        if (!loaded.isEnabled() || !loaded.isAprsEnabled()) {
-            // Flip the in-memory gate before scheduling listener/alarm cleanup so concurrent
-            // PTT/location callbacks fail closed while the handler drains its queue.
-            config = loaded;
-        }
+        final long reconfigurationTicket = attemptGate.beginReconfigure();
         handler.post(() -> {
             String nextObjectName = loaded.getObjectName().isEmpty()
                     ? defaultObjectName : loaded.getObjectName();
-            if (!nextObjectName.equals(objectName)) {
-                objectName = nextObjectName;
-                coordinator.resetForObjectIdentity();
-                clearPersistedSuccess();
+            boolean objectIdentityChanged = !nextObjectName.equals(objectName);
+            boolean enabled = loaded.isEnabled() && loaded.isAprsEnabled();
+            boolean applied = attemptGate.applyReconfiguration(reconfigurationTicket, enabled,
+                    () -> {
+                        if (inFlightLogicalId != TrackingAttemptGate.NO_ATTEMPT) {
+                            // Lifecycle-owned abandonment, not a stale transport result.
+                            coordinator.onPermanentFailure(inFlightLogicalId);
+                            inFlightLogicalId = TrackingAttemptGate.NO_ATTEMPT;
+                        }
+                        if (objectIdentityChanged) {
+                            objectName = nextObjectName;
+                            coordinator.resetForObjectIdentity();
+                            clearPersistedSuccess();
+                        }
+                        config = loaded;
+                    });
+            if (!applied) {
+                return;
             }
-            config = loaded;
             if (!config.isEnabled() || !config.isAprsEnabled()) {
+                coordinator.resetForObjectIdentity();
                 stopLocationUpdates();
                 stopMobileSignalListener();
                 cancelPoll();
@@ -225,6 +239,11 @@ public final class AprsTrackingManager {
         }
         // This only evaluates the cached accepted fix; it never waits for or starts a GPS fix.
         handler.post(() -> {
+            if (stopped || !config.isEnabled() || !config.isAprsEnabled()
+                    || !config.isPttTriggered()
+                    || attemptGate.beginAttempt() == TrackingAttemptGate.NO_ATTEMPT) {
+                return;
+            }
             AprsBeaconCoordinator.Decision decision = coordinator.onPtt(
                     System.currentTimeMillis(), SystemClock.elapsedRealtime());
             logDecision("PTT", decision);
@@ -237,6 +256,7 @@ public final class AprsTrackingManager {
             return;
         }
         stopped = true;
+        attemptGate.stop();
         handler.post(() -> {
             stopLocationUpdates();
             stopMobileSignalListener();
@@ -273,11 +293,16 @@ public final class AprsTrackingManager {
         if (stopped || !config.isAprsEnabled()) {
             return;
         }
+        final long attempt = attemptGate.beginAttempt();
+        if (attempt == TrackingAttemptGate.NO_ATTEMPT) {
+            return;
+        }
         AprsBeaconCoordinator.Beacon beacon = coordinator.takeReady(SystemClock.elapsedRealtime());
         if (beacon == null) {
             scheduleRetryIfNeeded();
             return;
         }
+        inFlightLogicalId = beacon.getLogicalId();
         final AprsTrackingConfig packetConfig = config;
         final String packetObjectName = objectName;
         final String packet;
@@ -289,41 +314,60 @@ public final class AprsTrackingManager {
                     symbolCodeFor(beacon.getMovementState()), healthComment);
         } catch (RuntimeException exception) {
             Log.w(TAG, "APRS packet rejected before transport: " + exception.getClass().getSimpleName());
-            coordinator.onSendFailure(beacon.getLogicalId(), false, SystemClock.elapsedRealtime());
-            scheduleRetryIfNeeded();
+            attemptGate.runIfCurrent(attempt, () -> {
+                coordinator.onSendFailure(beacon.getLogicalId(), false,
+                        SystemClock.elapsedRealtime());
+                inFlightLogicalId = TrackingAttemptGate.NO_ATTEMPT;
+                scheduleRetryIfNeeded();
+            });
             return;
         }
         try {
             transportExecutor.execute(() -> {
-                AprsTransport.SendResult result = transport.send(packetConfig, packet);
+                AprsTransport.SendResult result;
+                try {
+                    result = transport.send(packetConfig, packet);
+                } catch (RuntimeException exception) {
+                    result = AprsTransport.SendResult.retryable(
+                            "transport exception: " + exception.getClass().getSimpleName());
+                }
+                AprsTransport.SendResult finalResult = result;
                 handler.post(() -> {
-                    long now = SystemClock.elapsedRealtime();
-                    if (result.getStatus() == AprsTransport.SendResult.Status.SUCCESS) {
-                        boolean applied = coordinator.onSendSuccess(beacon.getLogicalId(), now);
-                        if (applied && packetObjectName.equals(objectName)) {
-                            persistSuccess(beacon, now, packetObjectName);
-                            Log.i(TAG, "APRS position accepted by send-only server");
+                    attemptGate.runIfCurrent(attempt, () -> {
+                        long now = SystemClock.elapsedRealtime();
+                        if (finalResult.getStatus() == AprsTransport.SendResult.Status.SUCCESS) {
+                            boolean resultApplied = coordinator.onSendSuccess(
+                                    beacon.getLogicalId(), now);
+                            if (resultApplied && packetObjectName.equals(objectName)) {
+                                persistSuccess(beacon, now, packetObjectName);
+                                Log.i(TAG, "APRS position accepted by send-only server");
+                            } else {
+                                Log.i(TAG, "APRS receipt ignored after Object identity changed");
+                            }
+                        } else if (finalResult.getStatus()
+                                == AprsTransport.SendResult.Status.PERMANENT_FAILURE) {
+                            coordinator.onPermanentFailure(beacon.getLogicalId());
+                            Log.w(TAG, "APRS send disabled until configuration changes: "
+                                    + finalResult.getDetail());
                         } else {
-                            Log.i(TAG, "APRS receipt ignored after Object identity changed");
+                            coordinator.onSendFailure(beacon.getLogicalId(),
+                                    finalResult.getStatus()
+                                            == AprsTransport.SendResult.Status.UNCERTAIN_DELIVERY,
+                                    now);
+                            Log.w(TAG, "APRS send failed: " + finalResult.getDetail());
                         }
-                    } else if (result.getStatus()
-                            == AprsTransport.SendResult.Status.PERMANENT_FAILURE) {
-                        coordinator.onPermanentFailure(beacon.getLogicalId());
-                        Log.w(TAG, "APRS send disabled until configuration changes: "
-                                + result.getDetail());
-                    } else {
-                        coordinator.onSendFailure(beacon.getLogicalId(),
-                                result.getStatus()
-                                        == AprsTransport.SendResult.Status.UNCERTAIN_DELIVERY,
-                                now);
-                        Log.w(TAG, "APRS send failed: " + result.getDetail());
-                    }
-                    scheduleRetryIfNeeded();
+                        inFlightLogicalId = TrackingAttemptGate.NO_ATTEMPT;
+                        scheduleRetryIfNeeded();
+                    });
                 });
             });
         } catch (RejectedExecutionException ignored) {
-            coordinator.onSendFailure(beacon.getLogicalId(), false,
-                    SystemClock.elapsedRealtime());
+            attemptGate.runIfCurrent(attempt, () -> {
+                coordinator.onSendFailure(beacon.getLogicalId(), false,
+                        SystemClock.elapsedRealtime());
+                inFlightLogicalId = TrackingAttemptGate.NO_ATTEMPT;
+                scheduleRetryIfNeeded();
+            });
         }
     }
 
@@ -407,13 +451,18 @@ public final class AprsTrackingManager {
                 == PackageManager.PERMISSION_GRANTED;
     }
 
+    @SuppressLint("MissingPermission")
     private void stopLocationUpdates() {
-        if (locationManager != null) {
-            try {
-                locationManager.removeUpdates(listener);
-            } catch (SecurityException ignored) {
-                // Nothing to release when the permission was revoked.
-            }
+        if (locationManager == null) {
+            return;
+        }
+        try {
+            // Unregistration is required even after permission is revoked. The permission lint is
+            // intentionally suppressed for this cleanup-only call; a concurrent/revoked denial is
+            // harmless and caught below.
+            locationManager.removeUpdates(listener);
+        } catch (SecurityException ignored) {
+            // Permission can be revoked before or during listener removal.
         }
     }
 

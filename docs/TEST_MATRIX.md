@@ -2,11 +2,12 @@
 
 | Area | Current result | Evidence / next action |
 |---|---|---|
-| FOSS debug unit tests | PASS | `:app:testFossDebugUnitTest` |
+| FOSS debug unit tests | PASS | 121 app tests and 11 Humla tests; zero failures/errors/skips. |
 | FOSS debug APK build | PASS | `:app:assembleFossDebug` |
 | FOSS release APK assembly | PASS LOCALLY / UNSIGNED | `:app:assembleFossRelease`; signing and tagged GitHub provenance remain open. |
-| Android full Lint | FAIL (PRE-EXISTING BASELINE) | Clean `lintFossDebug` and `lintFossRelease` each report 32 errors/343 warnings across legacy permissions, receiver flags, layouts, locale plurals and other existing code. The first is the unchanged `AprsTrackingManager.removeUpdates` permission finding. No Lint baseline is committed. |
-| Existing-device updater integration | PASS IN STATIC/AUTOMATED TESTS / PHYSICAL OPEN | PowerShell 5.1 AST and 30 policy/fixture/state-machine tests cover non-creating legacy run-as and focused Ready-UI proof, wrong-package/not-Ready/unfocused refusal before receivers, signer/no-mutation, Linux/Windows `apksigner` discovery, recovery, model routing, reboot correlation and partial sessions; cellular verifier, exact workflow allowlists and full `apksigner` contract also pass. E7ROW7 same-debug-signer update and T99/RYKS physical acceptance remain open. |
+| Android full Lint | TARGETED CORRECTNESS PASS / PRE-EXISTING BASELINE REMAINS | Fresh `lintFossDebug` reports 21 errors/330 warnings. The requested permission, lifecycle/wakelock, receiver-flag, locale-quantity, MissingSuperCall and dedicated-device export findings are resolved or narrowly documented/suppressed; remaining errors are legacy GestureBackNavigation (1), database Range (6) and UseAppTint (14). No Lint baseline is committed and Lint was intentionally not driven to zero. |
+| Existing-device updater integration | PASS IN STATIC/AUTOMATED TESTS / PHYSICAL OPEN | PowerShell AST and 33 policy/fixture/state-machine tests (including the real built debug APK) cover non-creating legacy run-as and focused Ready-UI proof, wrong-package/not-Ready/unfocused refusal before receivers, signer/no-mutation, Linux/Windows `apksigner` discovery, recovery, model routing, reboot correlation and partial sessions; cellular verifier, exact workflow allowlists and full `apksigner` contract also pass. E7ROW7 same-debug-signer update and T99/RYKS physical acceptance remain open. |
+| Fresh provisioner Release preflight | PASS IN 16 AUTOMATED TESTS / PHYSICAL OPEN | Extracted Release mode verifies the exact allowlist/hashes, APK checksum/package/version and exactly one manifest-bound signer before ADB resolution, then repeats the complete binding immediately before native `adb install`; local build, out-of-bundle paths and post-preflight replacement fail closed. Physical install remains deferred until hardware is connected. |
 | GitHub Actions integrated CI | PASS | Run `31306714812` on commit `6ee5c5e6`: Android unit tests/debug APK/unsigned release assembly and Portal tests/type-check/production build all passed. |
 | T99 ADB install | PASS | T99 serial `12344321` |
 | T99 Device ID format/persistence | PASS | `DeviceIdentityManagerTest`; startup integration added |
@@ -16,8 +17,9 @@
 | T99 physical screen-off PTT | PASS (operator observed) | F1 path works with screen off; exact foreground Android metadata and release captured subsequently |
 | T99 F2 EXIT isolation | PASS IN CODE/BEHAVIOR | T99 forcibly defaults to F1, rejects F2 as PTT and routes F2 to recovery dashboard |
 | Media/headset screen-off PTT | IMPLEMENTED ALTERNATE | MediaSession remains active for headset/media PTT alternatives; not the labelled T99 PTT button |
-| PTT watchdog | IMPLEMENTED | 120-second service safety path; add long manual test |
+| Configured PTT watchdog | PASS IN JVM / PHYSICAL TIMING OPEN | Validated `maximumTxSeconds` 1..120 reaches the service, arms on hold/toggle and exported legacy TALK transitions, captures each transmission limit and releases safely on policy change. Repeated TALK-on cannot extend the deadline, and timeout lockout requires a release edge; add a short-limit and default-120 physical timing run. |
 | Disconnect releases TX | IMPLEMENTED | Service lifecycle path; add manual screen-off test |
+| Service/audio/wakelock teardown | PASS IN JVM/STATIC / PHYSICAL OPEN | Best-effort cleanup runner preserves later actions after failures; Humla destroy blocks reconnect, disconnects handlers/audio/SCO and releases partial/proximity/screen wake locks through idempotent paths. Validate dumpsys/logcat after a physical destroy/reconnect cycle. |
 | Boot receiver registration | PASS | Manifest and receiver present |
 | T99 simulated boot launch | PASS | Activity appeared after valid simulated broadcast |
 | T99 radio dashboard pages | PASS | Installed APK: Minimum -> Settings swipe path |
@@ -35,7 +37,7 @@
 | Zello repeat script dry run | PASS | `remove-zello-t99.ps1 -WhatIf` |
 | Static backend JSON | PASS | Parsed with PowerShell `ConvertFrom-Json` |
 | GitHub Pages workflow | CONFIGURED / RECOVERY ONLY | Deploy occurs after workflow reaches `main`; managed devices use the Vercel device endpoint |
-| Vercel/Cloudflare admin portal | PASS IN WEB / PRODUCTION SMOKE | First-run admin, pending-device queue, device CRUD, Schema-3 structured editor, Device-ID lookup endpoint and KV persistence; admin/Cloudflare secrets stay server-side |
+| Vercel/Cloudflare admin portal | PASS IN WEB / EXISTING PRODUCTION SMOKE / D1 ACTIVATION OPEN | First-run admin, pending-device queue, device CRUD, Schema-3 structured editor, Device-ID lookup endpoint and KV persistence; distributed login admission uses atomic D1 fixed-window buckets and fails closed, with Vercel secret provisioning/deployment smoke still pending; admin/Cloudflare secrets stay server-side |
 | Web `radio.defaultChannel` editor | PASS IN WEB | **Channels & default** selector and per-channel **Set default** persist `radio.defaultChannel` and advance `configVersion`; handset Last Selected Channel still wins when valid |
 | Android config embedded fallback | PASS | Asset + validation in repository |
 | Android remote config fetch/cache | PASS IN JVM / RYKS PHYSICAL | Startup/six-hour/network-return refresh, in-flight guard, pending staging and LKG fallback; RYKS tokenless OTA activated portal v12 and a real reboot returned Ready with v12 active and `pending=false` |
@@ -79,6 +81,7 @@
 | T56 live APRS Object report | PASS ON DEVICE | Open-sky T56 fix produced a `VR-` Device ID Object report and the APRS-IS endpoint returned a positive packet receipt; APRS.fi indexed the Object position |
 | T56 APRS health comment | PASS ON DEVICE / JVM | Position comment carries battery, charging, battery temperature, Wi-Fi RSSI and storage; mobile type/RSSI is included when exposed and otherwise marked `NA` |
 | Configurable APRS Object name | PASS IN JVM | Optional `tracking.aprs.objectName` is validated, uppercased and padded to nine bytes; omission retains `VR-<DeviceID>` and identity changes reset duplicate state |
+| APRS stale callback invalidation | PASS IN JVM / DEVICE REGRESSION OPEN | Generation tickets invalidate in-flight results synchronously on stop/reconfiguration; stale receipt/failure callbacks cannot persist state or retry, and throwing/rejected transport paths are released. Physical stop/reconfigure regression awaits T56 attachment. |
 | A-GPS assistance | OPEN | Both advertise Qualcomm A-GPS capability; XTRA is disabled and T56's SUPL host is malformed, so the successful T56 GPS/network fixes do not prove assisted-GPS operation |
 
 ## Release gate

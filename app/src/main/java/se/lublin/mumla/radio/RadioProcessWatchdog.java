@@ -9,6 +9,7 @@
 
 package se.lublin.mumla.radio;
 
+import android.annotation.SuppressLint;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.Context;
@@ -33,7 +34,9 @@ public final class RadioProcessWatchdog {
     private RadioProcessWatchdog() {
     }
 
+    @SuppressLint("MissingPermission")
     public static void arm(Context context) {
+        // Exact alarm APIs are confined to pre-S; S+ deliberately uses the inexact API.
         Context appContext = context.getApplicationContext();
         AlarmManager alarmManager = (AlarmManager) appContext.getSystemService(Context.ALARM_SERVICE);
         if (alarmManager == null) {

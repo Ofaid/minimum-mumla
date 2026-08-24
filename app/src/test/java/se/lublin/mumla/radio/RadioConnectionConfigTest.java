@@ -20,6 +20,7 @@ public class RadioConnectionConfigTest {
         assertEquals("Minimum Test", config.getServiceName());
         assertTrue(config.isAutoConnect());
         assertFalse(config.isAutoReconnect());
+        assertEquals(120, config.getMaximumTxSeconds());
         assertEquals(2, config.getChannels().size());
 
         RadioConnectionConfig.Channel main = config.getDefaultChannel();
@@ -38,6 +39,17 @@ public class RadioConnectionConfigTest {
         assertEquals("server-b-password", other.getConnection().getPassword());
         assertEquals(Arrays.asList("PUBLIC-B"), other.getAccessTokens());
         assertTrue(main.requiresReconnectTo(other));
+    }
+
+    @Test
+    public void exposesValidatedMaximumTransmissionDuration() throws JSONException {
+        JSONObject json = new JSONObject(validConfig());
+        json.getJSONObject("ptt").put("maximumTxSeconds", 1);
+
+        assertEquals(1, RadioConnectionConfig.fromJson(json).getMaximumTxSeconds());
+
+        json.getJSONObject("ptt").put("maximumTxSeconds", 121);
+        assertThrows(JSONException.class, () -> RadioConnectionConfig.fromJson(json));
     }
 
     @Test
