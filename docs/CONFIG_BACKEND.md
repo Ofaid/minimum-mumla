@@ -13,6 +13,25 @@ project must provide `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` and
 test endpoint. `SESSION_SECRET` must be at least 32 characters. These values are deployment secrets
 and must never be committed or printed.
 
+Login admission uses a separate Cloudflare D1 database because a process-local counter and KV
+read/modify/write cannot enforce a limit consistently across concurrent Vercel instances. Apply
+`web/cloudflare/d1/0001_login_rate_limit.sql` before deployment, then set
+`CLOUDFLARE_D1_DATABASE_ID`, a least-privilege `CLOUDFLARE_D1_API_TOKEN`, and a stable
+`LOGIN_RATE_LIMIT_KEY_SECRET` of at least 32 UTF-8 bytes. The limiter stores only versioned HMAC
+bucket digests, never a submitted username or client IP. Client admission happens before the KV
+administrator lookup; only an admitted client advances either the configured-account bucket or one
+bounded decoy bucket for all other usernames. Schema triggers prune buckets that have been expired
+for more than 24 hours. Production login fails closed if D1 or its configuration is unavailable;
+development and tests use an in-memory adapter. Rotating the HMAC secret intentionally starts a new
+bucket namespace.
+
+The administrator username is an identifier, not a secret, in this controlled lab deployment. The
+configured/decoy split intentionally favors bounded storage and prevents arbitrary usernames from
+locking the real administrator bucket. An attacker able to distribute enough admitted attempts and
+pre-saturate the decoy bucket could distinguish its state from the configured bucket; password
+verification, BotID, same-origin mutation checks and the real account limit remain enforced. Revisit
+this tradeoff before exposing the portal publicly.
+
 The first-run handoff is deliberately short: open the portal, create the administrator account, then
 register the radio's six-character Device ID and edit its profile. No bearer token is copied to the
 radio. The portal stores the scrypt administrator hash plus device metadata and Schema-3 config;

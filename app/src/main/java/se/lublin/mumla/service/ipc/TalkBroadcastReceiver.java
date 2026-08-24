@@ -21,8 +21,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 
-import se.lublin.humla.IHumlaService;
-import se.lublin.humla.IHumlaSession;
+import se.lublin.mumla.service.IMumlaService;
 
 /**
  * Created by andrew on 08/08/14.
@@ -34,27 +33,18 @@ public class TalkBroadcastReceiver extends BroadcastReceiver {
     public static final String TALK_STATUS_OFF = "off";
     public static final String TALK_STATUS_TOGGLE = "toggle";
 
-    private IHumlaService mService;
+    private final IMumlaService mService;
 
-    public TalkBroadcastReceiver(IHumlaService service) {
+    public TalkBroadcastReceiver(IMumlaService service) {
         mService = service;
     }
 
     @Override
     public void onReceive(Context context, Intent intent) {
         if (BROADCAST_TALK.equals(intent.getAction())) {
-            if (!mService.isConnected())
-                return;
-            IHumlaSession session = mService.HumlaSession();
             String status = intent.getStringExtra(EXTRA_TALK_STATUS);
             if (status == null) status = TALK_STATUS_TOGGLE;
-            if (TALK_STATUS_ON.equals(status)) {
-                session.setTalkingState(true);
-            } else if (TALK_STATUS_OFF.equals(status)) {
-                session.setTalkingState(false);
-            } else if (TALK_STATUS_TOGGLE.equals(status)) {
-                session.setTalkingState(!session.isTalking());
-            }
+            mService.onExternalTalkCommand(status);
         } else {
             throw new UnsupportedOperationException();
         }

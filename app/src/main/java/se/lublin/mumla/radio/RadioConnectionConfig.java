@@ -34,16 +34,19 @@ public final class RadioConnectionConfig {
     private final String serviceName;
     private final boolean autoConnect;
     private final boolean autoReconnect;
+    private final int maximumTxSeconds;
     private final List<Channel> channels;
     private final int defaultChannelIndex;
 
     private RadioConnectionConfig(int configVersion, String serviceName, boolean autoConnect,
-                                  boolean autoReconnect, List<Channel> channels,
+                                  boolean autoReconnect, int maximumTxSeconds,
+                                  List<Channel> channels,
                                   int defaultChannelIndex) {
         this.configVersion = configVersion;
         this.serviceName = serviceName;
         this.autoConnect = autoConnect;
         this.autoReconnect = autoReconnect;
+        this.maximumTxSeconds = maximumTxSeconds;
         this.channels = Collections.unmodifiableList(new ArrayList<>(channels));
         this.defaultChannelIndex = defaultChannelIndex;
     }
@@ -56,6 +59,8 @@ public final class RadioConnectionConfig {
                 ? "Minimum"
                 : requireNonBlank(service.optString("name", "Minimum"), "service name");
         JSONObject radio = config.getJSONObject("radio");
+        JSONObject ptt = config.getJSONObject("ptt");
+        int maximumTxSeconds = ptt.getInt("maximumTxSeconds");
         String defaultChannelId = requireIdentifier(
                 radio.optString("defaultChannel", ""), "default channel");
 
@@ -111,6 +116,7 @@ public final class RadioConnectionConfig {
                 serviceName,
                 radio.optBoolean("autoConnect", false),
                 radio.optBoolean("autoReconnect", true),
+                maximumTxSeconds,
                 channels,
                 defaultChannelIndex);
     }
@@ -310,6 +316,10 @@ public final class RadioConnectionConfig {
 
     public boolean isAutoReconnect() {
         return autoReconnect;
+    }
+
+    public int getMaximumTxSeconds() {
+        return maximumTxSeconds;
     }
 
     public List<Channel> getChannels() {

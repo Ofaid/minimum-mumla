@@ -153,10 +153,12 @@
     <string name="default_">Predeterminado</string>
     <plurals name="search_channel_users">
         <item quantity="one">%d usuario</item>
+        <item quantity="many">%d usuarios</item>
         <item quantity="other">%d usuarios</item>
     </plurals>
     <plurals name="notification_unread_many">
         <item quantity="one">%d mensaje nuevo</item>
+        <item quantity="many">%d mensajes nuevos</item>
         <item quantity="other">%d mensajes nuevos</item>
     </plurals>
     <string name="shout_failed">No se pudo crear el objetivo de voz.</string>

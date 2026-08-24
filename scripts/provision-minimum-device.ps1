@@ -4,8 +4,9 @@
 
 .DESCRIPTION
     This is the operator-facing one-shot workflow for known T99, T56 and RYKS hardware. It selects one
-    authorized ADB target, verifies the hardware model, optionally builds the FOSS debug APK,
-    installs the APK without clearing app data, runs the guarded model preparation, waits for the
+    Release artifact before opening ADB, then selects one authorized target and verifies its hardware
+    model. Source-only development APKs are signature-checked without claiming Release trust. It
+    installs the selected APK without clearing app data, runs the guarded model preparation, waits for the
     Device ID profile to become available from the portal, waits for Ready, reboots the radio, and
     waits for Ready again.
 
@@ -40,7 +41,8 @@ param(
     [string]$LabWifiCredentialPath = "",
     [ValidateRange(30, 900)][int]$ReadyTimeoutSeconds = 180,
     [ValidateRange(30, 900)][int]$BootTimeoutSeconds = 180,
-    [switch]$SkipReboot
+    [switch]$SkipReboot,
+    [Parameter(DontShow = $true)][switch]$LibraryOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -59,11 +61,7 @@ $DefaultApkPath = if (Test-Path -LiteralPath $BundledApkPath -PathType Leaf) {
 } else {
     $SourceBuildApkPath
 }
-try {
-    $adbPath = (Get-Command adb -ErrorAction Stop).Source
-} catch {
-    throw "ADB was not found. Install Android Platform Tools or add adb.exe to PATH, then double-click the launcher again."
-}
+$adbPath = ""
 $serverArgs = @()
 $script:targetArgs = @()
 $script:targetLabel = ""
@@ -624,6 +622,175 @@ function Wait-AndroidBootCompleted {
     throw "Android did not finish booting within $TimeoutSeconds seconds."
 }
 
+function Test-ReleaseBundleLayout {
+    param([Parameter(Mandatory)][string]$Root)
+
+    foreach ($relative in @("RELEASE-MANIFEST.json", "VERSION.txt", "minimum-foss.apk")) {
+        if (Test-Path -LiteralPath (Join-Path $Root $relative)) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Test-SameCanonicalPath {
+    param([Parameter(Mandatory)][string]$Left, [Parameter(Mandatory)][string]$Right)
+
+    $leftFull = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $Left).Path)
+    $rightFull = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $Right).Path)
+    return $leftFull.Equals($rightFull, [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-VerifiedReleaseProvisioningArtifact {
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [string]$RequestedApkPath = ""
+    )
+
+    $manifestPath = Join-Path $Root "RELEASE-MANIFEST.json"
+    $bundledApk = Join-Path $Root "minimum-foss.apk"
+    $updaterPath = Join-Path $Root "scripts\update-minimum-device.ps1"
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $bundledApk -PathType Leaf)) {
+        throw "[BUNDLE_INCOMPLETE] Release bundle markers are present, but the manifest or bundled APK is missing. No ADB command or device change was attempted."
+    }
+    if (-not (Test-Path -LiteralPath $updaterPath -PathType Leaf)) {
+        throw "[BUNDLE_VERIFIER_MISSING] The bundle verifier is missing. Authenticate the outer ZIP with its separately published checksum before trusting any extracted verifier. No ADB command or device change was attempted."
+    }
+    if ($RequestedApkPath) {
+        if (-not (Test-Path -LiteralPath $RequestedApkPath -PathType Leaf) -or
+                -not (Test-SameCanonicalPath -Left $RequestedApkPath -Right $bundledApk)) {
+            throw "[APK_PATH_OUTSIDE_BUNDLE] Release provisioning accepts only the APK bound by the extracted Release manifest. No ADB command or device change was attempted."
+        }
+    }
+
+    # Invoke the updater as a library only inside a child scope. Dot-sourcing it in this script's
+    # scope would overwrite provisioning parameters such as Serial, TransportId and AdbPort.
+    return & {
+        param($VerifierPath, $BundleRoot)
+        . $VerifierPath -LibraryOnly
+
+        $bundle = Read-ReleaseBundle -Root $BundleRoot
+        $identity = Get-ApkManifestIdentity -ApkPath $bundle.ApkPath
+        if ($identity.ApplicationId -cne [string]$bundle.Manifest.applicationId -or
+                $identity.VersionCode -ne [long]$bundle.Manifest.versionCode -or
+                $identity.VersionName -cne [string]$bundle.Manifest.versionName) {
+            Throw-UpdateError "APK_IDENTITY_BINDING" "The APK package/version does not match the exact Release manifest."
+        }
+        $targetSigners = @(Get-ApkSignerDigests -ApkPath $bundle.ApkPath)
+        $reviewedSigner = ([string]$bundle.Manifest.signerSha256).ToUpperInvariant()
+        if ($targetSigners.Count -ne 1 -or $targetSigners[0] -cne $reviewedSigner) {
+            Throw-UpdateError "APK_SIGNER_BINDING" "The APK must contain exactly the one reviewed signer from the Release manifest; missing or extra signers are refused."
+        }
+        $apkSha256 = (Get-FileHash -LiteralPath $bundle.ApkPath -Algorithm SHA256).Hash.ToUpperInvariant()
+        return [pscustomobject]@{
+            ApkPath = $bundle.ApkPath
+            ApplicationId = $identity.ApplicationId
+            VersionCode = $identity.VersionCode
+            VersionName = $identity.VersionName
+            ApkSha256 = $apkSha256
+            SignerSha256 = $targetSigners[0]
+            Trust = "RELEASE_MANIFEST_AND_SIGNER_VERIFIED"
+        }
+    } $updaterPath $Root
+}
+
+function Get-VerifiedDevelopmentProvisioningArtifact {
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string]$DevelopmentApkPath
+    )
+
+    $updaterPath = Join-Path $Root "scripts\update-minimum-device.ps1"
+    if (-not (Test-Path -LiteralPath $updaterPath -PathType Leaf)) {
+        throw "[DEVELOPMENT_VERIFIER_MISSING] The APK verifier is missing. No installation was attempted."
+    }
+    if (-not (Test-Path -LiteralPath $DevelopmentApkPath -PathType Leaf)) {
+        throw "[DEVELOPMENT_APK_MISSING] The requested development APK is missing. No installation was attempted."
+    }
+
+    return & {
+        param($VerifierPath, $CandidatePath, $ExpectedApplicationId)
+        . $VerifierPath -LibraryOnly
+
+        $identity = Get-ApkManifestIdentity -ApkPath $CandidatePath
+        if ($identity.ApplicationId -cne $ExpectedApplicationId) {
+            Throw-UpdateError "DEVELOPMENT_APK_IDENTITY" "The development APK package is not Minimum."
+        }
+        $signers = @(Get-ApkSignerDigests -ApkPath $CandidatePath)
+        if ($signers.Count -ne 1) {
+            Throw-UpdateError "DEVELOPMENT_APK_SIGNATURE" "The development APK must have exactly one cryptographically verified signer."
+        }
+        $resolvedCandidate = (Resolve-Path -LiteralPath $CandidatePath).Path
+        return [pscustomobject]@{
+            ApkPath = $resolvedCandidate
+            ApplicationId = $identity.ApplicationId
+            VersionCode = $identity.VersionCode
+            VersionName = $identity.VersionName
+            ApkSha256 = (Get-FileHash -LiteralPath $resolvedCandidate -Algorithm SHA256).Hash.ToUpperInvariant()
+            SignerSha256 = $signers[0]
+            Trust = "DEVELOPMENT_SIGNATURE_VALID_NOT_RELEASE_BOUND"
+        }
+    } $updaterPath $DevelopmentApkPath $MinimumPackage
+}
+
+function Confirm-ProvisioningArtifactUnchanged {
+    param(
+        [Parameter(Mandatory)]$ExpectedArtifact,
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][bool]$ReleaseBundleMode
+    )
+
+    # Check the immutable value captured by the initial, pre-ADB verification before loading any
+    # bundle code again. A replacement APK therefore fails even if another extracted bundle file
+    # was also changed after the operator's initial checksum validation.
+    if (-not (Test-Path -LiteralPath $ExpectedArtifact.ApkPath -PathType Leaf)) {
+        throw "[APK_CHANGED_AFTER_VERIFICATION] The verified APK disappeared before installation. No installation was attempted."
+    }
+    $currentSha256 = (Get-FileHash -LiteralPath $ExpectedArtifact.ApkPath -Algorithm SHA256).Hash.ToUpperInvariant()
+    if ($currentSha256 -cne [string]$ExpectedArtifact.ApkSha256) {
+        throw "[APK_CHANGED_AFTER_VERIFICATION] The verified APK changed before installation. No installation was attempted."
+    }
+
+    $currentArtifact = if ($ReleaseBundleMode) {
+        Get-VerifiedReleaseProvisioningArtifact -Root $Root `
+            -RequestedApkPath $ExpectedArtifact.ApkPath
+    } else {
+        Get-VerifiedDevelopmentProvisioningArtifact -Root $Root `
+            -DevelopmentApkPath $ExpectedArtifact.ApkPath
+    }
+
+    foreach ($property in @(
+        "ApkPath", "ApplicationId", "VersionCode", "VersionName",
+        "ApkSha256", "SignerSha256", "Trust")) {
+        if ([string]$currentArtifact.$property -cne [string]$ExpectedArtifact.$property) {
+            throw "[APK_BINDING_CHANGED_AFTER_VERIFICATION] The verified APK $property binding changed before installation. No installation was attempted."
+        }
+    }
+    return $currentArtifact
+}
+
+if ($LibraryOnly) { return }
+
+$releaseBundleMode = Test-ReleaseBundleLayout -Root $RepositoryRoot
+$verifiedArtifact = $null
+if ($releaseBundleMode) {
+    if ($BuildApk) {
+        throw "[RELEASE_BUNDLE_BUILD_REFUSED] A Release bundle cannot replace its manifest-bound APK with a local build. No ADB command or device change was attempted."
+    }
+    $verifiedArtifact = Get-VerifiedReleaseProvisioningArtifact -Root $RepositoryRoot `
+        -RequestedApkPath $ApkPath
+    $resolvedApkPath = $verifiedArtifact.ApkPath
+    Write-Host ("Release artifact verified before ADB: {0}, versionCode {1}." -f `
+        $verifiedArtifact.VersionName, $verifiedArtifact.VersionCode)
+}
+
+try {
+    $adbPath = (Get-Command adb -ErrorAction Stop).Source
+} catch {
+    throw "ADB was not found. Install Android Platform Tools or add adb.exe to PATH, then double-click the launcher again."
+}
+
 $Host.UI.RawUI.WindowTitle = "Minimum One-Shot Provisioning"
 if ($GuidedMode) {
     Write-Host "============================================================"
@@ -649,11 +816,17 @@ if ($GuidedMode) {
     Show-GuidedSetupMenu -Profile $target.Profile
 }
 
-if (-not $ApkPath) { $ApkPath = $DefaultApkPath }
-if ($BuildApk -or -not (Test-Path -LiteralPath $ApkPath -PathType Leaf)) {
-    Build-MinimumApk
+if (-not $releaseBundleMode) {
+    if (-not $ApkPath) { $ApkPath = $DefaultApkPath }
+    if ($BuildApk -or -not (Test-Path -LiteralPath $ApkPath -PathType Leaf)) {
+        Build-MinimumApk
+    }
+    $verifiedArtifact = Get-VerifiedDevelopmentProvisioningArtifact -Root $RepositoryRoot `
+        -DevelopmentApkPath $ApkPath
+    $resolvedApkPath = $verifiedArtifact.ApkPath
+    Write-Warning ("DEVELOPMENT APK: package and signature are valid, but no Release manifest or reviewed Release signer trust is claimed ({0}, versionCode {1})." -f `
+        $verifiedArtifact.VersionName, $verifiedArtifact.VersionCode)
 }
-$resolvedApkPath = (Resolve-Path -LiteralPath $ApkPath).Path
 if ($target.Profile -eq "RYKS") {
     # ELINK's PackageManager accepts third-party APKs only when this documented build-policy
     # property is 1. The property is absent on factory ym_258 images and resets on reboot.
@@ -669,7 +842,18 @@ if ($target.Profile -eq "RYKS") {
 }
 
 function Install-MinimumApk {
-    param([Parameter(Mandatory)][string]$Path)
+    param(
+        [Parameter(Mandatory)]$ExpectedArtifact,
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][bool]$ReleaseBundleMode
+    )
+
+    # Target selection, operator prompts and model checks may take an arbitrary amount of time.
+    # Re-run the complete identity/hash/signer/trust verification here, immediately before adb
+    # receives the path, so an APK changed after preflight is never installed.
+    $finalArtifact = Confirm-ProvisioningArtifactUnchanged -ExpectedArtifact $ExpectedArtifact `
+        -Root $Root -ReleaseBundleMode $ReleaseBundleMode
+    $Path = $finalArtifact.ApkPath
 
     # Capture only the exit/result needed to classify installation failures. In particular, do not
     # invoke `pm clear` or uninstall here: a failed signature upgrade must preserve app data.
@@ -700,7 +884,8 @@ function Install-MinimumApk {
     }
 }
 Write-Host "Installing Minimum APK without clearing app data..."
-Install-MinimumApk -Path $resolvedApkPath
+Install-MinimumApk -ExpectedArtifact $verifiedArtifact -Root $RepositoryRoot `
+    -ReleaseBundleMode $releaseBundleMode
 $installed = Invoke-TargetAdb -Arguments @("shell", "pm", "path", $MinimumPackage)
 if (-not $installed) {
     throw "Minimum package verification failed after APK installation."

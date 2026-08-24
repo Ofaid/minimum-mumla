@@ -2,7 +2,6 @@ import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 
 const SESSION_COOKIE = 'minimum_admin_session';
 const SESSION_TTL_SECONDS = 60 * 60 * 8;
-const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
 function sessionSecret() {
   const value = process.env.SESSION_SECRET;
@@ -111,16 +110,4 @@ export function sameOrigin(request: Request) {
   } catch {
     return false;
   }
-}
-
-export function allowLoginAttempt(identifier: string) {
-  const now = Date.now();
-  const current = loginAttempts.get(identifier);
-  if (!current || current.resetAt <= now) {
-    loginAttempts.set(identifier, { count: 1, resetAt: now + 15 * 60 * 1000 });
-    return true;
-  }
-  if (current.count >= 10) return false;
-  current.count += 1;
-  return true;
 }

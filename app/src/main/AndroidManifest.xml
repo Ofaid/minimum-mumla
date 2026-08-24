@@ -16,6 +16,7 @@
   ~ along with this program.  If not, see <http://www.gnu.org/licenses/>.
   -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:installLocation="auto">
 
     <uses-feature
@@ -35,11 +36,9 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.BROADCAST_CLOSE_SYSTEM_DIALOGS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
-    <uses-permission android:name="android.permission.BROADCAST_STICKY" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
@@ -91,11 +90,14 @@
             </intent-filter>
         </activity>
 
+        <!-- Intentionally exported for controlled dedicated-device and legacy explicit-service
+             integrations; managed PTT/config authority remains service-owned. -->
         <service
             android:name=".service.MumlaService"
             android:exported="true"
             android:enabled="true"
-            android:foregroundServiceType="microphone" />
+            android:foregroundServiceType="microphone"
+            tools:ignore="ExportedService" />
 
         <activity
             android:name=".app.MumlaActivity"
@@ -171,11 +173,13 @@
             </intent-filter>
         </receiver>
 
-        <!-- PTT edges are registered by the running foreground service; identity remains static. -->
+        <!-- The controlled T56 firmware sends an unprotected OEM identity-key broadcast. This
+             profile-gated receiver opens identity UI only; PTT edges remain service-runtime-only. -->
         <receiver
             android:name=".radio.RadioHardwareKeyReceiver"
             android:enabled="true"
-            android:exported="true">
+            android:exported="true"
+            tools:ignore="ExportedReceiver">
             <intent-filter>
                 <action android:name="unipro.hotkey.p2.long" />
             </intent-filter>

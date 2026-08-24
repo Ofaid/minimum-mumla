@@ -16,6 +16,12 @@ all bundle file hashes, APK checksum/package/version/exactly-one-reviewed-signer
 identity/config preservation and Ready. Read "UPDATER-README.md" in this bundle for advanced
 modes and recovery guidance.
 
+Provisioning a new/reset device performs the same strict Release artifact preflight before it opens
+ADB or changes the radio: exact manifest schema and file allowlist, every manifest hash, the APK
+checksum file, package ID, versionCode, versionName and exactly the one manifest-bound verified APK
+signer must all pass. A missing verifier, incomplete bundle, local replacement APK or failed
+signature check stops before target selection, installation or any model-specific setting change.
+
 For the one-time 3070300-to-3070301 compatibility bridge, a non-creating Android run-as probe must
 first read only the existing public Device ID from app-private preferences. If run-as is unavailable,
 the operator must wake/unlock and manually open the existing RadioShell Ready screen. The updater
@@ -48,7 +54,8 @@ Requirements
 - Windows 10 or Windows 11
 - Android Platform Tools (adb.exe) available in PATH
 - Android Build Tools apksigner available in PATH, ANDROID_HOME/ANDROID_SDK_ROOT, or the standard
-  local Android SDK; the updater refuses installation when full signature verification is absent
+  local Android SDK; provisioning and updating both refuse installation when full signature
+  verification is absent
 - Internet access to https://minimum.vra.or.th/
 - A Minimum Portal administrator account
 - USB debugging enabled and authorized on the radio
@@ -100,11 +107,25 @@ Security and safety
 - PASS requires managed config activation and Ready both before and after reboot.
 - Ready messages before reboot are checkpoints only; the sole final PASS is emitted after the
   returning unit is identified and reaches Ready with the same Device ID.
-- Verify the separately published ZIP checksum before extraction. The updater also verifies the
-  exact in-bundle manifest/allowlist/checksums and APK identity/signer. An existing operator
-  workstation is supported; verification does not require wiping or rebuilding it.
+- Verify the separately published ZIP checksum before extraction. That external comparison is the
+  pre-extraction trust anchor for every bundled file, including the verification scripts. Only
+  after it matches should the updater perform its in-bundle manifest/allowlist/checksum and APK
+  identity/signer consistency checks. Provisioning repeats those checks before resolving ADB and
+  immediately before installation. An in-bundle verifier cannot authenticate itself or replace
+  the separately published outer ZIP checksum.
+  An existing operator workstation is supported; verification does not require wiping or rebuilding it.
 - The updater never uninstalls Minimum, clears app data, transmits PTT, exports app data, or stores
   Android/USB/subscriber identifiers in its sanitized reports.
+
+Source-development APKs
+-----------------------
+
+The repository-only `-BuildApk` and explicit `-ApkPath` development paths remain available outside
+an extracted Release bundle. They require a valid Minimum package and exactly one cryptographically
+verified APK signer, but there is no Release manifest or reviewed Release-signer trust anchor. The
+script labels that result `DEVELOPMENT APK` and does not claim Release provenance. An extracted
+Release bundle refuses `-BuildApk` and refuses any `-ApkPath` other than its exact manifest-bound
+`minimum-foss.apk`.
 
 An existing debug-signed Minimum APK cannot be upgraded in place by the release-signed APK. The
 installer stops on a signature mismatch rather than clearing app data automatically. Preserve any

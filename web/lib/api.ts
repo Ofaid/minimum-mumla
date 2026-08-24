@@ -13,8 +13,8 @@ export function jsonResponse<T>(body: T, status = 200, headers?: HeadersInit) {
   return response;
 }
 
-export function errorResponse(message: string, status = 400) {
-  return jsonResponse({ error: message }, status);
+export function errorResponse(message: string, status = 400, headers?: HeadersInit) {
+  return jsonResponse({ error: message }, status, headers);
 }
 
 export async function readJson(request: Request) {

@@ -36,6 +36,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -328,6 +329,7 @@ public final class RadioShellActivity extends AppCompatActivity {
             // Service-owned room readiness survives Activity stop/start (including screen-off).
             // Connection and channel observers still clear it when the actual radio state changes.
             service.registerObserver(observer);
+            applyServicePttPolicy();
             updateFromService();
             maybeApplyPendingConfiguration();
             maybeConnect();
@@ -348,6 +350,13 @@ public final class RadioShellActivity extends AppCompatActivity {
         settings = Settings.getInstance(this);
         database = new MumlaSQLiteDatabase(this);
         database.open();
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                // Dedicated radio Back always returns to the controlled recovery dashboard.
+                openRecoveryDashboard();
+            }
+        });
         buildUi();
         acceptIdentityToggleIntent(getIntent());
         acceptPttRecoveryIntent(getIntent());
@@ -406,11 +415,6 @@ public final class RadioShellActivity extends AppCompatActivity {
         stopTxTimer();
         database.close();
         super.onDestroy();
-    }
-
-    @Override
-    public void onBackPressed() {
-        openRecoveryDashboard();
     }
 
     private void openRecoveryDashboard() {
@@ -650,6 +654,7 @@ public final class RadioShellActivity extends AppCompatActivity {
 
     private void applyConfigurationToUi(RadioConnectionConfig loaded) {
         config = loaded;
+        applyServicePttPolicy();
         connectionRetrySuspended = false;
         joinedConfiguredRoom = false;
         updateServiceRoomReady(false);
@@ -1428,6 +1433,12 @@ public final class RadioShellActivity extends AppCompatActivity {
     private void updateServiceRoomReady(boolean ready) {
         if (service != null) {
             service.setRadioRoomReady(ready);
+        }
+    }
+
+    private void applyServicePttPolicy() {
+        if (service != null && config != null) {
+            service.setMaximumPttSeconds(config.getMaximumTxSeconds());
         }
     }
 

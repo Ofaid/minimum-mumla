@@ -5,11 +5,13 @@
     <plurals name="notification_unread_many">
         <item quantity="one">%d nová zpráva</item>
         <item quantity="few">%d nové zprávy</item>
+        <item quantity="many">%d nových zpráv</item>
         <item quantity="other">%d nových zpráv</item>
     </plurals>
     <plurals name="search_channel_users">
         <item quantity="one">%d uživatel</item>
         <item quantity="few">%d uživatelé</item>
+        <item quantity="many">%d uživatelů</item>
         <item quantity="other">%d uživatelů</item>
     </plurals>
     <string name="donation_thanks">Děkujeme vám za váš dar.</string>

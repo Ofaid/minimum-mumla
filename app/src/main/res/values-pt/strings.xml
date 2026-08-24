@@ -102,10 +102,12 @@
     <string name="server_info_version">%1$s (%2$s)</string>
     <plurals name="notification_unread_many">
         <item quantity="one">%d nova mensagem</item>
+        <item quantity="many">%d novas mensagens</item>
         <item quantity="other">%d novas mensagens</item>
     </plurals>
     <plurals name="search_channel_users">
         <item quantity="one">%d usuário</item>
+        <item quantity="many">%d usuários</item>
         <item quantity="other">%d usuários</item>
     </plurals>
     <string name="default_">Padrão</string>

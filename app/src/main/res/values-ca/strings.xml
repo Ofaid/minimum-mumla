@@ -143,6 +143,7 @@
     <string name="overlay">Superposició</string>
     <plurals name="notification_unread_many">
         <item quantity="one">%d nou missatge</item>
+        <item quantity="many">%d nous missatges</item>
         <item quantity="other">%d nous missatges</item>
     </plurals>
     <string name="orbot_tor_failed">No s\'ha pogut connectar amb el proxy local de Tor al port SOCKS %d (SOCKS).
@@ -153,6 +154,7 @@
     <string name="shout_include_linked">Crida als canals enllaçats</string>
     <plurals name="search_channel_users">
         <item quantity="one">%d usuari</item>
+        <item quantity="many">%d usuaris</item>
         <item quantity="other">%d usuaris</item>
     </plurals>
     <string name="donation_thanks">Gràcies per la donació.</string>

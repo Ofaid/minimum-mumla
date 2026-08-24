@@ -44,12 +44,40 @@ jobs:
             echo "expected_version_code must be a positive integer." >&2
             exit 1
           fi
-      - name: Checkout release tag with Humla
+      # workflow_dispatch always loads this workflow from the default branch. Check out that
+      # reviewed branch first and refuse to run repository code from a supplied tag until the
+      # tag has been resolved and bound to the exact current origin/main commit.
+      - name: Checkout reviewed main for release authorization
         uses: actions/checkout@v4
         with:
-          ref: refs/tags/${{ inputs.tag }}
-          submodules: recursive
+          ref: main
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind release tag to current reviewed main
+        id: authorize_release
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          git fetch --force --no-tags origin \
+            "+refs/heads/main:refs/remotes/origin/main" \
+            "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          main_sha=$(git rev-parse --verify "refs/remotes/origin/main^{commit}")
+          tag_sha=$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")
+          if [[ "$tag_sha" != "$main_sha" ]]; then
+            echo "Release tag must point to the exact current reviewed origin/main commit." >&2
+            echo "Refusing to check out or execute repository code from the supplied tag." >&2
+            exit 1
+          fi
+          echo "release_sha=$tag_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout authorized release commit with Humla
+        env:
+          RELEASE_SHA: ${{ steps.authorize_release.outputs.release_sha }}
+        run: |
+          git checkout --detach "$RELEASE_SHA"
+          git submodule sync --recursive
+          git submodule update --init --recursive
       - name: Verify required signing secrets
         env:
           MINIMUM_RELEASE_KEYSTORE_BASE64: ${{ secrets.MINIMUM_RELEASE_KEYSTORE_BASE64 }}
@@ -134,18 +162,20 @@ jobs:
           grep -F "versionName='$RELEASE_TAG'" "$RUNNER_TEMP/apk-badging.txt"
           cp "$APK" "minimum-${RELEASE_TAG}-foss.apk"
           sha256sum "minimum-${RELEASE_TAG}-foss.apk" > "minimum-${RELEASE_TAG}-foss.apk.sha256"
-      - name: Test Windows updater logic
+      - name: Test Windows updater and fresh provisioning logic
         shell: pwsh
         run: |
-          $errors = $null
-          $tokens = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path 'scripts/update-minimum-device.ps1'),
-            [ref]$tokens,
-            [ref]$errors) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | Format-List *
-            throw "Updater failed PowerShell AST parsing."
+          foreach ($script in @('scripts/update-minimum-device.ps1', 'scripts/provision-minimum-device.ps1')) {
+            $errors = $null
+            $tokens = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $script),
+              [ref]$tokens,
+              [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | Format-List *
+              throw "$script failed PowerShell AST parsing."
+            }
           }
           ./tools/verify-cellular-policy.ps1
           $env:MINIMUM_TEST_SIGNED_APK = (Resolve-Path 'app/build/outputs/apk/foss/release/mumla-foss-release.apk').Path
@@ -153,6 +183,7 @@ jobs:
           $env:MINIMUM_TEST_EXPECTED_VERSION_CODE = '${{ inputs.expected_version_code }}'
           $env:MINIMUM_TEST_EXPECTED_VERSION_NAME = '${{ inputs.tag }}'
           ./tests/update-minimum-device.Tests.ps1
+          ./tests/provision-minimum-device.Tests.ps1
       - name: Build temporary Wi-Fi provisioner
         run: |
           ./gradlew -p tools/t99-wifi-provisioner :app:assembleDebug --no-daemon --stacktrace

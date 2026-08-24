@@ -42,7 +42,7 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew :app:testFossDebugUnitTest :app:assembleFossDebug :app:assembleFossRelease --no-daemon --stacktrace
-      - name: Test updater with real Linux apksigner and debug APK
+      - name: Test updater and fresh provisioner with real Linux apksigner and debug APK
         shell: pwsh
         run: |
           $apk = (Resolve-Path 'app/build/outputs/apk/foss/debug/mumla-foss-debug.apk').Path
@@ -55,6 +55,7 @@ jobs:
           $env:MINIMUM_TEST_EXPECTED_VERSION_NAME = $package.Groups[3].Value
           ./tools/verify-cellular-policy.ps1
           ./tests/update-minimum-device.Tests.ps1
+          ./tests/provision-minimum-device.Tests.ps1
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
