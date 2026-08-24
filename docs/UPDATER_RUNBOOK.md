@@ -11,10 +11,13 @@ removes OEM apps, reopens Location consent or reapplies unrelated device setting
   The updater finds `apksigner` in `PATH`, `ANDROID_HOME`/`ANDROID_SDK_ROOT`, or the standard local
   Android SDK. This fail-closed dependency is required for full APK signature verification.
 - One complete, extracted `minimum-provisioning-<tag>.zip` from a reviewed GitHub Release.
-- The separately published ZIP `.sha256` must match before extraction. The updater then verifies
+- The separately published ZIP `.sha256` must match before extraction. This external checksum is
+  the pre-extraction trust anchor for every bundled file, including the updater itself; an
+  in-bundle verifier cannot authenticate itself. After that comparison passes, the updater checks
   the exact file allowlist and hashes in `RELEASE-MANIFEST.json`, the APK checksum file, binary APK
-  package/version, and APK signer. This makes bundle verification repeatable on an operator's
-  existing workstation; a freshly installed or otherwise "clean" workstation is not required.
+  package/version, and APK signer for internal consistency and post-extraction tampering. This is
+  repeatable on an operator's existing workstation; a freshly installed or otherwise "clean"
+  workstation is not required.
 - USB debugging must be enabled and authorized. The normal path accepts exactly one device in the
   Android `device` state. Offline, unauthorized, recovery, unknown and ambiguous targets stop
   before mutation.
