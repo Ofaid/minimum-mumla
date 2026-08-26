@@ -83,7 +83,8 @@ android {
     applicationVariants.all { variant ->
         if (variant.flavorName == "beta") {
             variant.outputs.each { output ->
-                output.versionCodeOverride = System.currentTimeSeconds() / 60
+                // Perbaikan: Mengubah currentTimeMillis() menjadi detik lalu dibagi 60
+                output.versionCodeOverride = (System.currentTimeMillis() / 1000) / 60
             }
         }
     }
