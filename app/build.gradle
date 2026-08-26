@@ -23,7 +23,7 @@ allprojects {
 
 android {
     namespace = 'se.lublin.mumla'
-    compileSdk = 34
+    compileSdk = 35
     ndkVersion = '25.1.8937393'
 
     compileOptions {
