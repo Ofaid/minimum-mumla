@@ -22,7 +22,7 @@ import android.media.AudioManager;
 import android.media.MediaRecorder;
 import android.util.Log;
 
-import se.lublin.humla.R;
+import se.lublin.mumla.R;
 import se.lublin.humla.audio.AudioInput;
 import se.lublin.humla.audio.AudioOutput;
 import se.lublin.humla.audio.encoder.CELT11Encoder;
