@@ -38,7 +38,6 @@ if (signingBetaFile.exists()) apply from: signingBetaFile
 
 allprojects {
     tasks.withType(JavaCompile) {
-        // TODO include deprecations at some point, but currently they are *many*
         options.compilerArgs << "-Xlint:all" << "-Xlint:-deprecation" << "-Xlint:-dep-ann"
     }
 }
@@ -56,13 +55,11 @@ android {
         archivesName = "mumla"
     }
 
-    // gradle8: Need to enable this when defaultConfig below contains some custom BuildConfig
     buildFeatures {
         buildConfig = true
     }
 
     def gitDescribe = providers.exec {
-        // Need --always because there are no tags in gitlab ci (right?)
         commandLine "git", "describe", "--tags", "--match", "[0-9]*.[0-9]*.[0-9]*", "--always"
     }.standardOutput.asText.get().trim()
 
@@ -71,9 +68,6 @@ android {
         targetSdk 34
 
         applicationId "se.lublin.mumla"
-        // Remember: app_news_items_vX_Y_Z in src/main/res/values/strings.xml
-        // and NEWS_ITEMS in src/main/res/java/se/lublin/mumla/app/DialogUtils.java
-        //     code:XYYZZbb (bb for build)
         versionCode 3070301
         versionName gitDescribe
 
@@ -93,7 +87,6 @@ android {
     }
 
     buildTypes {
-        // signingConfig beta will override
         release {
             if (android.hasProperty("signingConfigs")) {
                 if (signingConfigs.hasProperty("release")) {
@@ -113,16 +106,15 @@ android {
             }
         }
     }
+
     lint {
         abortOnError = true
-        // InvalidPackage is spongycastle-related
         disable 'InvalidPackage', 'MissingTranslation'
         explainIssues = true
         ignoreWarnings = false
         quiet = false
     }
-    // betas may be released every minute
-    // TODO? dynamic stuff, have to rebuild a lot
+
     applicationVariants.all { variant ->
         if (variant.flavorName == "beta") {
             variant.outputs.each { output ->
@@ -130,11 +122,21 @@ android {
             }
         }
     }
-
 }
 
 dependencies {
-    implementation project(":libraries:humla")
+    // === DEPENDENSI HUMLA — LANGSUNG, TANPA MODUL TERPISAH ===
+    implementation 'com.google.protobuf:protobuf-java:3.11.4'
+    implementation 'com.madgag.spongycastle:core:1.51.0.0'
+    implementation files('libs/humla-spongycastle-prov.jar',
+                         'libs/humla-spongycastle-pkix.jar')
+    implementation 'com.googlecode.javacpp:javacpp:0.7'
+    implementation 'org.jetbrains:annotations:18.0.0'
+    implementation 'org.minidns:minidns-hla:0.3.4'
+    implementation 'org.minidns:minidns-android21:0.3.4'
+    implementation 'com.google.guava:guava:28.2-android'
+
+    // === DEPENDENSI APLIKASI ===
     implementation 'androidx.appcompat:appcompat:1.7.1'
     implementation 'androidx.cardview:cardview:1.0.0'
     implementation 'androidx.documentfile:documentfile:1.1.0'
@@ -148,6 +150,5 @@ dependencies {
 
     googImplementation 'com.android.billingclient:billing:7.1.1'
     testImplementation 'junit:junit:4.13.2'
-    // Android's local unit-test jar only contains stubbed org.json methods.
     testImplementation 'org.json:json:20251224'
 }
