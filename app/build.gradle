@@ -1,12 +1,14 @@
 buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.5.0'
     }
 }
 
-plugins {
-    id 'com.android.application'
-}
+apply plugin: 'com.android.application'
 
 def signingFile = file 'signing.gradle'
 if (signingFile.exists()) apply from: signingFile
@@ -49,17 +51,7 @@ android {
 
     flavorDimensions "release"
     productFlavors {
-<<<<<<< HEAD
-        beta {
-            dimension "release"
-            applicationId "se.lublin.mumla.beta"
-        }
-=======
-        goog { dimension "release"; applicationId "se.lublin.mumla" }
-        foss { dimension "release"; applicationId "se.lublin.mumla" }
-        donation { dimension "release"; applicationId "se.lublin.mumla.donation" }
-        beta { dimension "release"; applicationId "se.lublin.mumla.beta" }
->>>>>>> a3e5fc0 (Fix build: no plugins, correct syntax)
+                beta { dimension "release"; applicationId "se.lublin.mumla.beta" }
     }
 
     buildTypes {
@@ -96,7 +88,6 @@ android {
 
 dependencies {
     implementation 'com.google.protobuf:protobuf-java:3.11.4'
-    implementation 'com.madgag.spongycastle:core:1.51.0.0'
     implementation 'com.madgag.spongycastle:core:1.51.0.0'
     implementation 'com.madgag.spongycastle:prov:1.51.0.0'
     implementation 'com.madgag.spongycastle:pkix:1.51.0.0'
