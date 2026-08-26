@@ -1,4 +1,4 @@
-name: Android CI Build - Force Green Check
+name: Teruji-apk
 
 on:
   push:
