@@ -1,4 +1,4 @@
-name: hasilkan-apk
+name: Android CI Build - Real Green & Artifact
 
 on:
   push:
@@ -29,12 +29,12 @@ jobs:
 
     - name: Perbaiki Otomatis Modul Library Humla
       run: |
-        echo "Memeriksa dan membuat file build.gradle otomatis untuk :libraries:humla dengan konfigurasi Flavor..."
+        echo "Memeriksa dan membuat file build.gradle otomatis menggunakan warisan plugin utama..."
         mkdir -p libraries/humla
         cat << 'EOF' > libraries/humla/build.gradle
-        plugins {
-            id 'com.android.library'
-        }
+        // Perbaikan: Menggunakan apply plugin agar mewarisi versi dari root build.gradle
+        apply plugin: 'com.android.library'
+
         android {
             namespace 'se.lublin.humla'
             compileSdk 35
@@ -42,7 +42,6 @@ jobs:
                 minSdk 21
             }
             
-            // Ditambahkan flavorDimensions dan productFlavors agar cocok dengan modul :app
             flavorDimensions "release"
             productFlavors {
                 beta {
