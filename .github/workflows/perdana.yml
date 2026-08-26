@@ -1,10 +1,10 @@
-name: Android CI Build - Fix Green Check
+name: perdana
 
 on:
   push:
-    branches: [ "**" ] # Berjalan di cabang mana pun Anda melakukan push
+    branches: [ "*dev*" ] # Berjalan di cabang mana pun Anda melakukan push
   pull_request:
-    branches: [ "**" ]
+    branches: [ "*dev*" ]
   workflow_dispatch:
 
 jobs:
