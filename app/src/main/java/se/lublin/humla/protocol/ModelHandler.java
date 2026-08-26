@@ -15,7 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package se.lublin.humla.protocol;
+package se.lublin.mumla.protocol;
 
 import android.content.Context;
 import android.util.Log;
