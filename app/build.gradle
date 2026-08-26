@@ -51,10 +51,11 @@ android {
 
     flavorDimensions "release"
     productFlavors {
-        beta {
-            dimension "release"
-            applicationId "se.lublin.mumla.beta"
-        }
+            beta {
+    dimension "release"
+    applicationId "se.lublin.humla"
+}
+
     }
 
     buildTypes {
