@@ -74,18 +74,6 @@ android {
 
     flavorDimensions "release"
     productFlavors {
-        goog {
-            dimension "release"
-            applicationId "se.lublin.mumla"
-        }
-        foss {
-            dimension "release"
-            applicationId "se.lublin.mumla"
-        }
-        donation {
-            dimension "release"
-            applicationId "se.lublin.mumla.donation"
-        }
         beta {
             dimension "release"
             applicationId "se.lublin.mumla.beta"
