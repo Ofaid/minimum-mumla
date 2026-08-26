@@ -45,6 +45,7 @@ allprojects {
 android {
     namespace = 'se.lublin.mumla'
     compileSdk = 34
+    ndkVersion = '25.1.8937393'
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -64,8 +65,8 @@ android {
     }.standardOutput.asText.get().trim()
 
     defaultConfig {
-        minSdkVersion 21
-        targetSdk 34
+        minSdk = 21
+        targetSdk = 34
 
         applicationId "se.lublin.mumla"
         versionCode 3070301
@@ -83,7 +84,18 @@ android {
             dimension "release"
             applicationId "se.lublin.mumla"
         }
-        
+        foss {
+            dimension "release"
+            applicationId "se.lublin.mumla"
+        }
+        donation {
+            dimension "release"
+            applicationId "se.lublin.mumla.donation"
+        }
+        beta {
+            dimension "release"
+            applicationId "se.lublin.mumla.beta"
+        }
     }
 
     buildTypes {
