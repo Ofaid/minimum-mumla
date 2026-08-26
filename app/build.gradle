@@ -22,7 +22,7 @@ allprojects {
 }
 
 android {
-    namespace = 'se.lublin.humla'
+    namespace = 'se.lublin.mumla'
     compileSdk = 35
     ndkVersion = '25.1.8937393'
 
@@ -41,7 +41,7 @@ android {
     defaultConfig {
         minSdk = 21
         targetSdk = 34
-        applicationId "se.lublin.humla"
+        applicationId "se.lublin.mumla"
         versionCode 3070301
         versionName gitDescribe
         buildConfigField "long", "TIMESTAMP", System.currentTimeMillis() + "L"
@@ -51,11 +51,10 @@ android {
 
     flavorDimensions "release"
     productFlavors {
-            beta {
-    dimension "release"
-    applicationId "se.lublin.humla"
-}
-
+        beta {
+            dimension "release"
+            applicationId "se.lublin.mumla.beta"
+        }
     }
 
     buildTypes {
