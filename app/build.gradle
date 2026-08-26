@@ -42,7 +42,7 @@ android {
         minSdk = 21
         targetSdk = 34
         applicationId "se.lublin.mumla"
-        versionCode 3070301
+        versi777&onCode 3070301
         versionName gitDescribe
         buildConfigField "long", "TIMESTAMP", System.currentTimeMillis() + "L"
         buildConfigField "String", "VERSIONTAG", "\"" + gitDescribe.split("-")[0] + "\""
