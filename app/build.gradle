@@ -1,11 +1,34 @@
+/*
+ * Copyright (C) 2014 Andrew Comminos
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 buildscript {
+    repositories {
+        mavenCentral()
+        google()
+    }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.5.0'
     }
 }
+apply plugin: 'com.android.application'
 
-plugins {
-    id 'com.android.application'
+repositories {
+    mavenCentral()
+    google()
 }
 
 def signingFile = file 'signing.gradle'
@@ -29,8 +52,13 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    base { archivesName = "mumla" }
-    buildFeatures { buildConfig = true }
+    base {
+        archivesName = "mumla"
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     def gitDescribe = providers.exec {
         commandLine "git", "describe", "--tags", "--match", "[0-9]*.[0-9]*.[0-9]*", "--always"
@@ -39,40 +67,54 @@ android {
     defaultConfig {
         minSdk = 21
         targetSdk = 34
+
         applicationId "se.lublin.mumla"
         versionCode 3070301
         versionName gitDescribe
+
         buildConfigField "long", "TIMESTAMP", System.currentTimeMillis() + "L"
         buildConfigField "String", "VERSIONTAG", "\"" + gitDescribe.split("-")[0] + "\""
+
         testInstrumentationRunner "android.test.InstrumentationTestRunner"
     }
 
     flavorDimensions "release"
     productFlavors {
-<<<<<<< HEAD
+        goog {
+            dimension "release"
+            applicationId "se.lublin.mumla"
+        }
+        foss {
+            dimension "release"
+            applicationId "se.lublin.mumla"
+        }
+        donation {
+            dimension "release"
+            applicationId "se.lublin.mumla.donation"
+        }
         beta {
             dimension "release"
             applicationId "se.lublin.mumla.beta"
         }
-=======
-        goog { dimension "release"; applicationId "se.lublin.mumla" }
-        foss { dimension "release"; applicationId "se.lublin.mumla" }
-        donation { dimension "release"; applicationId "se.lublin.mumla.donation" }
-        beta { dimension "release"; applicationId "se.lublin.mumla.beta" }
->>>>>>> a3e5fc0 (Fix build: no plugins, correct syntax)
     }
 
     buildTypes {
         release {
             if (android.hasProperty("signingConfigs")) {
-                if (signingConfigs.hasProperty("release")) signingConfig = signingConfigs.release
-                if (signingConfigs.hasProperty("beta")) signingConfig = signingConfigs.beta
+                if (signingConfigs.hasProperty("release")) {
+                    signingConfig = signingConfigs.release
+                }
+                if (signingConfigs.hasProperty("beta")) {
+                    signingConfig = signingConfigs.beta
+                }
             }
         }
         debug {
             versionNameSuffix "-debug"
             if (android.hasProperty("signingConfigs")) {
-                if (signingConfigs.hasProperty("beta")) signingConfig = signingConfigs.beta
+                if (signingConfigs.hasProperty("beta")) {
+                    signingConfig = signingConfigs.beta
+                }
             }
         }
     }
@@ -95,16 +137,18 @@ android {
 }
 
 dependencies {
+    // === DEPENDENSI HUMLA — LANGSUNG, TANPA MODUL TERPISAH ===
     implementation 'com.google.protobuf:protobuf-java:3.11.4'
     implementation 'com.madgag.spongycastle:core:1.51.0.0'
-    implementation 'com.madgag.spongycastle:core:1.51.0.0'
-    implementation 'com.madgag.spongycastle:prov:1.51.0.0'
-    implementation 'com.madgag.spongycastle:pkix:1.51.0.0'
+    implementation files('libs/humla-spongycastle-prov.jar',
+                         'libs/humla-spongycastle-pkix.jar')
     implementation 'com.googlecode.javacpp:javacpp:0.7'
     implementation 'org.jetbrains:annotations:18.0.0'
     implementation 'org.minidns:minidns-hla:0.3.4'
     implementation 'org.minidns:minidns-android21:0.3.4'
     implementation 'com.google.guava:guava:28.2-android'
+
+    // === DEPENDENSI APLIKASI ===
     implementation 'androidx.appcompat:appcompat:1.7.1'
     implementation 'androidx.cardview:cardview:1.0.0'
     implementation 'androidx.documentfile:documentfile:1.1.0'
@@ -115,6 +159,7 @@ dependencies {
     implementation 'androidx.preference:preference:1.2.1'
     implementation 'org.jsoup:jsoup:1.13.1'
     implementation 'info.guardianproject.netcipher:netcipher:2.1.0'
+
     googImplementation 'com.android.billingclient:billing:7.1.1'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20251224'
