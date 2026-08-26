@@ -22,7 +22,7 @@ allprojects {
 }
 
 android {
-    namespace = 'se.lublin.mumla'
+    namespace = 'se.lublin.humla'
     compileSdk = 35
     ndkVersion = '25.1.8937393'
 
@@ -41,7 +41,7 @@ android {
     defaultConfig {
         minSdk = 21
         targetSdk = 34
-        applicationId "se.lublin.mumla"
+        applicationId "se.lublin.humla"
         versionCode 3070301
         versionName gitDescribe
         buildConfigField "long", "TIMESTAMP", System.currentTimeMillis() + "L"
